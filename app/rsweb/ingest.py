@@ -783,6 +783,32 @@ class Worker:
             await self.db.kv_set("devices", devices)
         self.hub.publish("state", "devices")
 
+    async def refresh_location(self, location: str, max_pages: int = 4) -> int:
+        """GET /devices?location=X (the game's filter: exact location for a body or spot) and put the answers on the
+        cached device list: a page watching one place (the Terraforming consoles, 1.481.0) stays fresh between the
+        3-minute device lists for one or two reads. A device the list still places here that the answer leaves out has
+        moved: it keeps its entry until the next full list. Returns how many devices the game named."""
+        try:
+            got = await self.api.paged("/devices", "devices", background=False, max_pages=max_pages, location=location)
+        except ApiError:
+            return 0
+        fresh = {d["device_code"]: d for d in got if isinstance(d, dict) and d.get("device_code")}
+        if not fresh:
+            return 0
+        n = len(fresh)
+        async with self.devices_lock:
+            mine = set(await self.db.kv_get("replicants", {}) or {})
+            fresh = {c: d for c, d in fresh.items() if not foreign(d, mine)}
+            devices = await self.db.kv_get("devices", []) or []
+            for d in devices:
+                f = fresh.pop(d.get("device_code"), None)
+                if f is not None:
+                    d.update(f)
+                    d.pop("_unconfirmed", None)
+            devices.extend(fresh.values())
+            await self.db.kv_set("devices", devices)
+        return n
+
     async def note_trip(self, code: str, resp: dict) -> None:
         """A travel command's answer is the trip itself (origin, route, departed_at, arrives_at …): put it on the cached
         device — and on the devices riding along — straight away, so the maps show it now rather than after the next

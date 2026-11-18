@@ -555,3 +555,25 @@ def test_members_that_dont_fit_board_the_second_carrier(client):  # noqa: F811
     assert ("/devices/MOB2", {"command": "travel", "destination": "FAR-4"}) in bodies
     assert all(("/devices/MOB2", {"command": "detach", "device": c}) in bodies for c in two)
     assert not client.portal.call(e.fleets)[0]["tf_run"].get("left")
+
+
+def test_open_console_reads_its_devices_by_location(client):  # noqa: F811
+    """1.481.0: an open console re-reads its world's devices (GET /devices?location=) at most every DEVICE_READ_S."""
+    from rsweb import web_terraform as wt
+    db = client.app.state.db
+    world = client.app.state.api.http._transport.app.state.world
+    wt._dev_read.clear()
+    live = dev("SHADE1", "orbital_shade", loc=PLANET, status="terraforming")
+    world.devices.append({**live, "operational_capacity": 42.0})
+    client.portal.call(db.kv_set, "devices", client.portal.call(db.kv_get, "devices") + [
+        {**live, "status": "idle", "operational_capacity": 90.0},
+        dev("MON", "terraform_monitor", loc=PLANET, status="monitoring", terraform_status={"body": PLANET, **report(temperature=280)})])
+    H = {"X-Auth-Request-Email": "joe@example.com", "HX-Request": "true"}
+    out = client.get(f"/terraforming/world/{PLANET}", headers=H).text
+    shade = next(d for d in client.portal.call(db.kv_get, "devices") if d["device_code"] == "SHADE1")
+    assert shade["status"] == "terraforming" and shade["operational_capacity"] == 42.0
+    assert "devices read" in out
+    world.devices[-1]["status"] = "idle"   # a second ask within the window reads nothing
+    client.get(f"/terraforming/world/{PLANET}", headers=H)
+    shade = next(d for d in client.portal.call(db.kv_get, "devices") if d["device_code"] == "SHADE1")
+    assert shade["status"] == "terraforming"

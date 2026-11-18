@@ -2104,7 +2104,7 @@ def test_terraforming_training_controls(client):
     # judged for humans by default (GET /species environment, live 2026-10-17)
     assert "VIRTCEL-1" in t and "0/3 on" in t and "270–300 K" in t and "18–25 %" in t and "2 out of range: temperature, oxygen" in t
     assert 'name="codes" value="M0 M1 M2"' in t and "Not ready: temperature, oxygen" in t and "out of range for Humans" in t
-    assert 'class="tf-switch"' in t and 'hx-trigger="every 15s' in t   # a console: switches, refreshes itself
+    assert 'class="tf-switch"' in t and 'hx-trigger="every 20s' in t   # a console: switches, refreshes itself
     assert "999" not in t   # an earlier run's report: neither shown nor graphed
     assert t.index("<b>Control</b>") < t.index("0/3 on") and "fixes" not in t   # mirrors heat: no help at 410 K
     t = client.get("/terraforming?sim=7&species=branthar", headers=H).text   # another species, remembered

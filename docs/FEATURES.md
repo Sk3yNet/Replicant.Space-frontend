@@ -398,6 +398,7 @@ patrolling the system), what is there now and the logistics delivery that tops i
 - Each place with a terraform monitor. While every monitor there is off, only the monitors and their switches show (with a count of the other terraform devices); once one runs, the whole world shows (a training run always shows everything): its latest `terraform.status` (attributes, change per tick, projections
   +6/+12/+24, what drives them, warnings, anomalies), coupling rules active or close, the planet's own drift per attribute with an estimated pull per tick (last 10 reports: the change minus what devices and couplings add), bio seeder preconditions.
 - Your terraforming devices with strength (0–1), direction (reversible ones) and on/off.
+- While the page is open (tab shown), each console redraws every 20 s and reads its world's devices from the game by location (one read per world, at most every 18 s), so device states are seconds old rather than waiting for the 3-minute device list.
 - **Dropping rocks**: your launched rocks with target, impact time and state (in flight, struck, diverted; gone two days
   after impact), one row per system with charges ready at a Kuiper spot, propulsors, deflectors, Detect and Kuiper objects
   (launch one at a planet or moon), and direction settings for the tools at your rocks. Asteroid defense leaves them alone.

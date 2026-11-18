@@ -1,13 +1,14 @@
-{# One world's terraforming console: lights, gauges with graphs, switches. Refreshes itself every 15 s (not while you're
-   using a control in it); every control answers with this partial, so the console updates at once.
+{# One world's terraforming console: lights, gauges with graphs, switches. Refreshes itself every 20 s while the tab is
+   shown (not while you're using a control in it), and its devices are read from the game then (1.481.0); every control answers with this partial, so the console updates at once.
    Context: w, attrs, units, targets, in_range, range_eta, tick_s, target, effects, directions, sim_q, note, note_ok #}
 {% set s = w.status %}{% set wid = 'tfw-' ~ (w.body | replace('-', '_')) %}
 <div class="card tf-world" id="{{ wid }}" style="margin-bottom:14px"
-     hx-get="/terraforming/world/{{ w.body }}?{{ sim_q }}" hx-trigger="every 15s [!this.matches(':focus-within')]" hx-swap="outerHTML" hx-sync="this:drop">
+     hx-get="/terraforming/world/{{ w.body }}?{{ sim_q }}" hx-trigger="every 20s [!this.matches(':focus-within') && !document.hidden]" hx-swap="outerHTML" hx-sync="this:drop">
   <div class="row between" style="align-items:center">
     <h2 style="margin:0"><span class="tf-light {{ 'ok' if w.out == [] else 'bad' if w.out else 'off' }}"></span>
       <a class="mono" href="/locations/{{ w.body }}">{{ w.body }}</a>
-      {% if s.at %}<span class="muted small">read {{ s.at | ago }}</span>{% else %}<span class="muted small">{{ 'live report' if s.attributes else 'no monitor report yet' }}</span>{% endif %}</h2>
+      {% if s.at %}<span class="muted small">read {{ s.at | ago }}</span>{% else %}<span class="muted small">{{ 'live report' if s.attributes else 'no monitor report yet' }}</span>{% endif %}
+      {% if dev_read and dev_read.get(w.body) %}<span class="muted small">· devices read {{ dev_read[w.body] | ago }}</span>{% endif %}</h2>
     <div class="small">
       {% if w.out == [] %}<span class="pill small lv-done">all in range for {{ target.name if target else 'life' }} ✓</span>{% elif w.out %}<span class="pill small lv-alert">{{ w.out | length }} out of range: {{ w.out | join(', ') }}</span>{% endif %}
       {% if w.regulating %}<span class="pill small st-work" title="switched on {{ w.regulating | ago }}">regulating since {{ w.regulating | local }}</span>{% endif %}

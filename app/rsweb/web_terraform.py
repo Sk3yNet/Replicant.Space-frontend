@@ -43,6 +43,25 @@ async def species_list(request: Request) -> list[dict]:
     return [x for x in c.get("species") or [] if isinstance(x, dict)]
 
 
+# 1.481.0 (Joe 2026-11-18): while a console is open its devices are read every 20 s with the game's location filter
+# (one GET per world, usually one page) instead of waiting for the 3-minute device list
+DEVICE_READ_S = 18
+_dev_read: dict[str, tuple[float, str]] = {}   # body: (epoch, iso) of the last location read
+_last_worlds: set[str] = set()   # the worlds the page showed last, read before the next full page
+
+
+async def _read_devices(request: Request, bodies) -> None:
+    """Re-read the devices at each world (at most once every DEVICE_READ_S per world, however many tabs ask)."""
+    if sim_view(request):
+        return
+    w = request.app.state.worker
+    for b in sorted(set(bodies))[:4]:
+        if time.time() - _dev_read.get(b, (0.0, ""))[0] < DEVICE_READ_S:
+            continue
+        _dev_read[b] = (time.time(), now_iso())
+        await w.refresh_location(b)
+
+
 PENDING_KV = "terraform_pending"   # {code: {"on": bool, "set": {...}, "at": epoch}}: what was last commanded
 PENDING_S = 120   # the game can report a device's old state for a while after a command: show the command meanwhile
 
@@ -180,7 +199,10 @@ async def _ctx(request: Request) -> dict:
                                      "No monitor report yet. Activate the atmospheric regulator anyway?")})
     monitors = sum(1 for d in devs if d.get("device_type") == "terraform_monitor"
                    and not str(d.get("status") or "").startswith(("inactive", "idle", "stowed")))
-    return dict(worlds=worlds, attrs=tf.ATTRS, units=tf.UNITS,
+    if not sid:
+        _last_worlds.clear()
+        _last_worlds.update(w["body"] for w in worlds)
+    return dict(worlds=worlds, attrs=tf.ATTRS, dev_read={b: v[1] for b, v in _dev_read.items()}, units=tf.UNITS,
                 targets=targets, in_range=tf.in_range, range_eta=tf.range_eta, tick_s=tf.TICK_S,
                 species=species, target=target, sim_q=f"sim={sid}&" if sid else "",
                 effects=tf.EFFECTS, directions=tf.DIRECTIONS, monitors=monitors, cap=tf.MONITOR_CAP,
@@ -257,6 +279,7 @@ async def _rocks(request: Request, devices: list[dict]) -> dict:
 
 @router.get("/terraforming", response_class=HTMLResponse)
 async def terraforming_page(request: Request, user: str = Depends(current_user)):
+    await _read_devices(request, _last_worlds)
     return await page(request, user, "terraforming.html", "terraforming", **await _ctx(request))
 
 
@@ -275,6 +298,7 @@ async def _world(request: Request, body: str, note: str = "", ok: bool = True, f
 
 @router.get("/terraforming/world/{body}", response_class=HTMLResponse)
 async def terraforming_world(request: Request, body: str, user: str = Depends(current_user)):
+    await _read_devices(request, [body.upper()])
     return await _world(request, body.upper(), fresh=False)
 
 

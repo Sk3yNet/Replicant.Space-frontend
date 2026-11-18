@@ -727,10 +727,13 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
         return ok({"status": "sent"})
 
     @app.get("/v1/devices")
-    async def devices(limit: int = 20, cursor: int | None = None):
+    async def devices(limit: int = 20, cursor: int | None = None, location: str | None = None):
         start = cursor or 0
-        page = world.devices[start:start + limit]
-        nxt = start + limit if start + limit < len(world.devices) else None
+        # the game's location filter: a star code filters by system, any other code by exact location
+        pool = [d for d in world.devices if not location or d.get("location") == location
+                or ("-" not in location and str(d.get("location") or "").split("-")[0] == location)]
+        page = pool[start:start + limit]
+        nxt = start + limit if start + limit < len(pool) else None
         return ok({"devices": page, "next_cursor": nxt})
 
     @app.get("/v1/devices/{code}")
