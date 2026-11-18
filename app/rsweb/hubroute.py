@@ -39,13 +39,21 @@ def candidates(origin: str, dest: str, hubs: set[str], pos: dict[str, Any]) -> l
     return [h for _, h in sorted(est)[:CANDIDATES]]
 
 
+def star_after(v: str) -> str:
+    """The system a trip is in after waypoint `v`: a wormhole gate's location puts it in the gate's far system (live
+    2026-11-18: via [DELTA-OBJ-2, TWAFFY] to TWAFFY-KUIPER was refused "Loop detected: already at TWAFFY")."""
+    from .wormhole import GATES
+    v = str(v or "").upper()
+    return next((g[2] for g in GATES if g[1] == v), v.split("-")[0])
+
+
 def waypoints(via: list[str], dest: str) -> list[str]:
     """`via` as the game takes it: a trip to a body in another system than the last waypoint needs that system's star
     as one more waypoint (live 2026-10-20: "Cannot travel directly from SOLARES to SOL-3-1 (different systems). Add a
     star designation as an intermediate waypoint")."""
     via = [str(v) for v in via if v]
     star = (dest or "").split("-")[0]
-    if via and "-" in (dest or "") and via[-1].split("-")[0] != star:
+    if via and "-" in (dest or "") and star_after(via[-1]) != star:
         via.append(star)
     return via
 
@@ -61,7 +69,7 @@ def stars_between(origin: str, via: list[str]) -> list[str]:
         if "-" in v and prev and star != prev:
             out.append(star)
         out.append(v)
-        prev = star
+        prev = star_after(v)
     return out
 
 

@@ -934,7 +934,12 @@ class JobsMixin:
         g = wormhole.gate_for(star_of(here), star_of(dest), await self.star_lookup("pos"))
         if not g:
             return
-        via = hubroute.waypoints(hubroute.stars_between(here, [g[1]]), dest)
+        # the wormhole lands in the far system, so its star is never named after the gate (live 2026-11-18: via
+        # [DELTA-OBJ-2, TWAFFY] was refused "Loop detected: already at TWAFFY", and 86C7569E then bounced off the
+        # LLYRHAWR hub). A device already at the gate may not be able to name it: then the far side alone is tried.
+        tries = [hubroute.waypoints(hubroute.stars_between(here, [g[1]]), dest)]
+        if here == g[1] and star_of(dest) != g[2]:
+            tries.append(hubroute.waypoints([star_of(dest)], dest))
 
         async def preview(extra: dict) -> float | None:
             try:
@@ -942,7 +947,12 @@ class JobsMixin:
                                                                      background=True))
             except ApiError:
                 return None
-        direct, t = await preview({}), await preview({"via": via})
+        direct, via, t = await preview({}), None, None
+        for v in tries:
+            t = await preview({"via": v})
+            if t is not None:
+                via = v
+                break
         if t is None or (direct is not None and not hubroute.worth_it(direct, t)):
             return
         body["via"], st["gate_via"] = via, g[1]
@@ -970,6 +980,9 @@ class JobsMixin:
         if not d.get("location") or not hubs:
             return
         pos = await self.star_lookup("pos")
+        from . import wormhole
+        if wormhole.gate_for(star_of(d["location"]), star_of(dest), pos):
+            return   # a gate trip the game wouldn't take: no hub bounce (86C7569E went DELTA-OBJ-2 → TWAFFY → LLYRHAWR → TWAFFY)
         cands = hubroute.candidates(star_of(d["location"]), star_of(dest), hubs, pos)
         if not cands:
             return

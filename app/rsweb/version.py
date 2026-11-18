@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.477.0"
+VERSION = "1.478.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.478.0", "2026-11-18", "Wormhole trips fixed (Joe): the gate lands in TWAFFY, so the game refuses TWAFFY as a waypoint after it (\"Loop detected: already at TWAFFY\"). Trips through the DELTA gate no longer name the far star, a trip that could take the gate is never routed by a hub instead (86C7569E went DELTA-OBJ-2 to TWAFFY, out to LLYRHAWR and back), and a device already at the gate also tries naming only the far side."),
     ("1.477.0", "2026-11-17", "Galaxy map: *Only systems with* under layers keeps just the systems with the ticked features (space stations, megastructures, scan tags, life, hubs, your relays / wards / beacons / devices, fleet homes, trade posts; any or all), remembered per browser."),
     ("1.476.0", "2026-11-17", "Prints a station deploy job needs jump the print queue (priority \"station job\", behind only prints you queue by hand; tag stationjob), and the materials for them are urgent logistics."),
     ("1.475.0", "2026-11-17", "Station jobs are urgent logistics (Joe: they must be done within 24 hours). The resources a job the runner works needs go at priority 0, right after evacuations and ahead of Sol trades, soonest deadline first, with every carrier instead of the deals lane; the devices a deploy or courier job needs pinned at its location are urgent device moves. The request shows the job's deadline."),
