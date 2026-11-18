@@ -275,6 +275,9 @@ def test_epitaxy_printers_take_exotic_blueprints_only(client):  # noqa: F811
     relay = {"device_type": "ftl_relay", "features": ["relay"], "resources": {"metals": 1}}
     assert lo.can_make(lab, seed) and not lo.can_make(lab, relay) and not lo.can_make(lab, None)
     assert lo.can_make({"device_type": "autofactory"}, seed) and lo.can_make({"device_type": "autofactory"}, relay)
+    barge = {"device_type": "resonance_barge", "features": []}   # grown by epitaxial deposition (Joe 2026-11-18)
+    assert lo.can_make(lab, barge) and lo.is_class_bp(barge)
+    assert not lo.can_make({"device_type": "autofactory"}, barge)
     db, e, world = setup(client)
     client.portal.call(db.kv_set, "blueprints", BPS + [seed])
     world.devices.append(lab)

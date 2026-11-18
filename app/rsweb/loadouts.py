@@ -376,6 +376,9 @@ CLASS_PRINTERS: set[str] = set()   # device types the game refused a print on th
 CLASS_RE = re.compile(r"can only fabricate", re.I)
 # the blueprint feature a class-limited printer makes (Joe 2026-11-12: epitaxy printers print exotic blueprints only)
 CLASS_BLUEPRINT = {"epitaxy": "exotic"}
+# device types a class-limited printer makes whatever their blueprint's features (Joe 2026-11-18: a resonance barge is
+# grown by epitaxial deposition): only that class's printers take them
+CLASS_TYPES = {"epitaxy": {"resonance_barge"}}
 # set once a general printer refused an exotic print (kv exotic_class_only): exotic prints then go to class printers only
 EXOTIC_CLASS_ONLY: list[bool] = [False]
 
@@ -390,7 +393,12 @@ def print_class(d: dict) -> str | None:
 
 def is_class_bp(bp: dict | None) -> bool:
     """A blueprint only a class-limited printer may be asked for (exotic, the epitaxy class)."""
-    return bool(set(CLASS_BLUEPRINT.values()) & set((bp or {}).get("features") or []))
+    return bool(set(CLASS_BLUEPRINT.values()) & set((bp or {}).get("features") or [])) or _class_type(bp)
+
+
+def _class_type(bp: dict | None) -> bool:
+    t = (bp or {}).get("device_type") or ""
+    return any(t in ts for ts in CLASS_TYPES.values())
 
 
 def can_make(d: dict, bp: dict | None) -> bool:
@@ -398,8 +406,9 @@ def can_make(d: dict, bp: dict | None) -> bool:
     unknown blueprint counts as no), a general one everything, exotic too until the game refuses one."""
     cls = print_class(d)
     if cls:
-        return CLASS_BLUEPRINT.get(cls, cls) in set((bp or {}).get("features") or [])
-    return not (EXOTIC_CLASS_ONLY[0] and is_class_bp(bp))
+        return (CLASS_BLUEPRINT.get(cls, cls) in set((bp or {}).get("features") or [])
+                or (bp or {}).get("device_type") in CLASS_TYPES.get(cls, ()))
+    return not _class_type(bp) and not (EXOTIC_CLASS_ONLY[0] and is_class_bp(bp))
 
 
 def is_factory(d: dict) -> bool:
