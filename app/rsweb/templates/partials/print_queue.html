@@ -39,14 +39,15 @@
     <table class="small" style="margin-top:8px">
       <tr><th class="num">#</th><th>Next up</th><th>Notify</th>{% if not compact %}<th></th>{% endif %}</tr>
       {% for it in queue %}
-      <tr><td class="num mono">{{ it.index }}</td>
+      <tr><td class="num mono">{{ loop.index }}</td>
         <td>{{ it.device_type | human }}{% if it.quantity and it.quantity > 1 %} ×{{ it.quantity }}{% endif %}
+          {% if it.rest_of_current %}<span class="muted small" title="Queued as one order with the current print: it goes with it">(rest of the current order)</span>{% endif %}
           {% if it.extra and it.extra.virtual %}<span class="pill small" title="Waiting in the app's print queue: it goes into the game's queue when it's among this factory's best waiting prints">app queue · {{ it.extra.priority }}</span>{% endif %}
           {% if compact and it.tags %}<span class="muted"> · {{ it.tags | join(', ') }}</span>{% endif %}
           {% if not compact %}{{ tag_editor(it) }}{% endif %}
           {% if it.oncomplete %}<span class="muted"> · then {{ it.oncomplete.command or it.oncomplete }}{% if it.oncomplete.destination %} → {{ it.oncomplete.destination }}{% endif %}</span>{% endif %}</td>
         <td>{% if it.notify %}<a href="/devices/{{ it.notify }}" class="mono">{{ it.notify }}</a>{% else %}<span class="muted">—</span>{% endif %}</td>
-        {% if not compact %}<td class="num" style="white-space:nowrap">{% if not loop.first %}<button class="small ghost" hx-post="/devices/{{ code }}/print-queue"
+        {% if not compact %}<td class="num" style="white-space:nowrap">{% if not it.rest_of_current %}{% if not loop.first %}<button class="small ghost" hx-post="/devices/{{ code }}/print-queue"
               hx-vals='{{ {"action": "top", "index": it.api_index} | tojson }}' hx-target="#pq-{{ code }}" hx-swap="outerHTML"
               title="Move to the front of the queue (the waiting prints are taken off and queued again in the new order)">⤒</button><button class="small ghost" hx-post="/devices/{{ code }}/print-queue"
               hx-vals='{{ {"action": "up", "index": it.api_index} | tojson }}' hx-target="#pq-{{ code }}" hx-swap="outerHTML"
@@ -54,7 +55,7 @@
               hx-vals='{{ {"action": "down", "index": it.api_index} | tojson }}' hx-target="#pq-{{ code }}" hx-swap="outerHTML"
               title="Move down one place">↓</button>{% endif %}<button class="small ghost" hx-post="/devices/{{ code }}/print-queue"
               hx-vals='{{ {"action": "remove", "index": it.api_index, "order": it.extra.get("order")} | tojson }}' hx-target="#pq-{{ code }}" hx-swap="outerHTML"
-              hx-confirm="Remove #{{ it.index }} {{ it.device_type | human }} from the queue?" title="dequeue_print index {{ it.api_index }} (0-based)">Remove</button></td>{% endif %}
+              hx-confirm="Remove #{{ loop.index }} {{ it.device_type | human }} from the queue?" title="dequeue_print index {{ it.api_index }} (0-based)">Remove</button>{% endif %}</td>{% endif %}
       </tr>
       {% endfor %}
     </table>

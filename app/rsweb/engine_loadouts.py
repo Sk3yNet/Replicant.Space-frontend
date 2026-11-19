@@ -262,7 +262,7 @@ class LoadoutMixin:
         return out
 
     async def vqueue_pass(self) -> list[str]:
-        """The virtual print queue's feeder (vqueue.py): each factory's game queue holds the KEEP best waiting prints;
+        """The virtual print queue's feeder (vqueue.py): each factory's game queue holds the KEEP best prints behind its current one;
         a better one kept in the app takes a worse one's place, which is kept in the app again."""
         from . import printqueue as pq
         from . import vqueue as vqm
@@ -347,7 +347,8 @@ class LoadoutMixin:
         for d in devs:
             if d.get("device_code") in printers and d.get("location"):
                 group.setdefault((d["location"], d.get("device_type")), []).append(d["device_code"])
-        in_game = {d["device_code"]: sum(1 for x in pq.items(d) if not x["extra"].get("virtual"))
+        # prints behind the current one: a print waiting for resources is the game queue's first item (the current one)
+        in_game = {d["device_code"]: max(0, sum(1 for x in pq.items(d) if not x["extra"].get("virtual")) - vqm.head_waits(d))
                    for d in devs if d.get("device_code") in printers}
         for d in devs:
             code = d.get("device_code")
@@ -365,7 +366,8 @@ class LoadoutMixin:
                 continue
             kept = vqm.shared(await vq.orders(codes=group.get((d["location"], d.get("device_type"))) or [code]), code, in_game)
             real = [x for x in pq.items(d) if not x["extra"].get("virtual")]
-            k, back, send = vqm.plan(real, kept, prios=vqm.real_prios(await vq.state(), code, real))
+            k, back, send = vqm.plan(real, kept, keep=vqm.KEEP + vqm.head_waits(d),
+                                     prios=vqm.real_prios(await vq.state(), code, real))
             waiting = str(d.get("status") or "").startswith("waiting_for_resources")
             if waiting and now - jumped.get(code, -1e9) < 600:
                 continue   # a print just went ahead of the waiting one: the order by priority would undo it
@@ -392,7 +394,7 @@ class LoadoutMixin:
                 vqm.note_real(st, code, real, prios)   # forget hand moves that left the queue
                 if (st.get("real") or {}).get(code) != had:
                     await self.db.kv_set(vqm.KV, st)
-            k, back, send = vqm.plan(real, kept, prios=prios)
+            k, back, send = vqm.plan(real, kept, keep=vqm.KEEP + vqm.head_waits(dev), prios=prios)
             if not send and not back and k == len(real):
                 continue
             pr = {id(it): p for it, p in zip(real, prios)}

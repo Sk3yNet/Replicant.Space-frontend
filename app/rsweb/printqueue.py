@@ -131,6 +131,17 @@ async def _current(db, dev: dict) -> dict | None:
     return None
 
 
+def after_current(cur: dict | None, queue: list[dict]) -> list[dict]:
+    """The prints after the current one (owner 2026-11-19: "next up" listed the waiting print the panel already shows as
+    current). A print waiting for resources is the queue's first item: it's left out, or, ordered several at once, only
+    the rest of it is shown (`rest_of_current`, so its row offers no move or remove, which would take the current one too)."""
+    if not (cur and cur.get("state") == "waiting" and queue):
+        return list(queue)
+    head, rest = queue[0], list(queue[1:])
+    q = int(head.get("quantity") or 1)
+    return ([{**head, "quantity": q - 1, "rest_of_current": True}] if q > 1 else []) + rest
+
+
 def remaining_seconds(cur: dict | None, queue: list[dict], bps: dict[str, dict]) -> tuple[float | None, bool]:
     """(seconds until the whole queue is done, exact?) — print times from the blueprint list."""
     total, exact = 0.0, True
@@ -168,7 +179,11 @@ def load_seconds(dev: dict, bps: dict[str, dict]) -> float:
         cur = pr
     elif status.startswith("printing"):
         cur = {"device_type": status[status.find("(") + 1:status.rfind(")")] if "(" in status else None}
-    secs, _ = remaining_seconds(cur, items(dev), bps)
+    q = items(dev)
+    if status.startswith("waiting_for_resources") and q:   # the waiting print is the queue's first item
+        cur = {"state": "waiting", "device_type": q[0]["device_type"]}
+        q = after_current(cur, q)
+    secs, _ = remaining_seconds(cur, q, bps)
     return secs or 0.0
 
 

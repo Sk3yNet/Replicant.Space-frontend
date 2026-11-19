@@ -1,7 +1,15 @@
+import pytest
 from rsweb import vqueue
 from rsweb.vqueue import VirtualQueue
 from test_components import BPS
 from test_ops import client  # noqa: F401  (fixture)
+
+@pytest.fixture
+def keep2(monkeypatch):
+    """These tests were written when each game queue held two waiting prints (KEEP 2 before 1.499.0): the mechanics
+    they check don't depend on the number."""
+    monkeypatch.setattr(vqueue, "KEEP", 2)
+
 
 HX = {"X-Auth-Request-Email": "joe@example.com", "HX-Request": "true"}
 
@@ -33,6 +41,7 @@ def feed(client):  # noqa: F811
     return out
 
 
+@pytest.mark.usefixtures("keep2")
 def test_prints_wait_in_the_app_and_components_go_first(client):  # noqa: F811
     db, e, world = setup(client)
     for _ in range(3):
@@ -55,6 +64,7 @@ def test_prints_wait_in_the_app_and_components_go_first(client):  # noqa: F811
     assert ok and len(client.portal.call(VirtualQueue(db).orders, "AF00BEEF")) == 6
 
 
+@pytest.mark.usefixtures("keep2")
 def test_a_long_game_queue_is_cut_down_and_better_prints_go_ahead(client):  # noqa: F811
     db, e, world = setup(client)
     rig = lambda: {"device_type": "biosphere_cultivator", "notify": {"device": None}, "tags": ["fleet:m1"]}  # noqa: E731
@@ -89,6 +99,7 @@ def test_priorities():
     assert vqueue.priority({"device_type": "ftl_relay", "tags": ["to:a", "rollout"]}) == 5   # after everything else
 
 
+@pytest.mark.usefixtures("keep2")
 def test_rollout_relays_wait_behind_every_other_print(client):  # noqa: F811
     db, e, world = setup(client)
     client.portal.call(db.kv_set, "relay_rollout", {"on": True, "ordered": {"KELMORNEA": "2026-11-16T00:00:00Z"}})
@@ -164,6 +175,7 @@ def test_jump_rules():
     assert vqueue.jump(cur, [{"device_type": "biosphere_cultivator", "tags": ["x"]}], [], {"carbon": 99}, bps) is None
 
 
+@pytest.mark.usefixtures("keep2")
 def test_a_big_order_goes_to_the_game_a_few_at_a_time(client):  # noqa: F811
     """Live 2026-11-02: 28 drones in one enqueue_print got "Not enough queue space (10 available, 28 requested)"."""
     db, e, world = setup(client)
@@ -184,6 +196,7 @@ def test_prints_kept_in_the_app_take_no_queue_slots():
     assert pq.slots_used(f) == 1 and ward_orders.room(f) == 9
 
 
+@pytest.mark.usefixtures("keep2")
 def test_factories_at_one_spot_share_their_kept_prints(client):  # noqa: F811
     """Owner 2026-11-03: a second factory at the spot takes prints kept for its busy neighbor."""
     db, e, world = setup(client)
@@ -352,6 +365,7 @@ def test_remove_takes_a_kept_print_off_by_its_order(client):  # noqa: F811
     assert "any more" in r.text
 
 
+@pytest.mark.usefixtures("keep2")
 def test_moving_a_kept_print_to_the_front_puts_it_in_the_games_queue(client):  # noqa: F811
     """Joe 2026-11-07: "move #3 autofactory to #1 … dequeue failed: Invalid index: 0" (the saved device list was stale)."""
     db, e, world = setup(client)
@@ -452,3 +466,27 @@ def test_queueless_lab_gets_one_print_at_a_time(client):  # noqa: F811
     out = feed(client)
     assert not any("CC00CAFE" in x for x in out)
     assert [o["body"]["quantity"] for o in client.portal.call(vq.orders, "CC00CAFE")] == [2]
+
+
+def test_next_up_leaves_out_the_waiting_print():
+    """Owner 2026-11-19: 9E13498F waiting on components showed its one orbital foundry as current and as next up."""
+    from rsweb import printqueue as pq
+    dev = {"status": "waiting_for_resources", "print_queue": [{"device_type": "orbital_foundry"}]}
+    cur = {"state": "waiting", "device_type": "orbital_foundry"}
+    assert pq.after_current(cur, pq.items(dev)) == []
+    dev["print_queue"] = [{"device_type": "ftl_relay", "quantity": 3}, {"device_type": "ftl_beacon"}]
+    rest = pq.after_current(cur, pq.items(dev))
+    assert [(x["device_type"], x["quantity"], x.get("rest_of_current", False)) for x in rest] == \
+        [("ftl_relay", 2, True), ("ftl_beacon", None, False)]
+    # a printing factory's current print isn't in the game's list: nothing is left out
+    assert len(pq.after_current({"state": "printing"}, pq.items(dev))) == 2
+    assert vqueue.head_waits(dev) == 1 and vqueue.head_waits({"status": "printing (x)", "print_queue": [{}]}) == 0
+
+
+def test_game_queue_holds_one_behind_the_current_print():
+    real = [{"device_type": "a", "tags": []}]
+    kept = [{"prio": 3, "seq": 1, "body": {"device_type": "b"}}]
+    assert vqueue.KEEP == 1
+    assert vqueue.plan(real, kept) == (1, [], [])                       # printing: one waiting behind it is enough
+    k, back, send = vqueue.plan(real, kept, keep=vqueue.KEEP + 1)       # waiting: the head is the current print
+    assert k == 1 and [x[0] for x in send] == ["kept"]

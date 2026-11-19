@@ -94,8 +94,8 @@ System → device type → device, with stowed devices nested in their carrier; 
   non-exotic blueprint before it reaches the game; logistics supplies their queued prints. Blueprints › *Epitaxy
   printers* is their own card (queues and an exotic-only *Add to queue*); the Plan and Queue a print forms leave them
   out. If a general printer ever refuses an exotic print, exotic prints go to epitaxy printers only from then on.
-- **Virtual print queue**: every print the app queues waits in the app's own queue, and each factory gets only its 2
-  best waiting prints in the game's queue: prints you queue by hand (or untagged ones found in the game's queue) first,
+- **Virtual print queue**: every print the app queues waits in the app's own queue, and each factory gets only its
+  current print and the best one after it in the game's queue (two waiting before 1.499.0): prints you queue by hand (or untagged ones found in the game's queue) first,
   then relays, relay stations, beacons and wards, then loadouts (fleets) and everything else, then contract and trade
   prints, then stock, and the relay rollout's relays last (tagged `rollout`, 1.444.0). A component ranks just ahead of
   the print it goes into (its `prio:` tag, 1.469.0), so a rig's drones still come before the rig but a stock print's

@@ -2,7 +2,9 @@
 
 Every enqueue_print the app sends to a factory (automations and prints queued by hand in the app alike) is kept here
 instead of going to the game; the feeder (Engine.vqueue_pass, every pass) keeps the first KEEP waiting prints of each
-factory in the game's queue, best first:
+factory in the game's queue behind its current print, best first (KEEP 1 since 1.499.0, owner 2026-11-19: the game holds
+only the current print and the next one, so the rest can go to any factory; a print waiting for resources is the queue's
+first item and counts as the current one):
 
   0 hand   prints queued by hand (in the app, or untagged ones found in the game's queue)
   1 component   component devices for another print (`component` tag), so a rig's drones always print before it
@@ -28,7 +30,7 @@ import re
 from typing import Any
 
 KV = "vqueue"
-KEEP = 2   # waiting prints each factory holds in the game's queue
+KEEP = 1   # prints each factory holds in the game's queue behind its current one (1.499.0; 2 before)
 CHUNK = 3  # the most of one order sent at a time (live 2026-11-02: "Not enough queue space (10 available, 28
            # requested)": a print's quantity takes that many of the queue's slots)
 HAND = contextvars.ContextVar("vqueue_hand", default=False)   # set around prints the owner queues by hand
@@ -258,7 +260,13 @@ def hand_prios(orig: list[int]) -> list[int]:
     return p
 
 
-def plan(real: list[dict], kept: list[dict], keep: int = KEEP,
+def head_waits(dev: dict) -> int:
+    """1 when the game queue's first item is the factory's current print, waiting for resources or components (live
+    2026-11-02), else 0: the printing one isn't listed in the queue."""
+    return 1 if str((dev or {}).get("status") or "").startswith("waiting_for_resources") and (dev or {}).get("print_queue") else 0
+
+
+def plan(real: list[dict], kept: list[dict], keep: int | None = None,
          prios: list[int] | None = None) -> tuple[int, list[dict], list[tuple[str, dict]]]:
     """What the feeder changes in one factory's game queue: (k, back, send). Dequeue the game's waiting prints from
     position k down; `back` are the ones of them kept here again; then send `send` in order (("real", queue item) put
@@ -266,7 +274,7 @@ def plan(real: list[dict], kept: list[dict], keep: int = KEEP,
     `kept` the orders kept here, best first. The game's queue ends up as the `keep` best prints of both."""
     pool = [(prios[i] if prios else priority(it), i, "real", it) for i, it in enumerate(real)] + \
            [(o["prio"], len(real) + n, "kept", o) for n, o in enumerate(kept)]
-    want = sorted(pool, key=lambda x: (x[0], x[1]))[:max(keep, 0)]
+    want = sorted(pool, key=lambda x: (x[0], x[1]))[:max(KEEP if keep is None else keep, 0)]
     k = 0
     while k < len(real) and k < len(want) and want[k][2] == "real" and want[k][3] is real[k]:
         k += 1
@@ -276,11 +284,12 @@ def plan(real: list[dict], kept: list[dict], keep: int = KEEP,
     return k, back, send
 
 
-def shared(kept: list[dict], code: str, waiting: dict[str, int], keep: int = KEEP) -> list[dict]:
+def shared(kept: list[dict], code: str, waiting: dict[str, int], keep: int | None = None) -> list[dict]:
     """What factory `code` may take of a spot's pooled orders (best first): its own, and a neighbor's only when that
     neighbor's game queue is already full (`waiting` {factory: waiting prints in the game's queue}), so the order would
     wait behind it. Before (live 2026-11-17), the first factories fed took everyone's orders: 10 matrices split over 5
     autofactories by hand went 4/4/2/0/0."""
+    keep = KEEP if keep is None else keep
     return [o for o in kept if o.get("factory") == code or waiting.get(o.get("factory"), keep) >= keep]
 
 

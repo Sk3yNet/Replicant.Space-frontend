@@ -711,8 +711,8 @@ async def fleet_shown(request: Request, st: dict) -> list[dict]:
 async def print_queue_ctx(request: Request, code: str, dev: dict, outcome: dict | None = None, compact: bool = False) -> dict:
     db = request.app.state.db
     bps = {b["device_type"]: b for b in normalize_blueprints(await db.kv_get("blueprints", []))}
-    queue = printqueue.items(dev)
     cur = await printqueue.current(db, dev)
+    queue = printqueue.after_current(cur, printqueue.items(dev))
     remaining, exact = printqueue.remaining_seconds(cur, queue, bps)
     cmds = dev.get("available_commands") or []
     # docs (autofactories): cancel the current print with {"command": "deactivate"}
@@ -761,8 +761,8 @@ async def render_print_queue_group(request: Request, codes: str, error: str | No
         if not dev:
             continue
         q = printqueue.items(dev)
-        real = [x for x in q if not x["extra"].get("virtual")]
         cur = await printqueue.current(db, dev)
+        real = printqueue.after_current(cur, [x for x in q if not x["extra"].get("virtual")])
         facs.append({"code": code, "dev": dev, "cur": cur, "queue": real})
         own.append((cur, real))
         shared += [{**x, "factory": code} for x in q if x["extra"].get("virtual")]
