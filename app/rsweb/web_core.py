@@ -1653,7 +1653,7 @@ def printers(state: dict) -> list[dict]:
         if "print" in (d.get("features") or []) and d.get("device_type") != "heaven_vessel":
             out.append({"kind": "device", "code": d["device_code"], "device": d["device_code"],
                         "name": f"{f_human(d.get('device_type'))} {d['device_code']}", "location": d.get("location"),
-                        "autofactory": "autofactory" in (d.get("device_type") or ""),
+                        "autofactory": lo.is_factory(d),   # any general factory (autofactory, orbital foundry)
                         "group": f"{d.get('location')}|{d.get('device_type')}",
                         # an epitaxy printer: exotic blueprints only (its own card on the Blueprints page)
                         "pclass": lo.print_class(d) if "enqueue_print" in (d.get("available_commands") or []) else None,
@@ -1736,7 +1736,7 @@ async def read_plan(request: Request, form) -> dict:
     planned = form.get("_planned") == "1"
     # several autofactories at the printer's stockpile: spread the lines over them evenly by print time
     peers = [d for d in st["devices"] if printer and printer.get("autofactory") and d.get("location") == location
-             and "autofactory" in (d.get("device_type") or "") and "enqueue_print" in (d.get("available_commands") or [])]
+             and lo.is_factory(d)]
     # spread by default: only ticking "keep it on one autofactory" stops it (an unticked box isn't sent, so a "split" box
     # that hadn't been drawn yet read as off — seen live 2026-10-13: 3 matrices queued on one of two autofactories)
     split_on = form.get("nosplit") != "on"

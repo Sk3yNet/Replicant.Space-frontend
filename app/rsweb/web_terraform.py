@@ -17,6 +17,7 @@ from fastapi.responses import HTMLResponse
 from . import rockchase as rc
 from . import terraform as tf
 from .db import now_iso
+from .loadouts import is_factory
 from .web import call_action, current_user, load_state, page, partial, render_action, run_action, sim_view, star_of
 
 router = APIRouter()
@@ -464,7 +465,7 @@ async def _candidates(request: Request) -> dict:
         if r["star"] not in pos:
             pos[r["star"]] = ((json.loads(r["data"]) or {}).get("star") or {}).get("position")
     factories = {star_of(d.get("location")) for d in st["devices"]
-                 if d.get("device_type") == "autofactory" and d.get("location")}
+                 if is_factory(d) and d.get("location")}
     commandable = await request.app.state.worker.automations.commandable(st["devices"])
     rows, dropped, unsurveyed = [], [], []
     for r in await db.fetchall("SELECT key, value FROM kv WHERE key LIKE 'loc:%'"):

@@ -38,6 +38,11 @@ from typing import Any
 
 from .prospects import RARITY, YIELD, score as prospect_score
 
+
+def _is_factory(d: dict) -> bool:
+    from .loadouts import is_factory   # late: loadouts pulls in the engine
+    return is_factory(d)
+
 STAGES = ["home", "survey", "hub_choice", "move", "hub_compound", "hub", "outposts", "operate"]
 LABEL = {"home": "Home: compounding", "survey": "Survey trip", "hub_choice": "Choose the hub", "move": "Moving to the hub",
          "hub_compound": "Hub: compounding to an autofactory", "hub": "Hub: building up", "outposts": "Outposts",
@@ -227,7 +232,7 @@ def compound(f: dict, w: dict, star: str, cap: int, autofactory: bool) -> dict:
     deployed = [d for d in here if d.get("location") == bloc and not d.get("stowed_in_device_code")]
     miners = [d for d in here if d.get("device_type") == "mining_drone"]
     surveys = [d for d in here if d.get("device_type") in ("survey_drone", "belt_surveyor")]   # belt surveyors count too
-    factory = next((d for d in here if d.get("device_type") == "autofactory"), None)
+    factory = next((d for d in here if _is_factory(d)), None)   # an orbital foundry counts too
     stock = amounts(w["inventory"].get(bloc))
     target = compound_target(len(miners), len(surveys), cap, s["survey_per_miner"], autofactory, bool(factory))
     need = short_of(cost_of(target, w["bps"]), stock) if target else {}
@@ -721,7 +726,7 @@ def evaluate(f: dict, w: dict) -> dict:
     if stage == "hub_compound":
         c = compound(f, w, hub, s["hub_miners"] + max(1, math.ceil(s["hub_miners"] * s["survey_per_miner"])), autofactory=True)
         stock = c.get("stock") or {}
-        factory = next((d for d in devs if d.get("device_type") == "autofactory" and star_of(d.get("location")) == hub
+        factory = next((d for d in devs if _is_factory(d) and star_of(d.get("location")) == hub
                         and not d.get("stowed_in_device_code")), None)
         if factory:
             out["actions"] = [{"kind": "make_hub", "factory": factory["device_code"]}]

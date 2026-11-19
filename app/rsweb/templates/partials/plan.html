@@ -26,7 +26,7 @@
         {% endif %}
       {% endif %}
     {% else %}
-      <p class="lv-alert small">Short on materials and there's no AMI mining controller in {{ star }}. You can still queue: {{ 'the autofactory will wait for the materials.' if printer.autofactory else 'a vessel printer may refuse until stock is there.' }}</p>
+      <p class="lv-alert small">Short on materials and there's no AMI mining controller in {{ star }}. You can still queue: {{ 'the factory will wait for the materials.' if printer.autofactory else 'a vessel printer may refuse until stock is there.' }}</p>
     {% endif %}
   {% endif %}
   {% if parts %}

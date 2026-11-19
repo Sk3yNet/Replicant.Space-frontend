@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.500.0"
+VERSION = "1.501.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.501.0", "2026-11-19", "Orbital foundries count as factories everywhere (Joe): bootstrap compounds, splitting a batch over the factories at one spot, the print planner and the Terraforming page's factory systems now take any general factory, not only devices named autofactory. Decommissioning to learn a blueprint still goes to an autofactory (the game docs name only those)."),
     ("1.500.0", "2026-11-19", "Wards stay out of systems with a hub, anyone's, or a space station (Joe): the game refuses them there (\"Cannot activate a ward in a system with a hub\", ALKALAROPS beside New Havana Station). Systems/Prospects add ward refuses such a system, an open ward order there is dropped and its ward marked spare, fleets set their ward down without switching it on, bootstraps don't ask for one, and a refusal from the game teaches the app any other such system."),
     ("1.498.2", "2026-11-19", "Ward, relay, station and beacon orders take spares and printers only within the sector range (1728 ly), above every other choice (Joe): before, a supply range of 0 (any) or a factory or star with no catalog position slipped past the limit."),
     ("1.499.0", "2026-11-19", "Print queues (Joe): Next up no longer repeats a print waiting for resources, which the panel already shows as the current one (9E13498F showed its one orbital foundry twice), and the time left no longer counts it twice. Each game queue now holds the current print and one more (two before), so everything else waits in the app's queue where any factory at the spot can take it."),

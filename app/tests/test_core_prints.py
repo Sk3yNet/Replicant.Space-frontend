@@ -737,3 +737,16 @@ def test_a_skipped_device_move_waits_and_a_spare_carrier_needs_no_logistics_flee
     assert req["id"] == rid and req["skipped"] and not req.get("sent")
     assert not [j for j in client.portal.call(eng.jobs) if j["rule"] == "loadouts" and "carries" in j["title"]
                 and j["status"] in ("running", "waiting")]
+
+
+def test_orbital_foundry_counts_as_a_factory():
+    """An orbital foundry (features cruise, print, modular; live 2026-11-19) is a general factory everywhere."""
+    from rsweb import bootstrap as bt, loadouts as lo, web_core as wc
+    cmds = ["compact", "dequeue_print", "enqueue_print", "travel", "unfurl"]
+    foundry = {"device_code": "1D629D58", "device_type": "orbital_foundry", "features": ["cruise", "print", "modular"],
+               "available_commands": cmds, "location": "SOLARES-BELT-1", "status": "idle"}
+    vessel = {"device_code": "V1", "device_type": "heaven_vessel", "features": ["print"], "available_commands": cmds,
+              "location": "SOLARES-BELT-1"}
+    assert lo.is_factory(foundry) and bt._is_factory(foundry) and not lo.is_factory(vessel)
+    rows = wc.printers({"devices": [vessel, foundry], "replicants": {}})
+    assert rows[0]["code"] == "1D629D58" and rows[0]["autofactory"]

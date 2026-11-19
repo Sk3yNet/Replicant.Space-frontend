@@ -413,7 +413,7 @@ def can_make(d: dict, bp: dict | None) -> bool:
 
 
 def is_factory(d: dict) -> bool:
-    """An autofactory, or another printer that works a queue. Not a vessel: it lists enqueue_print but only prints through
+    """An autofactory, or another printer that works a queue (an orbital foundry, live 2026-11-19). Not a vessel: it lists enqueue_print but only prints through
     its replicant, one at a time (seen live 2026-10-09: a fleet's replenishment print queued on a heaven vessel instead
     of the system's autofactories, and never printed). Not a printer limited to one class of device either."""
     t = d.get("device_type") or ""
@@ -2101,7 +2101,7 @@ def drop_point(star: str, devices: list[dict], inventory: dict[str, dict], stars
         if not loc or star_of(loc) != star or not is_factory(d) or "spare" in (d.get("tags") or []):
             continue
         s = spots.setdefault(loc, [0, 0])
-        s[0 if "autofactory" in (d.get("device_type") or "") else 1] += 1
+        s[0] += 1   # every general factory counts alike (autofactory, orbital foundry)
     if spots:
         return min(spots, key=lambda l: (-spots[l][0], -spots[l][1], -_stock_total(inventory.get(l) or {}), l))
     piles = sorted(((loc, _stock_total(items)) for loc, items in inventory.items() if star_of(loc) == star), key=lambda kv: -kv[1])

@@ -4,6 +4,7 @@ Routes split out of web.py by page area; they register on the shared router in t
 from __future__ import annotations
 
 from .web_core import *  # noqa: F401,F403
+from . import loadouts as lo
 
 
 @router.get("/blueprints", response_class=HTMLResponse)
@@ -97,7 +98,7 @@ async def blueprint_print(request: Request, printer: str = Form(...), device_typ
     flat = flatpack == "on" and kind != "replicant" and modular_type(device_type, bpm)
     me = next((d for d in st["devices"] if d.get("device_code") == code), None)
     peers = [d for d in st["devices"] if me and d.get("location") == me.get("location")
-             and "autofactory" in (d.get("device_type") or "") and "enqueue_print" in (d.get("available_commands") or [])]
+             and lo.is_factory(d)]
     if kind == "replicant" or quantity <= 1 or len(peers) < 2:
         return await queue_print(request, user, kind, code, device_type, quantity, flat)
     bps = {b["device_type"]: b for b in normalize_blueprints(await request.app.state.db.kv_get("blueprints", []))}
