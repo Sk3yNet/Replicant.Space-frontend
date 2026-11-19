@@ -678,8 +678,25 @@ async def fleets_members(request: Request, fid: str, user: str = Depends(current
         rem = [t for t in d.get("tags") or [] if (t.startswith(("home:", "to:", "fleet:")) or t == "spare") and t != tag]
         steps.append(auto.step(f"{code} joins {fid}", f"/devices/{code}",
                                {"configuration": {"add_tags": [tag], **({"remove_tags": rem} if rem else {})}}, method="PATCH"))
+    released = [c for c in form.getlist("release") if c not in form.getlist("remove")]
     for code in form.getlist("remove"):
         steps.append(auto.step(f"{code} leaves {fid}", f"/devices/{code}", {"configuration": {"remove_tags": [tag]}}, method="PATCH"))
+    for code in released:
+        # release after its run (Joe 2026-11-19): it leaves the fleet now, so no new run picks it, while the job it's on
+        # carries on; tagged spare it then gathers at the nearest hub for you to assign. The fleet wants one fewer.
+        steps.append(auto.step(f"{code} leaves {fid} (after its current run), spare", f"/devices/{code}",
+                               {"configuration": {"remove_tags": [tag], "add_tags": ["spare"]}}, method="PATCH"))
+    if released:
+        items = await eng.fleets()
+        f = next((x for x in items if x["id"] == fid), None)
+        if f and not f.get("template"):
+            wants = dict(f.get("wants") or {})
+            for code in released:
+                t = (by.get(code) or {}).get("device_type")
+                if t and int(wants.get(t) or 0) > 0:
+                    wants[t] = int(wants[t]) - 1
+            f["wants"] = {k: v for k, v in wants.items() if v}
+            await eng.save_fleets(items)
     if not steps and form.getlist("add"):
         return HTMLResponse('<div class="result">Those devices are already in this fleet.</div>')
     if not steps:

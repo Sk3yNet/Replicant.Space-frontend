@@ -9,3 +9,12 @@ def _map_answers_not_reused(monkeypatch):
     web._MAP_LAST.clear()
     yield
     web._MAP_LAST.clear()
+
+
+@pytest.fixture(autouse=True)
+def _borrow_carriers_in_old_tests(monkeypatch):
+    """Most fixtures move devices with fleetless carriers, which only the borrow_carriers setting allows since 1.496.0.
+    Tests of the new default set it off in their settings."""
+    import rsweb.loadouts as lo
+    monkeypatch.setitem(lo.DEFAULT_SETTINGS, "borrow_carriers", True)
+    yield

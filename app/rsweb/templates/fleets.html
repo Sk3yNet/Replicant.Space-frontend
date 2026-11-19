@@ -93,6 +93,7 @@
       <label style="text-transform:none;display:block"><input type="checkbox" name="need_stock" {{ 'checked' if cfg.settings.need_stock }}> Only on an autofactory whose stock already covers the cost</label>
       <label style="text-transform:none;display:block"><input type="checkbox" name="carriers_return" {{ 'checked' if cfg.settings.carriers_return }}> Carriers fly back after a delivery</label>
       <label style="text-transform:none;display:block"><input type="checkbox" name="gather_spares" {{ 'checked' if cfg.settings.gather_spares }}> Gather idle spares at the nearest hub fleet</label>
+      <label style="text-transform:none;display:block" title="Off: only logistics carriers and a fleet's own carriers move devices; spare carriers wait at the hubs for you to assign"><input type="checkbox" name="borrow_carriers" {{ 'checked' if cfg.settings.borrow_carriers }}> Borrow spare (fleetless) carriers for device moves</label>
       <label style="text-transform:none;display:block">Spare depot <input name="spare_depot" value="{{ cfg.settings.spare_depot or '' }}" size="14" placeholder="automatic">
         <span class="muted">now: {{ depot or 'none' }} — blank = the nearest hub fleet home</span></label>
       <label style="text-transform:none;display:block">Fetch, don't fly: a cruise-only device more than

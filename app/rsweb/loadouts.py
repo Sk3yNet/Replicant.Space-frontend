@@ -40,7 +40,8 @@ LIFT = "lift"
 WORKING = ("mining", "searching", "tracking", "scanning", "collecting", "depositing", "printing", "repairing")
 DEFAULT_SETTINGS = {"print_missing": True, "need_stock": True, "carriers_return": True,
                     "every_minutes": 15,
-                    "gather_spares": True, "spare_depot": "",   # "" = automatic (see spare_depot())
+                    "gather_spares": True, "spare_depot": "",
+                    "borrow_carriers": False,   # fleetless (spare) carriers may carry device moves (off since 1.496.0, Joe)   # "" = automatic (see spare_depot())
                     "max_cruise_au": 30,
                     "max_supply_ly": 1728.0}   # prints and spares only from within this many ly of the fleet (0 = any)   # a device further than this from its carrier (in-system) is fetched, not flown over
 
@@ -1326,8 +1327,11 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                 and not (ignore & set(d.get("tags") or []))
                 and not str(d.get("status") or "").startswith(("travel", "cruis", "surg", "stowed"))
                 and not d.get("controller_device_code")    # run by a controller (e.g. a ferry's taxi plates) = busy
-                and (not fleet_tag_of(d) or fleet_tag_of(d) in by_tag or fleet_tag_of(d) in logistics_tags
-                     or d["device_code"] in boot_vessels)]   # a fleet on a mission keeps its carriers
+                # fleetless (spare) carriers are borrowed only with the borrow_carriers setting (Joe 2026-11-19: spare heaven
+                # vessels flew relays and were stranded; spares gather at the hubs for him to assign); a fleet on a mission
+                # keeps its carriers
+                and ((s.get("borrow_carriers", DEFAULT_SETTINGS["borrow_carriers"]) and not fleet_tag_of(d)) or fleet_tag_of(d) in by_tag
+                     or fleet_tag_of(d) in logistics_tags or d["device_code"] in boot_vessels)]
     moving = set(moves) | {c for c, _ in self_moves}
     carriers = [c for c in carriers if c["device_code"] not in moving and not bound_for(c, known_stars, fleet_homes)]
     used: set[str] = set()

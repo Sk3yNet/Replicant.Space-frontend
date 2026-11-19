@@ -134,7 +134,8 @@
         <form hx-post="/fleets/{{ f.id }}/members" hx-swap="none">
           <div class="small" style="max-height:220px;overflow:auto">
             {% for d in r.members %}<label style="text-transform:none;display:block"><input type="checkbox" name="remove" value="{{ d.device_code }}">
-              remove <span class="mono">{{ d.device_code }}</span> {{ d.device_type | human }} <span class="muted">@ {{ d.location or 'in transit' }} · {{ d.status }}</span></label>{% endfor %}
+              remove <span class="mono">{{ d.device_code }}</span> {{ d.device_type | human }} <span class="muted">@ {{ d.location or 'in transit' }} · {{ d.status }}</span>
+              {% if f.role == 'logistics' %}<label style="text-transform:none;display:inline" title="It leaves the fleet now, so no new run picks it, and finishes the run it's on. Tagged spare, it then gathers at the nearest hub for you to assign. The loadout wants one fewer of its type."><input type="checkbox" name="release" value="{{ d.device_code }}"> release after its run</label>{% endif %}</label>{% endfor %}
             <div hx-get="/fleets/{{ f.id }}/picker" hx-trigger="toggle once from:closest details" hx-swap="outerHTML"><span class="muted">loading devices to add…</span></div>
           </div>
           <button class="small" style="margin-top:6px">Apply</button>

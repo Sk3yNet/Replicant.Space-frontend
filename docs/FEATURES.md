@@ -438,7 +438,10 @@ rock chaser / trade post / terraformer / bootstrap), a home and a loadout (its o
 - **Fleet details** (the slower parts): an index of the fleets, each fleet's card (members, loadout, missions), what the
   next loadout pass would do, the tags & controllers check (kept an hour, Refresh rechecks), and what's spare or on the
   way. Each card loads as it scrolls into view; a name in the index (`?fleet=<id>`) opens that fleet alone, `?all=1`
-  every card at once. A card's Add / remove devices list loads when opened.
+  every card at once. A card's Add / remove devices list loads when opened. On a logistics fleet each member can be
+  released after its run: it leaves the fleet at once (no new run picks it), finishes the run it's on, and as a spare
+  gathers at the nearest hub; the fleet wants one fewer of its type. Spare (fleetless) carriers move devices only with
+  the Fleets setting *Borrow spare carriers* (off by default since 1.496.0).
 - Both keep the loadout plan, prospects and destination lists for an hour (the engine still plans for itself every
   pass); any fleet or loadout edit and the **Recompute** button refresh them.
 - **Reset & reform** for messy tags.

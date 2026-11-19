@@ -506,6 +506,37 @@ def test_borrowed_plate_waits_at_the_drop_while_more_of_the_batch_waits():
     assert not next(d for d in p["deliveries"] if d["carrier"] == "PL1").get("stay")
 
 
+def test_spare_carriers_are_not_borrowed_with_the_setting_off():
+    """Joe 2026-11-19: spare heaven vessels flew relays and were stranded; spares gather at the hubs for him to assign."""
+    from rsweb import loadouts as lo
+    stars = {"AEM": {"position": {"x": 0, "y": 0, "z": 0}}, "LOR": {"position": {"x": 2, "y": 0, "z": 0}}}
+    devices = [{"device_code": "MD1", "device_type": "mining_drone", "location": "AEM-BELT-1", "status": "idle", "tags": ["spare"],
+                "features": ["cruise", "mine", "stow"], "available_commands": ["travel", "stow"]},
+               {"device_code": "PL1", "device_type": "surge_plate", "location": "AEM-1-L4", "status": "idle", "tags": ["spare"],
+                "attach_capacity": 1, "features": ["surge", "cruise", "attach"], "available_commands": ["attach", "detach", "travel"]}]
+    cfg = {"phases": [{"id": "u", "name": "Unassigned", "wants": {"mining_drone": 0}},
+                      {"id": "m", "name": "Mining", "wants": {"mining_drone": 1}}],
+           "systems": {"AEM": "u", "LOR": "m"}, "roles": {}, "settings": {"borrow_carriers": False}}
+    p = lo.plan(cfg, devices, [], {}, stars, {}, set(), [], {}, commandable={"AEM", "LOR"})
+    assert not any(d["carrier"] == "PL1" for d in p["deliveries"])
+    cfg["settings"]["borrow_carriers"] = True
+    p = lo.plan(cfg, devices, [], {}, stars, {}, set(), [], {}, commandable={"AEM", "LOR"})
+    assert any(d["carrier"] == "PL1" for d in p["deliveries"])
+
+
+def test_release_after_run_leaves_logistics_as_a_spare(client):
+    e, db = client.app.state.worker.automations, client.app.state.db
+    client.portal.call(db.kv_set, "devices", [
+        {"device_code": "CF000001", "device_type": "cargo_freighter", "location": "SOL-BELT-1", "status": "travelling",
+         "tags": ["fleet:logi"]}])
+    client.portal.call(e.save_fleets, [{"id": "logi", "name": "Logi", "role": "logistics", "home": "SOL",
+                                        "wants": {"cargo_freighter": 3}}])
+    client.post("/fleets/logi/members", data={"release": "CF000001"}, headers=HX)
+    job = next(j for j in client.portal.call(e.jobs) if j["rule"] == "fleets")
+    assert job["steps"][0]["body"] == {"configuration": {"remove_tags": ["fleet:logi"], "add_tags": ["spare"]}}
+    assert client.portal.call(e.fleets)[0]["wants"] == {"cargo_freighter": 2}
+
+
 def test_stray_reason_says_when_the_loadout_pass_waits_for_a_carrier():
     from rsweb import fleets as fl
     s = {"riding": None, "moving": False, "busy": False}
