@@ -40,7 +40,7 @@ SECTIONS = [
 ]
 SECTION_KEYS = [k for k, *_ in SECTIONS]
 APP_KEYS = {"fleets": ["fleets"], "logistics": ["logistics", "loadouts_last", "loadouts", "loadout_orders", "stowed_map", "vqueue"],
-            "relays": ["ward_orders", "relay_requests", "relay_rollout"], "asteroids": ["objects", "asteroid_events"],
+            "relays": ["ward_orders", "relay_requests", "relay_rollout", "relay_targets"], "asteroids": ["objects", "asteroid_events"],
             "actions": ["actions"]}
 
 
@@ -186,6 +186,7 @@ async def capture(api, db, eng, stars: set[str] | None = None, max_requests: int
         "ward_orders": await db.kv_get("ward_orders", {}) or {},
         "relay_requests": await db.kv_get("relay_requests", {}) or {},
         "relay_rollout": await db.kv_get("relay_rollout", {}) or {},
+        "relay_targets": await db.kv_get("relay_targets", {}) or {},
         "rules": {k: v for k, v in (settings.get("rules") or {}).items()},
         "dry_run": settings.get("dry_run"),
         "schedules": await eng.schedules(),

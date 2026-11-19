@@ -41,6 +41,31 @@
   </table>{% endif %}
 </div>
 <div class="card">
+  <h2>Relay targets</h2>
+  <p class="muted small">A system you visit often: the app orders a relay in every system on the shortest chain that links
+    it to one of your relay networks with a system hub (fewest new relays; systems with a relay on order count as up, so
+    targets share chains), so commands reach it without a replicant there. Orders work as <i>add</i> on the Systems list.
+    It's checked again every few minutes and stays until you remove it: an order that drops, or a link that breaks later,
+    is ordered again. {% if roll.long %}Long-range stations are on (Relay rollout below), so a chain may use one.{% else %}Tick <i>long-range stations</i> under Relay rollout to let a chain cross gaps no relay spans.{% endif %}</p>
+  <form class="row small" hx-post="/map/relays/target" hx-target="next .rt-out">
+    <input type="hidden" name="action" value="add">
+    <label>System <input name="star" size="20" placeholder="e.g. ISOLITHOR"></label><button>Add target</button>
+  </form><span class="rt-out"></span>
+  {% if targets %}<table class="small"><tr><th>Target</th><th>State</th><th class="num">New relays</th><th>Chain (hub side first)</th><th></th></tr>
+    {% for s, t in targets | dictsort %}<tr><td><a href="/systems/{{ s }}">{{ s }}</a></td>
+      <td>{% if t.status == 'linked' %}<span class="lv-done" title="in a hub's relay network">linked</span>
+        {% elif t.status == 'building' %}<span class="st-move">building</span>{% if t.hub %} <span class="muted">to {{ t.hub }}</span>{% endif %}
+        {% elif t.status == 'no_route' %}<span class="lv-alert" title="no chain of 25 relays or fewer reaches a hub's network">no route</span>
+        {% else %}<span class="muted">planning</span>{% endif %}</td>
+      <td class="num">{{ (t.chain or []) | length if t.status == 'building' else '' }}</td>
+      <td>{% for x in t.chain or [] %}<a href="/systems/{{ x }}">{{ x }}</a>{% if x in (t.long or []) %} <span class="pill small">station</span>{% endif %}{% if x in (t.failed or {}) %} <span class="pill small lv-alert" title="{{ t.failed[x] }}">can't order</span>{% elif x in orders %} <span class="pill small st-move">on order</span>{% endif %}{{ ' → ' if not loop.last }}{% endfor %}
+        {% if t.via %}<br><span class="muted">also uses {{ t.via | join(', ') }} (on order)</span>{% endif %}</td>
+      <td><button class="small ghost" hx-post="/map/relays/target" hx-vals='{{ {"action": "check", "star": s} | tojson }}' hx-target="next .rt-row">Check now</button>
+        <button class="small ghost" hx-post="/map/relays/target" hx-vals='{{ {"action": "remove", "star": s} | tojson }}' hx-target="next .rt-row"
+          hx-confirm="Stop working toward {{ s }}? Relay orders already made stay.">Remove</button><span class="rt-row"></span></td></tr>{% endfor %}
+  </table>{% else %}<p class="muted small">No targets yet.</p>{% endif %}
+</div>
+<div class="card">
   <h2>Relay rollout</h2>
   <p class="muted small">A relay in every system, nearest your seed systems first: as many relay orders stay open as your
     logistics vessels with a replicant aboard have free hold slots (as <i>add</i> on the Systems list: an idle one there is

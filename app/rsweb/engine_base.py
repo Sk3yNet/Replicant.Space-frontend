@@ -252,7 +252,7 @@ RULES_BY_ID = {r.id: r for r in RULES}
 
 # heavy passes run every n-th tick, each on its own tick (stage: (n, offset)): each held the server 3–7 s of CPU every
 # minute (snapshot 2026-10-26, 1.271.1); their own cooldowns are in minutes, so a pass every 3 min loses nothing
-SPREAD = {"station_swap_pass": (5, 3), "dark_relay_pass": (5, 4), "season_rescan_pass": (5, 2), "rule_salvage": (3, 0), "rule_restart_idle_miners": (3, 1), "rule_reopen_sites": (3, 2)}
+SPREAD = {"station_swap_pass": (5, 3), "relay_target_pass": (5, 1), "dark_relay_pass": (5, 4), "season_rescan_pass": (5, 2), "rule_salvage": (3, 0), "rule_restart_idle_miners": (3, 1), "rule_reopen_sites": (3, 2)}
 STEP_TIMEOUT = 3600          # waiting for travel/scan to finish
 TRIP_GRACE_S = 1800          # past a trip's ETA, a wait (or a refused step) keeps going this long before giving up
 NO_ETA_EXTRA_S = 3600        # still moving and no ETA known: this much longer, once

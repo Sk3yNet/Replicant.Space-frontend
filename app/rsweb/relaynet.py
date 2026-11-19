@@ -419,3 +419,97 @@ def _bridges(net: dict, pos: dict[str, Any], max_new: int, long: bool = False) -
                     if links(d, r, rt):
                         push((c[0] + 1, c[1] + (rt == lh)), (t, rt), state, True)
     return sorted(best.values(), key=lambda b: (b["n"], len(b["long"]), b["a"], b["b"]))
+
+
+MAX_CHAIN = 25   # new relays a target's chain may need at most (a relay target, Map › Relays)
+
+
+def hub_nets(net: dict) -> set[int]:
+    """Ids of the networks with a system hub of yours in them."""
+    return {g["id"] for g in net["networks"] if g.get("hubs")}
+
+
+def chain_to_hub(net: dict, pos: dict[str, Any], target: str, planned: dict[str, float] | None = None,
+                 long: bool = False, max_new: int = MAX_CHAIN) -> dict | None:
+    """The fewest new relays that link `target` to a relay network with a hub in it (a relay target, owner
+    2026-11-19: frequently visited systems shouldn't need a replicant there). {linked: True, hub_net} when its system
+    already is in one; else {linked: False, stars: [systems needing a new relay, hub side first], long: [those that
+    get a long-range station], via: [systems on order already that the chain uses], hub: the hub network's system it
+    links to, hub_net, n}; None when no chain of max_new relays or fewer does. `planned` {star: ly}: systems with a
+    relay or station on order, used as if up. Fewest new relays first, then fewest stations, then shortest."""
+    import heapq
+    ns, of = net["nodes"], net["of"]
+    hubs = hub_nets(net)
+    target = target.upper()
+    planned = {s: float(r) for s, r in (planned or {}).items() if s not in ns}
+    if target in ns and of[target] in hubs:
+        return {"linked": True, "hub_net": of[target], "stars": [], "long": [], "via": [], "n": 0}
+    if not hubs:
+        return None
+    xyz_all, cells = star_grid(pos)
+    if target not in xyz_all:
+        return None
+    hop = float(net.get("hop") or RELAY_LY)
+    lh = float(net.get("long_hop") or STATION_LY) if long else 0.0
+    kinds = [hop] + ([lh] if lh > hop else [])
+    far = max(kinds + [n["range"] for n in ns.values()] + list(planned.values()))
+    cost: dict[tuple, tuple] = {}
+    prev: dict[tuple, tuple | None] = {}
+    heap: list = []
+    GOAL = ("", 0.0)
+    goal_hub = [""]
+
+    def push(c: tuple, state: tuple, parent: tuple | None) -> None:
+        if state not in cost or c < cost[state]:
+            cost[state], prev[state] = c, parent
+            heapq.heappush(heap, (c, state))
+    if target in ns:   # a network of yours without a hub: any of its systems may start the chain
+        for s in net["networks"][of[target]]["stars"]:
+            push((0, 0, 0.0), (s, ns[s]["range"]), None)
+    elif target in planned:
+        push((0, 0, 0.0), (target, planned[target]), None)
+    else:
+        for rt in kinds:
+            push((1, int(rt == lh), 0.0), (target, rt), None)
+    end = None
+    while heap:
+        c, state = heapq.heappop(heap)
+        if cost.get(state) != c:
+            continue
+        if state[0] == "":
+            end = state
+            break
+        s, r = state
+        x = xyz_all.get(s) or ns[s]["xyz"]
+        for t in _near(cells, x, max(r, far)):
+            if t == s:
+                continue
+            d = math.dist(x, xyz_all[t])
+            ly = round(c[2] + d, 3)
+            if t in ns:
+                if not links(d, r, ns[t]["range"]):
+                    continue
+                if of[t] in hubs:
+                    if GOAL not in cost or (c[0], c[1], ly) < cost[GOAL]:
+                        push((c[0], c[1], ly), GOAL, state)
+                        goal_hub[0] = t
+                    continue
+                push((c[0], c[1], ly), (t, ns[t]["range"]), state)
+            elif t in planned:
+                if links(d, r, planned[t]):
+                    push((c[0], c[1], ly), (t, planned[t]), state)
+            elif c[0] < max_new:
+                for rt in kinds:
+                    if links(d, r, rt):
+                        push((c[0] + 1, c[1] + (rt == lh), ly), (t, rt), state)
+    if end is None:
+        return None
+    walk, c = [], prev[GOAL]
+    while c:
+        walk.append(c)
+        c = prev.get(c)
+    stars = [s for s, _ in walk if s not in ns and s not in planned]   # walk runs hub side first
+    lng = [s for s, r in walk if s in stars and lh and r == lh]
+    via = [s for s, _ in walk if s in planned]
+    return {"linked": False, "stars": stars, "long": lng, "via": via, "hub": goal_hub[0], "hub_net": of[goal_hub[0]],
+            "n": len(stars)}

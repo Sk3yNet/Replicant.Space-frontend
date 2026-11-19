@@ -618,6 +618,65 @@ class OpsRules:
         await self.db.kv_set(rr.KV, st)
         return out
 
+    async def relay_target_pass(self, only: str | None = None) -> list[str]:
+        """Relay targets (relayroll.TARGETS_KV): each target system gets a relay order for every system on the chain that
+        links it to a hub's relay network (relaynet.chain_to_hub, systems on order counted as up, so targets share
+        chains). A target whose system is in a hub network is linked; one that breaks later is planned again."""
+        from . import relaynet
+        from . import relayroll as rr
+        from . import ward_orders as wo
+        from .shapes import normalize_blueprints
+        targets = await self.db.kv_get(rr.TARGETS_KV, {}) or {}
+        if not targets:
+            return []
+        devices = await self.devices()
+        pos = await relaynet.star_pos(self.db)   # shared and read-only
+        relaynet.star_grid(pos)   # built here on the loop, so the thread only reads it
+        bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
+        net = relaynet.networks(devices, pos, bps)
+        long = bool(rr.state(await self.db.kv_get(rr.KV, {}))["long"])
+        out: list[str] = []
+        for star in sorted(targets):
+            if only and star != only:
+                continue
+            t = dict(targets[star])
+            relays = await self.db.kv_get(wo.kv_key("relay"), {}) or {}
+            stations = await self.db.kv_get(wo.kv_key("station"), {}) or {}
+            planned = {**{s: net["hop"] for s in relays}, **{s: net["long_hop"] for s in stations}}
+            res = await asyncio.to_thread(relaynet.chain_to_hub, net, pos, star, planned, long)
+            t["checked"] = now_iso()
+            if res is None:
+                t.update(status="no_route", chain=[], long=[], via=[], waiting=[])
+                if (targets[star].get("status") or "") != "no_route":
+                    await self.log("wards", f"relay target {star}: no chain of {relaynet.MAX_CHAIN} relays or fewer "
+                                   "links it to a hub's network" + ("" if long else " (long-range stations are off)"),
+                                   "alert", notify=True)
+            elif res["linked"]:
+                if targets[star].get("status") != "linked":
+                    t["linked_at"] = now_iso()
+                    await self.log("wards", f"relay target {star} is linked to a hub's relay network: commands reach it "
+                                   "with no replicant there", notify=True)
+                t.update(status="linked", waiting=[], failed={})
+            else:
+                failed = {}
+                for s in res["stars"]:
+                    kind = "station" if s in res["long"] else "relay"
+                    if s in (stations if kind == "station" else relays):
+                        continue
+                    msg = await self.order_outpost(kind, s, t.get("by") or "relay target")
+                    have = await self.db.kv_get(wo.kv_key(kind), {}) or {}
+                    if s in have:
+                        out.append(f"{star}: {s}: {msg}")
+                    else:
+                        failed[s] = msg
+                t.update(status="building", chain=res["stars"], long=res["long"], via=res["via"], hub=res.get("hub"),
+                         waiting=res["stars"] + res["via"], failed=failed)
+            targets = await self.db.kv_get(rr.TARGETS_KV, {}) or {}
+            if star in targets:   # removed meanwhile: leave it out
+                targets[star] = t
+                await self.db.kv_set(rr.TARGETS_KV, targets)
+        return out
+
     async def station_swap_pass(self) -> list[str]:
         """A long-range station a plain relay could stand in for (relaynet.swappable_stations) gets a relay ordered in
         its system; once that relay works there, the station is switched off and marked spare (remove_outpost), one per

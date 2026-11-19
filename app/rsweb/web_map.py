@@ -56,7 +56,8 @@ async def map_relays(request: Request, user: str = Depends(current_user)):
     sbp = bps.get(relaynet.STATION)
     station = {"known": bool(sbp), "range": rn["long_hop"], "hop": rn["hop"],
                "cost": as_amounts((sbp or {}).get("resources")), "relay_cost": as_amounts((bps.get("ftl_relay") or {}).get("resources"))}
-    return await page(request, user, "relays.html", "relays", nets=rn["networks"], bridges=br,
+    targets = await db.kv_get(rr.TARGETS_KV, {}) or {}
+    return await page(request, user, "relays.html", "relays", nets=rn["networks"], bridges=br, targets=targets,
                       orders=orders, stations=stations, max_new=relaynet.MAX_BRIDGE, roll=roll, up_next=up_next[:15],
                       n_next=len(up_next), known=set(pos), station=station)
 
@@ -101,6 +102,39 @@ async def map_relays_rollout(request: Request, action: str = Form(...), seeds: s
             await eng.pause_relay_prints(user)
         if roll["on"]:
             await eng.relay_rollout_pass()
+    return HTMLResponse("", headers={"HX-Refresh": "true"})
+
+
+@router.post("/map/relays/target", response_class=HTMLResponse)
+async def map_relays_target(request: Request, action: str = Form(...), star: str = Form(""), user: str = Depends(current_user)):
+    """Relay targets: add a system (its chain to a hub's network is ordered right away), check one again now, or remove
+    one (relay orders already made stay; cancel them on the Wards & hubs page)."""
+    from . import relaynet
+    from . import relayroll as rr
+    from .db import now_iso
+    db = request.app.state.db
+    eng = request.app.state.worker.automations
+    stars = [x.strip().upper() for x in star.replace(",", " ").split() if x.strip()]
+    if not stars:
+        return HTMLResponse('<span class="lv-alert small">Name a system.</span>')
+    pos = await relaynet.star_pos(db)
+    async with eng.lock:
+        targets = await db.kv_get(rr.TARGETS_KV, {}) or {}
+        if action == "add":
+            unknown = [s for s in stars if s not in pos]
+            if unknown:
+                return HTMLResponse(f'<span class="lv-alert small">{html.escape(", ".join(unknown))}: not in the star catalog.</span>')
+            for s in stars:
+                targets.setdefault(s, {"at": now_iso(), "by": user, "status": "planning"})
+            await db.kv_set(rr.TARGETS_KV, targets)
+            await eng.log("wards", f"relay target {', '.join(stars)} added (by {user})")
+        elif action == "remove":
+            for s in stars:
+                targets.pop(s, None)
+            await db.kv_set(rr.TARGETS_KV, targets)
+        if action in ("add", "check"):
+            for s in stars:
+                await eng.relay_target_pass(only=s)
     return HTMLResponse("", headers={"HX-Refresh": "true"})
 
 

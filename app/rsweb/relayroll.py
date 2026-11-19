@@ -25,6 +25,11 @@ from typing import Any
 from .relaynet import RELAY_LY, _grid, _near
 
 KV = "relay_rollout"
+# Relay targets (Map › Relays, owner 2026-11-19): systems you visit often get the chain of relays that links them to a
+# relay network with a hub of yours (relaynet.chain_to_hub), so commands reach them with no replicant there. kv
+# "relay_targets": {star: {at, by, status (planning | building | linked | no_route), chain, long, via, hub, waiting,
+# failed: {star: why}, checked, linked_at}}. Kept until removed: a chain that breaks later is ordered again.
+TARGETS_KV = "relay_targets"
 MAX_STREAK = 5
 DEFAULTS = {"on": False, "seeds": [], "radius": 50.0, "radii": {}, "chained": True, "capacity": 0, "ordered": {}, "skipped": {},
             "done": 0, "streak": 0, "by": "", "paused": False, "long": False}

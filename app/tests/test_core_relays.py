@@ -1700,3 +1700,57 @@ def test_commandable_steady_leaves_out_roaming_replicants(client, monkeypatch):
         return await eng.commandable(devs, {}), await eng.commandable(devs, {}, steady=True)
     plain, steady = client.portal.call(go)
     assert "ALIFMBES" in plain and "ALIFMBES" not in steady
+
+
+def test_chain_to_hub_fewest_relays():
+    """Owner 2026-11-19: a relay target gets the fewest relays linking it to a hub's network (a hub reaches 15 ly)."""
+    from rsweb import relaynet
+    pos = {s: {"x": x, "y": 0, "z": 0} for s, x in {"H": 0, "A": 7, "B": 14, "T": 21, "Q": 28}.items()}
+    devs = [{"device_code": "HUB", "device_type": "system_hub", "location": "H-4-L4", "status": "active"},
+            {"device_code": "RQ", "device_type": "ftl_relay", "location": "Q-1-L4", "status": "relaying"}]
+    net = relaynet.networks(devs, pos)
+    assert net["nodes"]["H"]["range"] == 15
+    res = relaynet.chain_to_hub(net, pos, "T")
+    assert not res["linked"] and res["stars"] == ["B", "T"] and res["hub"] == "H"
+    assert relaynet.chain_to_hub(net, pos, "T", {"B": 7.5})["stars"] == ["T"]
+    assert relaynet.chain_to_hub(net, pos, "T", {"B": 7.5})["via"] == ["B"]
+    assert relaynet.chain_to_hub(net, pos, "H")["linked"]
+    assert relaynet.chain_to_hub(net, pos, "Q", max_new=1) is None   # Q's own network has no hub; 2 relays needed
+    assert relaynet.chain_to_hub(net, pos, "Q")["stars"] == ["B", "T"]
+
+
+def test_relay_target_pass_orders_chain(client):
+    from rsweb import relayroll as rr
+    from rsweb import ward_orders as wo
+    db = client.app.state.db
+    eng = client.app.state.worker.automations
+    stars = [{"designation": s, "position": {"x": x, "y": 0, "z": 0}} for s, x in {"H": 0, "A": 7, "B": 14, "T": 21}.items()]
+    client.portal.call(db.kv_set, "stars", {"stars": stars})
+    devs = [{"device_code": "HUB", "device_type": "system_hub", "location": "H-4-L4", "status": "active"}]
+    calls = []
+
+    async def devices():
+        return devs
+
+    async def order(kind, star, user="", rollout=False):
+        calls.append((kind, star))
+        orders = await db.kv_get(wo.kv_key(kind), {}) or {}
+        orders[star] = {"at": "2026-11-19T00:00:00+00:00", "how": "print"}
+        await db.kv_set(wo.kv_key(kind), orders)
+        return f"printing a {kind} for {star}"
+    eng.devices, eng.order_outpost = devices, order
+    r = client.post("/map/relays/target", headers=HX, data={"action": "add", "star": "t"})
+    assert r.status_code == 200
+    assert calls == [("relay", "B"), ("relay", "T")]
+    t = client.portal.call(db.kv_get, rr.TARGETS_KV, {})["T"]
+    assert t["status"] == "building" and t["chain"] == ["B", "T"] and t["hub"] == "H"
+    client.portal.call(eng.relay_target_pass)
+    assert len(calls) == 2   # on order already: not asked twice
+    page = client.get("/map/relays", headers=H).text
+    assert "Relay targets" in page and "building" in page
+    devs += [{"device_code": f"R{s}", "device_type": "ftl_relay", "location": f"{s}-1-L4", "status": "relaying"} for s in "BT"]
+    client.portal.call(eng.relay_target_pass)
+    assert client.portal.call(db.kv_get, rr.TARGETS_KV, {})["T"]["status"] == "linked"
+    assert client.post("/map/relays/target", headers=HX, data={"action": "add", "star": "NOPE"}).text.count("not in the star catalog")
+    client.post("/map/relays/target", headers=HX, data={"action": "remove", "star": "T"})
+    assert client.portal.call(db.kv_get, rr.TARGETS_KV, {}) == {}
