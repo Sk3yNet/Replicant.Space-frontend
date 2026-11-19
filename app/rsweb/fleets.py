@@ -2347,12 +2347,46 @@ def matrix_vessel(fleet: dict, devices: list[dict], busy: set[str]) -> dict | No
     return None
 
 
+def empty_cradles(fleet: dict, devices: list[dict], busy: set[str]) -> list[tuple[dict, dict]]:
+    """[(carrier, cradle)]: the fleet's idle carriers with no replicant aboard and an empty cradle to fill (Joe
+    2026-11-19, logistics fleets with "Needs an active replicant aboard"): the carrier's own (a heaven vessel), or a
+    matrix container riding on it (a mobile fleet or surge platform). The carrier is free, grounded, in comms range."""
+    from .logistics import riding_hosts
+    by = {d.get("device_code"): d for d in devices}
+    hosts = riding_hosts(devices, {d["device_code"]: "?" for d in devices if d.get("hosting_replicant")})
+    for x in devices:   # a filled matrix aboard counts even before the replicant list says so
+        if x.get("device_type") == MATRIX_TYPE:
+            for c in _carriers_up(x, by):
+                hosts.setdefault(c["device_code"], "?")
+
+    def empty(c: dict) -> bool:
+        return (c["device_code"] not in hosts and "cradle" in (c.get("features") or [])
+                and _int(c.get("stow_used")) < max(1, _int(c.get("stow_capacity")))
+                and not any((x or {}).get("device_type") == MATRIX_TYPE for x in c.get("stowed_devices") or []))
+    out = []
+    for d in sorted(members(fleet, devices), key=lambda d: d["device_code"]):
+        code = d["device_code"]
+        if (code in busy or code in hosts or in_flight(d) or not d.get("location") or d.get("location_stale")
+                or d.get("stowed_in_device_code") or d.get("attached_to_device_code") or d.get("in_control_range") is False
+                or d.get("controller_device_code") or "surge" not in (d.get("features") or [])
+                or not str(d.get("status") or "").lower().startswith(("idle", "inactive"))):
+            continue
+        riders = [x for x in devices if (x.get("attached_to_device_code") == code or x.get("stowed_in_device_code") == code)
+                  and x.get("device_type") in CRADLE_TYPES and x["device_code"] not in busy]
+        cradle = d if empty(d) else next((x for x in riders if empty(x)), None)
+        if cradle:
+            out.append((d, cradle))
+    return out
+
+
 def matrix_pickup(fleet: dict, devices: list[dict], spares: list[dict], stars: dict, busy: set[str],
-                  reach: float = 0.0) -> tuple[list[dict], dict | None, dict | None, str]:
+                  reach: float = 0.0, vessel: dict | None = None,
+                  cradle: dict | None = None) -> tuple[list[dict], dict | None, dict | None, str]:
     """(steps, matrix, vessel, note): the fleet's vessel flies to the nearest spare matrix within the supply range,
     the matrix joins the fleet (fleet tag in; spare / home: / to: out), is deployed out of its host if it rides one,
-    stows into the vessel, and the vessel flies back to where it started."""
-    v = matrix_vessel(fleet, devices, busy)
+    stows into the vessel, and the vessel flies back to where it started. `vessel` / `cradle`: that carrier fetches it
+    and the matrix stows into `cradle` (the carrier itself, or a matrix container riding on it)."""
+    v = vessel or matrix_vessel(fleet, devices, busy)
     if not v:
         return [], None, None, "no idle vessel with room in its hold to fetch a matrix"
     if not spares:
@@ -2375,7 +2409,7 @@ def matrix_pickup(fleet: dict, devices: list[dict], spares: list[dict], stars: d
         steps.append(st)
     if m.get("_from_host"):
         steps.append(deploy_out_step(m))
-    steps.append(board_step(vc, code, "stow"))
+    steps.append(board_step((cradle or v)["device_code"], code, "stow"))
     if m["_at"] != v["location"]:
         st = step(f"{vc} → {v['location']} (back with matrix {code})", f"/devices/{vc}",
                   {"command": "travel", "destination": v["location"]}, wait=["travel.arrived"],

@@ -109,3 +109,62 @@ def test_template_option_reaches_its_fleets(client):
     client.portal.call(e.save_fleets, [{**FLEET, "pick_matrix": False, "template": pid}])
     assert client.portal.call(e.fleets)[0]["pick_matrix"]
     assert "pick_matrix:" + pid in client.get("/fleets", headers=H).text
+
+
+LOGI = {"id": "logistics", "name": "Logistics", "role": "logistics", "home": "SOLARES", "station": False,
+        "wants": {}, "pick_matrix": True}
+
+
+def _logi_devices():
+    return [
+        # a heaven vessel with an empty cradle of its own
+        {"device_code": "HVEMPTY1", "device_type": "heaven_vessel", "status": "idle", "location": "SOLARES-4-L4",
+         "tags": ["fleet:logistics"], "features": ["surge", "cradle"], "stow_capacity": 10, "stow_used": 2},
+        # one with a replicant: full
+        {"device_code": "HVFULL01", "device_type": "heaven_vessel", "status": "idle", "location": "SOLARES-4-L4",
+         "tags": ["fleet:logistics"], "features": ["surge", "cradle"], "stow_capacity": 10, "stow_used": 1,
+         "hosting_replicant": {"name": "Pip"}},
+        # a mobile fleet towing an empty matrix container
+        {"device_code": "MF000001", "device_type": "mobile_fleet", "status": "idle", "location": "SOLARES-BELT-1",
+         "tags": ["fleet:logistics"], "features": ["surge", "attach"]},
+        {"device_code": "MC000009", "device_type": "matrix_container", "status": "idle", "location": "SOLARES-BELT-1",
+         "attached_to_device_code": "MF000001", "tags": [], "features": ["cruise", "cradle"], "stow_capacity": 1, "stow_used": 0},
+        # a mobile fleet whose container holds a matrix: full
+        {"device_code": "MF000002", "device_type": "mobile_fleet", "status": "idle", "location": "SOLARES-BELT-1",
+         "tags": ["fleet:logistics"], "features": ["surge", "attach"]},
+        {"device_code": "MC000010", "device_type": "matrix_container", "status": "idle", "location": "SOLARES-BELT-1",
+         "attached_to_device_code": "MF000002", "tags": [], "features": ["cruise", "cradle"], "stow_capacity": 1, "stow_used": 1,
+         "stowed_devices": [{"device_code": "MX000020", "device_type": "replicant_matrix"}]},
+        {"device_code": "MX000020", "device_type": "replicant_matrix", "status": "stowed", "stowed_in_device_code": "MC000010", "tags": []},
+        # a surge plate with no cradle: nothing to fill
+        {"device_code": "SP000001", "device_type": "surge_plate", "status": "idle", "location": "SOLARES-BELT-1",
+         "tags": ["fleet:logistics"], "features": ["surge", "attach"]},
+        # away on a trip: left alone
+        {"device_code": "HVEMPTY2", "device_type": "heaven_vessel", "status": "travelling", "location": "SOLARES-4-L4",
+         "tags": ["fleet:logistics"], "features": ["surge", "cradle"], "stow_capacity": 10, "stow_used": 0},
+        {"device_code": "MX000001", "device_type": "replicant_matrix", "status": "idle", "location": "FALQUORYX-BELT-1",
+         "tags": ["spare"], "in_control_range": True},
+    ]
+
+
+def test_logistics_empty_cradles_per_carrier():
+    got = [(c["device_code"], cr["device_code"]) for c, cr in fl.empty_cradles(LOGI, _logi_devices(), set())]
+    assert got == [("HVEMPTY1", "HVEMPTY1"), ("MF000001", "MC000009")]
+    assert [c["device_code"] for c, _ in fl.empty_cradles(LOGI, _logi_devices(), {"HVEMPTY1"})] == ["MF000001"]
+    ds = _logi_devices()
+    v, cr = fl.empty_cradles(LOGI, ds, set())[1]
+    steps, m, _, _ = fl.matrix_pickup(LOGI, ds, fl.spare_matrices(ds, set()), STARS, set(), 1728, vessel=v, cradle=cr)
+    body = [(s["path"], s["body"]) for s in steps]
+    assert ("/devices/MF000001", {"command": "travel", "destination": "FALQUORYX-BELT-1"}) in body
+    assert ("/devices/MX000001", {"command": "stow", "target": "MC000009"}) in body   # into the container, not the platform
+
+
+def test_logistics_pass_fills_one_cradle_per_spare(client):
+    e = client.app.state.worker.automations
+    client.portal.call(client.app.state.db.kv_set, "devices", _logi_devices())
+    client.portal.call(client.app.state.db.kv_set, "stars", {"stars": [{"designation": k, **v} for k, v in STARS.items()]})
+    client.portal.call(e.save_fleets, [dict(LOGI)])
+    out = client.portal.call(e.matrix_pickup_pass, True)
+    assert len(out) == 1 and "HVEMPTY1 fetches matrix MX000001" in out[0]
+    note = client.portal.call(client.app.state.db.kv_get, "matrix_pickups")["logistics"]["note"]
+    assert "no spare replicant matrix left" in note

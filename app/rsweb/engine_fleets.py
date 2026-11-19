@@ -1130,6 +1130,36 @@ class FleetsMixin:
         reach = await self.supply_reach()
         out = []
         for f in items:
+            if f.get("role") == "logistics":
+                # per carrier (Joe 2026-11-19): each idle carrier with an empty cradle fetches a spare filled matrix, so
+                # it can escort trips beyond the relay network instead of the fleet counting as covered by any one
+                if fl.held(f):
+                    continue
+                cradles = fl.empty_cradles(f, devices, busy)
+                if not cradles:
+                    notes[f["id"]] = {"at": now_iso(), "note": "every carrier with a cradle has a replicant aboard"}
+                    continue
+                said = []
+                for v, cr in cradles:
+                    if not spares:
+                        said.append("no spare replicant matrix left for the other empty cradles")
+                        break
+                    steps, m, v, note = fl.matrix_pickup(f, devices, spares, stars, busy, reach, vessel=v, cradle=cr)
+                    if not steps:
+                        continue
+                    job = await self.create_job("loadouts", f"{f['name']}: {v['device_code']} picks up spare replicant matrix "
+                                                f"{m['device_code']}", v["device_code"], steps,
+                                                {"devices": [m["device_code"], v["device_code"], cr["device_code"]],
+                                                 "fleet": f["id"]}, force=force)
+                    spares = [x for x in spares if x["device_code"] != m["device_code"]]
+                    busy |= {m["device_code"], v["device_code"], cr["device_code"]}
+                    said.append(note)
+                    out.append(f"{f['name']}: {note}" + ("" if job else " (dry run)"))
+                    if job:
+                        await self.log("loadouts", f"{f['name']}: {v['device_code']} has an empty cradle: {note}")
+                notes[f["id"]] = {"at": now_iso(), "note": "; ".join(said) or
+                                  f"{len(cradles)} empty cradle(s), no spare matrix within the supply range"}
+                continue
             if (f.get("mission") or {}).get("status") in ("running", "stalled", "stopped") or f.get("role") == "bootstrap" \
                     or fl.held(f) or f["id"] in working \
                     or tr.out_working(f, devices):   # a terraformer away at work
