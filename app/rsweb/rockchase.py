@@ -239,10 +239,10 @@ def candidates(objs: dict[str, dict], cfg: dict, stars: set[str], here: str | No
         if mine < float(cfg.get("min_hours") or 0):
             continue
         out.append({"rock": des, "star": star, "resource": res, "hours": round(hours, 2), "trip_h": round(trip, 2),
-                    "mine_h": round(mine, 2)})
+                    "mine_h": round(mine, 2), "size": SIZES.index(size_of(o)) if size_of(o) in SIZES else 0})
     here_star = rm.star_of(here)
     out.sort(key=lambda c: (c["star"] != here_star, prio.index(c["resource"]) if c["resource"] in prio else len(prio),
-                            -c["mine_h"], c["rock"]))
+                            -c["size"], -c["mine_h"], c["rock"]))   # Joe 2026-11-19: larger rocks hold more
     return out
 
 
@@ -279,11 +279,14 @@ def ship_take(pile: dict[str, float], shipper: dict, order: list[str] | None = N
     return take
 
 
-# What a rock of each composition holds (live: metallic RENGRELOR-OBJ-1 2026-11-19, ice SOLARES-OBJ-5/-7, mixed
-# FALQUORYX-OBJ-4). Rock and carbonaceous are learned from the first one the app sees (kv rock_yields, learn_yields).
-YIELDS: dict[str, list[str]] = {"metallic": ["structural", "conductive", "rares"],
-                                "ice": ["carbon", "silicates", "volatiles"],
-                                "mixed": ["carbon", "structural", "volatiles"]}
+# What a rock of each composition holds (game docs, concepts/mining "What's inside", Joe 2026-11-19). Mixed rocks hold
+# three random resources, so they are never assumed; a composition the docs don't list is learned from the first rock
+# seen (kv rock_yields, learn_yields).
+YIELDS: dict[str, list[str]] = {"ice": ["volatiles", "carbon", "silicates"],
+                                "rock": ["silicates", "structural", "rares"],
+                                "carbonaceous": ["carbon", "volatiles", "silicates", "rares"],
+                                "metallic": ["structural", "conductive", "rares"]}
+RANDOM_YIELDS = ("mixed",)
 YIELDS_KV = "rock_yields"   # {composition: [resources]} seen on rocks' resource sites
 LOW_COUNT = 3               # "low on": the stockpile's three smallest resources
 
@@ -294,6 +297,8 @@ def learn_yields(objs: dict[str, dict], known: dict[str, list[str]]) -> bool:
     for o in (objs or {}).values():
         comp = str((o or {}).get("composition") or "").lower()
         res = sorted(r for r in rm.resources_left(o) if r in rm.RESOURCES) if comp else []
+        if comp in YIELDS or comp in RANDOM_YIELDS:
+            continue   # documented, or random per rock
         if res and sorted(known.get(comp) or []) != res:
             known[comp] = res
             changed = True
@@ -302,7 +307,9 @@ def learn_yields(objs: dict[str, dict], known: dict[str, list[str]]) -> bool:
 
 def yields(comp: Any, known: dict[str, list[str]] | None = None) -> list[str]:
     c = str(comp or "").lower()
-    return list((known or {}).get(c) or YIELDS.get(c) or [])
+    if c in RANDOM_YIELDS:
+        return []
+    return list(YIELDS.get(c) or (known or {}).get(c) or [])
 
 
 def need_order(stock: dict[str, float]) -> list[str]:
@@ -313,8 +320,9 @@ def need_order(stock: dict[str, float]) -> list[str]:
 def launch_choice(marks: dict[str, dict], star: str, need: list[str], known: dict[str, list[str]] | None = None,
                   ) -> tuple[str | None, str]:
     """The marked Kuiper object in `star` to launch next: (designation or None, why). One that holds a resource the
-    stockpile is low on (its `LOW_COUNT` smallest) comes first, the lowest one first, then the bigger, then by name;
-    an object of a composition the app hasn't seen mined yet comes after those (launching it teaches the app);
+    stockpile is low on (its `LOW_COUNT` smallest) comes first, the lowest one first, then the bigger (Joe 2026-11-19:
+    larger rocks hold more), then by name; a mixed object (three random resources) or one of an unknown composition comes
+    after those, bigger first;
     one known to hold none of the low resources is never launched."""
     low = need[:LOW_COUNT]
     best, why, skipped = None, "", []
@@ -330,7 +338,7 @@ def launch_choice(marks: dict[str, dict], star: str, need: list[str], known: dic
             rank = (0, low.index(hits[0]))
             reason = f"{m.get('composition')}: {', '.join(hits)} (low at the stockpile)"
         else:
-            rank, reason = (1, 0), f"{m.get('composition') or 'unknown'} composition: not mined yet, so it may hold anything"
+            rank, reason = (1, 0), f"{m.get('composition') or 'unknown'} composition: it may hold anything"
         key = (rank, -SIZES.index(size_of(m)) if size_of(m) in SIZES else 0, des)
         if best is None or key < best[0]:
             best = (key, des, reason)

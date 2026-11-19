@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.491.0"
+VERSION = "1.492.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.492.0", "2026-11-19", "Rock chasers use the game docs' list of what each rock holds (Joe): ice volatiles, carbon, silicates; rock silicates, structural, rares; carbonaceous carbon, volatiles, silicates, rares; metallic structural, conductive, rares. Mixed rocks hold three random resources, so they rank after the matching ones. Between rocks that hold the wanted resource, the bigger one goes first, for launches and for mining targets (Joe: larger rocks hold more)."),
     ("1.491.0", "2026-11-19", "Terraforming consoles stop undoing your settings (Joe): a commanded switch or setting stays dotted until a device read shows the game agrees (up to 15 minutes, was a flat 2), and a console redraw asked for before you changed a control is thrown away instead of putting the old value back over your change."),
     ("1.490.0", "2026-11-19", "Rock chasers run on their own (Joe: launch Kuiper objects that provide what the nearest stockpile is low on, mine other resources when idle, and keep them in vector charges). New option follow the stockpile, on by default: rigs mine what the nearest printing hub holds least of first, then everything else; auto launch picks the marked object whose composition holds one of the hub's three lowest resources and keeps one launched rock in flight at a time. Rock compositions are learned from tracked rocks (kv rock_yields). A chaser short of a device, such as the vector charge a launch used up, gets the nearest spare by logistics, and it joins on arrival (the loadout pass never filled unstationed chasers). Idle members left at a rock the fleet isn't working fly to its drop spot at once, loading the rock's pile first (freighter 2CBD7A06 sat at RENGRELOR-OBJ-1 before its impact). The chaser card shows each step of the process: search, marked, launch, inbound rock with its ETA, mine, ship, resupply."),
     ("1.489.0", "2026-11-19", "Prospector tours fill gaps from home outward (Joe: the tours left big unprospected holes inside the relay network). The next star used to be the emptiest neighborhood, which kept sending prospectors to the frontier. Now stars in open ground (over 5 ly from every star prospected from or another prospector's) come first, the innermost 10 ly shell around home first, and in a shell the biggest gap first, so coverage grows as a dense sphere."),

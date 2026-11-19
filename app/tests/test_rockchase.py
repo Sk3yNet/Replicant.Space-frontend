@@ -350,20 +350,23 @@ def test_launch_choice_follows_what_the_stockpile_is_low_on():
              "VEGA-KUIPER-1": {"star": "VEGA", "composition": "ice", "mass_class": "large"}}
     des, why = rc.launch_choice(marks, "SOL", need)
     assert des == "SOL-KUIPER-2" and "carbon" in why
-    marks.pop("SOL-KUIPER-2")
-    assert rc.launch_choice(marks, "SOL", need)[0] == "SOL-KUIPER-3"   # unseen composition: may hold anything
-    # once the app has seen what rock holds, a rock without any low resource is left alone, like the metallic one
-    des, why = rc.launch_choice(marks, "SOL", need, {"rock": ["structural", "silicates"]})
-    assert des == "SOL-KUIPER-3"
-    des, why = rc.launch_choice(marks, "SOL", need, {"rock": ["structural"]})
+    marks["SOL-KUIPER-4"] = {"star": "SOL", "composition": "carbonaceous", "mass_class": "large"}
+    assert rc.launch_choice(marks, "SOL", need)[0] == "SOL-KUIPER-4"   # same need (carbon): the bigger one holds more
+    marks.pop("SOL-KUIPER-2"), marks.pop("SOL-KUIPER-4")
+    assert rc.launch_choice(marks, "SOL", need)[0] == "SOL-KUIPER-3"   # rock holds silicates (game docs)
+    marks["SOL-KUIPER-3"]["composition"] = "mixed"
+    assert rc.launch_choice(marks, "SOL", need)[0] == "SOL-KUIPER-3"   # mixed: three random, may hold anything
+    marks["SOL-KUIPER-3"]["composition"] = "glassy"
+    des, why = rc.launch_choice(marks, "SOL", need, {"glassy": ["structural"]})
     assert des is None and "SOL-KUIPER-1 (metallic)" in why
 
 
 def test_learn_yields_from_tracked_rocks():
     known = {}
-    objs = {"SOL-OBJ-1": {"composition": "Rock", "resource_sites": [{"resources_remaining_pct": {"silicates": 0, "structural": 80}}]},
+    objs = {"SOL-OBJ-1": {"composition": "Glassy", "resource_sites": [{"resources_remaining_pct": {"silicates": 0, "structural": 80}}]},
+            "SOL-OBJ-3": {"composition": "mixed", "resource_sites": [{"resources_remaining_pct": {"rares": 9}}]},
             "SOL-OBJ-2": {"composition": "", "resource_sites": [{"resources_remaining_pct": {"rares": 9}}]}}
-    assert rc.learn_yields(objs, known) and known == {"rock": ["silicates", "structural"]}
+    assert rc.learn_yields(objs, known) and known == {"glassy": ["silicates", "structural"]}
     assert not rc.learn_yields(objs, known)
 
 
