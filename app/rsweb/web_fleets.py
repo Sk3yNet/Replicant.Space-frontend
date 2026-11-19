@@ -86,7 +86,8 @@ async def fleets_ctx(request: Request, only: set[str] | None = None) -> dict:
                 rc.apply_form(f, q.get("form") or {}, q.get("user") or "", q.get("at") or "")   # queued: show it already
             f["chase_cfg"] = rc.settings(f)
             f["chase_view"] = {"phase": "idle", "target": None, "resource": None, "note": None, "ship_note": None,
-                               "marked": {}, "launch": None, **(f.get("chase_run") or {})}
+                               "marked": {}, "launch": None, "need": None, "launch_note": None, "fetch": None,
+                               **(f.get("chase_run") or {})}
     stars_seen = sorted({star_of(d.get("location")) for d in st["devices"] if d.get("location")})
     from .shop import known_traders
     traders = await known_traders(request.app.state.db)

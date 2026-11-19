@@ -31,7 +31,8 @@ SIZES = ["small", "medium", "large"]
 MODES = ("hub", "roam")
 DEFAULTS: dict[str, Any] = {"mode": "roam", "radius": 100.0, "min_size": "small", "priority": "", "min_hours": 2.0,
                             "leave_minutes": 80.0, "ship_min": 50.0, "drop": "", "keep_pct": 5.0, "launched_resources": "",
-                            "search_hours": 24.0, "launch_size": "medium", "launch_at": "", "auto_launch": False}
+                            "search_hours": 24.0, "launch_size": "medium", "launch_at": "", "auto_launch": False,
+                            "follow_need": True}
 SURGE_S_PER_LY = 50.0   # rough surge pace for ranking; the chosen trip is checked with the game's preview
 CRUISE_H = 0.25         # rough in-system trip for ranking
 KUIPER_HOURS = 24.0     # a detected Kuiper object stays this long (docs)
@@ -276,6 +277,68 @@ def ship_take(pile: dict[str, float], shipper: dict, order: list[str] | None = N
         if n > 0:
             take[res], free = n, free - n
     return take
+
+
+# What a rock of each composition holds (live: metallic RENGRELOR-OBJ-1 2026-11-19, ice SOLARES-OBJ-5/-7, mixed
+# FALQUORYX-OBJ-4). Rock and carbonaceous are learned from the first one the app sees (kv rock_yields, learn_yields).
+YIELDS: dict[str, list[str]] = {"metallic": ["structural", "conductive", "rares"],
+                                "ice": ["carbon", "silicates", "volatiles"],
+                                "mixed": ["carbon", "structural", "volatiles"]}
+YIELDS_KV = "rock_yields"   # {composition: [resources]} seen on rocks' resource sites
+LOW_COUNT = 3               # "low on": the stockpile's three smallest resources
+
+
+def learn_yields(objs: dict[str, dict], known: dict[str, list[str]]) -> bool:
+    """Adds the resources of every tracked rock with a composition to `known` (in place). True when something changed."""
+    changed = False
+    for o in (objs or {}).values():
+        comp = str((o or {}).get("composition") or "").lower()
+        res = sorted(r for r in rm.resources_left(o) if r in rm.RESOURCES) if comp else []
+        if res and sorted(known.get(comp) or []) != res:
+            known[comp] = res
+            changed = True
+    return changed
+
+
+def yields(comp: Any, known: dict[str, list[str]] | None = None) -> list[str]:
+    c = str(comp or "").lower()
+    return list((known or {}).get(c) or YIELDS.get(c) or [])
+
+
+def need_order(stock: dict[str, float]) -> list[str]:
+    """Every resource, the one the stockpile holds least of first (ties in the standard order)."""
+    return sorted(rm.RESOURCES, key=lambda r: (float((stock or {}).get(r) or 0), rm.RESOURCES.index(r)))
+
+
+def launch_choice(marks: dict[str, dict], star: str, need: list[str], known: dict[str, list[str]] | None = None,
+                  ) -> tuple[str | None, str]:
+    """The marked Kuiper object in `star` to launch next: (designation or None, why). One that holds a resource the
+    stockpile is low on (its `LOW_COUNT` smallest) comes first, the lowest one first, then the bigger, then by name;
+    an object of a composition the app hasn't seen mined yet comes after those (launching it teaches the app);
+    one known to hold none of the low resources is never launched."""
+    low = need[:LOW_COUNT]
+    best, why, skipped = None, "", []
+    for des, m in sorted((marks or {}).items()):
+        if m.get("star") != star:
+            continue
+        ys = yields(m.get("composition"), known)
+        if ys:
+            hits = [r for r in low if r in ys]
+            if not hits:
+                skipped.append(f"{des} ({m.get('composition')})")
+                continue
+            rank = (0, low.index(hits[0]))
+            reason = f"{m.get('composition')}: {', '.join(hits)} (low at the stockpile)"
+        else:
+            rank, reason = (1, 0), f"{m.get('composition') or 'unknown'} composition: not mined yet, so it may hold anything"
+        key = (rank, -SIZES.index(size_of(m)) if size_of(m) in SIZES else 0, des)
+        if best is None or key < best[0]:
+            best = (key, des, reason)
+    if best:
+        return best[1], best[2]
+    if skipped:
+        why = f"none holds what the stockpile is low on ({', '.join(low)}): {', '.join(skipped)} left alone"
+    return None, why
 
 
 def marked(kuiper: list[dict], cfg: dict, star: str, at: str) -> dict[str, dict]:

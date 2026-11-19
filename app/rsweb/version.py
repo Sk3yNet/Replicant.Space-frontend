@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.489.0"
+VERSION = "1.490.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.490.0", "2026-11-19", "Rock chasers run on their own (Joe: launch Kuiper objects that provide what the nearest stockpile is low on, mine other resources when idle, and keep them in vector charges). New option follow the stockpile, on by default: rigs mine what the nearest printing hub holds least of first, then everything else; auto launch picks the marked object whose composition holds one of the hub's three lowest resources and keeps one launched rock in flight at a time. Rock compositions are learned from tracked rocks (kv rock_yields). A chaser short of a device, such as the vector charge a launch used up, gets the nearest spare by logistics, and it joins on arrival (the loadout pass never filled unstationed chasers). Idle members left at a rock the fleet isn't working fly to its drop spot at once, loading the rock's pile first (freighter 2CBD7A06 sat at RENGRELOR-OBJ-1 before its impact). The chaser card shows each step of the process: search, marked, launch, inbound rock with its ETA, mine, ship, resupply."),
     ("1.489.0", "2026-11-19", "Prospector tours fill gaps from home outward (Joe: the tours left big unprospected holes inside the relay network). The next star used to be the emptiest neighborhood, which kept sending prospectors to the frontier. Now stars in open ground (over 5 ly from every star prospected from or another prospector's) come first, the innermost 10 ly shell around home first, and in a shell the biggest gap first, so coverage grows as a dense sphere."),
     ("1.488.0", "2026-11-18", "Dashboard › Stockpiles draws every resource on one chart with a shared scale (Joe), so the piles compare at a glance. Each resource keeps its color; the key lists each total, its change over the period and any amount in transit."),
     ("1.487.0", "2026-11-18", "Resonance barges print on epitaxy printers (Joe: they are grown by epitaxial deposition). Prints of resonance_barge go only to printers with the epitaxy feature, like exotic blueprints: loadouts send them there, the app's queue keeps them off general printers, and the Blueprints page lists the barge on the Epitaxy printers card."),

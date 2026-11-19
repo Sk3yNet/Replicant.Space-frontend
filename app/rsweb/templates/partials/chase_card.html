@@ -7,6 +7,21 @@
     {% if run.ship_note %}<span class="muted"> · {{ run.ship_note }}</span>{% endif %}
     {% if run.target %}<form class="inline" hx-post="/fleets/{{ f.id }}/chase" hx-target="next .chase-out" hx-confirm="Drop {{ run.target }}? The fleet picks another rock (it skips this one for 6 h).">
       <input type="hidden" name="action" value="drop"><button class="small">Drop target</button></form>{% endif %}<span class="chase-out"></span></div>
+  {# Joe 2026-11-19: where the rock mining process stands, step by step #}
+  {% set star = (run.need.hub if run.need else f.home) %}{% set srch = (run.searched or {}).get(c.launch_at.split('-')[0] if c.launch_at else f.home) %}
+  <div class="chase-steps" style="display:flex;flex-wrap:wrap;gap:4px;margin:4px 0">
+    {% macro pill(label, text, on) %}<span title="{{ text }}" style="border:1px solid var(--line);border-radius:10px;padding:1px 7px;{{ 'background:var(--accent-bg, rgba(80,140,255,.15));font-weight:600' if on }}">{{ label }}: <span class="muted">{{ text }}</span></span>{% endmacro %}
+    {{ pill('1 Search', (srch | ago) if srch else 'not yet', false) }}
+    {{ pill('2 Marked', ((run.marked or {}) | length) ~ ' object(s)', (run.marked or {}) | length > 0) }}
+    {{ pill('3 Launch', ('launching ' ~ run.launch.rock ~ (' · ' ~ run.launch.note if run.launch.get('note') else '')) if run.launch else (run.launch_note or ('auto' if c.auto_launch else 'by hand')), run.launch) }}
+    {{ pill('4 Inbound', (run.inbound | map(attribute='rock') | join(', ')) ~ ' → ' ~ (run.inbound[0].at or '?') ~ ' · ETA ' ~ (run.inbound[0].eta | ago) if run.inbound else 'none', run.inbound) }}
+    {{ pill('5 Mine', (run.target ~ ' (' ~ (run.resource or '?') ~ ')') if run.target else 'idle', run.phase == 'mining') }}
+    {{ pill('6 Ship', run.ship_note or ('to ' ~ ((run.drops or {}).get(run.target) or 'drop')) if run.target else '—', run.target and run.phase == 'mining') }}
+    {{ pill('7 Resupply', ((run.fetch | length) ~ ' on the way') if run.fetch else ('short ' ~ (run.short_why | join(', ') | replace('_', ' ')) if run.short_why else 'full'), run.fetch) }}
+  </div>
+  {% if run.need %}<div class="muted">Stockpile at {{ run.need.hub }} lowest on {% for r in run.need.order[:3] %}{{ r }} ({{ run.need.stock.get(r, 0) }}){{ ', ' if not loop.last }}{% endfor %}{% if c.follow_need %}: mined first, then everything else{% endif %}</div>{% endif %}
+  {% if run.fetch %}<div class="muted">On the way by logistics to {{ run.fetch_at }}: {% for code, v in run.fetch | dictsort %}{{ code }} ({{ v.type | replace('_', ' ') }}){{ ', ' if not loop.last }}{% endfor %}</div>{% endif %}
+  {% if run.short_why %}<div class="muted">Short: {% for t, why in run.short_why | dictsort %}{{ t | replace('_', ' ') }} ({{ why }}){{ '; ' if not loop.last }}{% endfor %}</div>{% endif %}
   <details style="margin-top:4px"><summary>Target criteria</summary>
     <style>
       .chase-form fieldset{border:1px solid var(--line);border-radius:6px;margin:6px 0;padding:4px 8px}
@@ -31,6 +46,8 @@
       <fieldset><legend>Which rocks</legend>
         <label class="f">min size <select name="min_size">{% for s in ['small', 'medium', 'large'] %}<option {{ 'selected' if c.min_size == s }}>{{ s }}</option>{% endfor %}</select>
           <span class="muted">Smallest mass class worth the trip. Size sets the mining slots, shared by every player: small 1, medium 2, large 5 rigs. Natural rocks are mostly small. Default small.</span></label>
+        <label class="f">follow the stockpile <input type="checkbox" name="follow_need" {{ 'checked' if c.follow_need }}>
+          <span class="muted">Mine and launch for what the nearest printing hub's stockpile holds least of, then mine everything else. On: the priority list below is ignored. Default on.</span></label>
         <label class="f">priority <input name="priority" value="{{ c.priority }}" placeholder="rares, conductive" size="22">
           <span class="muted">Resources to mine first, in order, separated by commas (structural, conductive, silicates, carbon, volatiles, rares). Rocks holding the first one rank higher; the rest are mined after the list, to dust. Empty: the standard order.</span></label>
         <label class="f">min hours <span><input name="min_hours" type="number" min="0" step="0.5" value="{{ c.min_hours }}" style="width:4em"> h</span>
@@ -58,12 +75,12 @@
         <label class="f">launch at <input name="launch_at" value="{{ c.launch_at }}" placeholder="planet or moon, e.g. {{ f.home }}-3" size="16">
           <span class="muted">The body a marked object is launched at: it hits there, with its terraform effect, unless mined out.</span></label>
         <label class="f">auto launch <input type="checkbox" name="auto_launch" {{ 'checked' if c.auto_launch }}>
-          <span class="muted">Launch marked objects at the launch-at body without asking. Each launch uses up a vector charge. Off: you press Launch.</span></label>
+          <span class="muted">Launch marked objects at the launch-at body without asking, one rock in flight at a time: the one holding what the stockpile is lowest on (an object known to hold none of its three lowest is left alone). Each launch uses up a vector charge; a new one comes from the spares by logistics. Off: you press Launch.</span></label>
       </fieldset>
       <button class="small">Save</button>
     </form><span class="chase-out"></span></details>
   {% set marks = run.marked or {} %}
-  {% if marks or run.launch %}<div style="margin-top:4px"><b>Marked for launch</b>
+  {% if marks or run.launch %}<div style="margin-top:4px"><b>Marked for launch</b>{% if c.auto_launch and run.launch_note %} <span class="muted">· {{ run.launch_note }}</span>{% endif %}
     {% if run.launch %}<div>Launching <b>{{ run.launch.rock }}</b> at {{ run.launch.at }}{% if run.launch.get('note') %} <span class="muted">· {{ run.launch.note }}</span>{% endif %}
       <form class="inline" hx-post="/fleets/{{ f.id }}/chase" hx-target="next .chase-out"><input type="hidden" name="action" value="unlaunch"><button class="small">Call off</button></form><span class="chase-out"></span></div>{% endif %}
     {% for des, m in marks | dictsort %}<div>• <span class="mono">{{ des }}</span> {{ m.get('mass_class') or '' }} {{ m.get('composition') or '' }} <span class="muted">found {{ m.get('found_at') | ago }}</span>

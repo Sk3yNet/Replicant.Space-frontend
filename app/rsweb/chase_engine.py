@@ -54,6 +54,13 @@ class ChaseMixin:
                "hosts": {r.get("hosted_device_code") for r in reps.values() if r.get("hosted_device_code")},
                "inv": {i.get("location"): i.get("items") or {} for i in normalize_inventory(await self.db.kv_get("inventory", []))},
                "scanned": {r: s["at"] for r, s in (await self.rock_scans()).items()}, "fleets": mine}
+        known = await self.db.kv_get(rc.YIELDS_KV, {}) or {}
+        if rc.learn_yields(objs, known):
+            await self.db.kv_set(rc.YIELDS_KV, known)
+        ctx["yields"] = known
+        # printing hubs (as megas.nearest_hubs counts them): the stockpile a chaser's haul ends up in
+        ctx["hubs"] = sorted({x["home"] for x in fleet_list if x.get("home") and x.get("station")
+                              and x.get("materials") == "self" and x.get("role") != "logistics"})
         out: list[str] = []
         changed = False
         for f in mine:
@@ -84,6 +91,9 @@ class ChaseMixin:
         ms = fl.members(f, devices)
         k = rc.kinds(ms)
         out: list[str] = []
+        need = self._chase_need(f, run, ctx, k)
+        if cfg.get("follow_need"):   # Joe 2026-11-19: mine what the nearest stockpile is low on first, then anything
+            cfg = {**cfg, "priority": ", ".join(need)}
         if not k["rigs"]:
             run["note"] = "needs mining rigs (devices with the fracture feature)"
             return out
@@ -141,6 +151,96 @@ class ChaseMixin:
             out += await self._chase_ship(f, cfg, run, ctx, k, run["target"])
         out += await self._chase_search(f, cfg, run, ctx, k)
         out += await self._chase_launch(f, cfg, run, ctx, k)
+        out += await self._chase_refill(f, run, ctx, k)
+        out += await self._chase_off_rocks(f, run, ctx, ms)
+        return out
+
+    async def _chase_off_rocks(self, f: dict, run: dict, ctx: dict, ms: list[dict]) -> list[str]:
+        """Members idle at a rock the fleet isn't working (Joe 2026-11-19: freighter 2CBD7A06 sat at RENGRELOR-OBJ-1
+        hours before its impact) fly to the rock's drop spot (else the fleet carrier's spot) at once; nothing waits for
+        the evacuation hour."""
+        from . import fleets as fl
+        from . import rockchase as rc
+        from .automations import step
+        working = run.get("target") if run.get("phase") in ("mining", "moving") else None
+        car = next((c for c in ms if fl.is_carrier(c) and not rc.is_rock(c.get("location"))), None)
+        out: list[str] = []
+        for d in ms:
+            code, loc = d["device_code"], d.get("location") or ""
+            if not rc.is_rock(loc) or loc == working or code in ctx["busy"] or d.get("stowed_in_device_code") \
+                    or d.get("attached_to_device_code") or not rm_can_fly(d) or str(d.get("status") or "").lower() != "idle":
+                continue
+            to = (run.get("drops") or {}).get(loc) or ((car or {}).get("location") if fl.star_of((car or {}).get("location")) == fl.star_of(loc) else None)
+            if not to or rc.is_rock(to):
+                continue
+            # Joe 2026-11-19: a hauler loads what the rock still holds before it goes
+            take = rc.ship_take((ctx.get("inv") or {}).get(loc) or {}, d, rm_parse(run))
+            steps = [step(f"{code}: load {', '.join(f'{q} {r}' for r, q in take.items())}", f"/devices/{code}",
+                          {"command": "collect_resources", "resources": take})] if take else []
+            steps += [step(f"{code} → {to}", f"/devices/{code}", {"command": "travel", "destination": to}, critical=True),
+                      fl._wait_arrive(code, to)]
+            if take:
+                steps.append(step(f"{code}: deposit at {to}", f"/devices/{code}", {"command": "deposit_resources"}))
+            job = await self.create_job("rock_chaser", f"{f['name']}: {code} off {loc} → {to}", code, steps, {"devices": [code]})
+            if job:
+                ctx["busy"].add(code)
+                out.append(f"{code} leaves {loc} for {to}: nothing waits at a rock")
+        return out
+
+    def _chase_need(self, f: dict, run: dict, ctx: dict, k: dict) -> list[str]:
+        """Resources by how little the nearest printing hub's stockpile holds (the fleet's haul ends up there; no hub
+        known: the fleet's own system), least first. Kept in run["need"] for the card."""
+        from . import balance
+        from . import rockmining as rm
+        star = rm.star_of(self._chase_where(k, ctx["devices"])) or f["home"]
+        hub = balance.nearest(star, ctx.get("hubs") or [], ctx["pos"]) or star
+        stock: dict[str, float] = {}
+        for loc, items in (ctx.get("inv") or {}).items():
+            if rm.star_of(loc) == hub:
+                for r, q in (items or {}).items():
+                    try:
+                        stock[r] = stock.get(r, 0.0) + float(q or 0)
+                    except (TypeError, ValueError):
+                        pass
+        from . import rockchase as rc
+        order = rc.need_order(stock)
+        run["need"] = {"hub": hub, "order": order, "stock": {r: int(stock.get(r, 0)) for r in order}}
+        return order
+
+    async def _chase_refill(self, f: dict, run: dict, ctx: dict, k: dict) -> list[str]:
+        """Types the fleet is short of (a vector charge used up by a launch, a lost freighter) come from the nearest
+        spares by logistics, as for a terraformer at work (tf_engine._tf_fetch): delivered to where the fleet's carrier
+        waits in its home system, and they join on arrival. The loadout pass never fills a chaser (it isn't stationed)."""
+        from . import fleets as fl
+        from . import rockchase as rc
+        fetch = run.setdefault("fetch", {})
+        spot = run.get("fetch_at") if fetch else None
+        if not spot:
+            car = k["carriers"][0] if k["carriers"] else None
+            loc = (car or {}).get("location") or ""
+            if not car or car.get("stowed_in_device_code") or car.get("attached_to_device_code") or rc.is_rock(loc) \
+                    or fl.star_of(loc) != f["home"]:
+                if not fetch:
+                    run.pop("fetch", None)
+                return []
+            spot = loc
+        if not fetch and not fl.short_list(f, ctx["devices"]):
+            run.pop("fetch", None)
+            run.pop("fetch_at", None)
+            return []
+        steps: list[dict] = []
+        out = await self._tf_fetch(f, spot, run, ctx, [], fetch, steps)
+        if fetch:
+            run["fetch_at"] = spot
+        else:
+            run.pop("fetch", None)
+            run.pop("fetch_at", None)
+        if steps:
+            codes = sorted({s["path"].rsplit("/", 1)[-1] for s in steps} - {""})
+            job = await self.create_job("rock_chaser", f"{f['name']}: members for {spot}", codes[0], steps,
+                                        {"devices": codes, "fleet": f["id"]})
+            if job:
+                ctx["busy"] |= set(codes)
         return out
 
     # --- choosing and reaching a target -------------------------------------------------------------------------
@@ -709,12 +809,31 @@ class ChaseMixin:
         """run["launch"] {rock, at} (Fleet details, or auto_launch at launch_at): a fleet vector charge goes to the Kuiper
         object's belt (flying itself, or on the carrier while the fleet has no target) and detonates it at the body."""
         from . import rockchase as rc
+        from . import rockmining as rm
         req = run.get("launch")
         at = str(cfg.get("launch_at") or "").strip().upper()
+        mine_by = f"fleet {f['name']}"
+        open_ = rm.open_rocks(ctx["objs"])
+        inbound = [{"rock": d, "eta": (open_[d] or {}).get("impact_eta"), "at": (open_[d] or {}).get("impact_target")}
+                   for d, v in sorted((await self.db.kv_get(rc.LAUNCHED_KV, {}) or {}).items())
+                   if (v or {}).get("by") == mine_by and d in open_]
+        if inbound:
+            run["inbound"] = inbound
+        else:
+            run.pop("inbound", None)
         if not req and cfg.get("auto_launch") and at:
-            des = next((d for d, m in sorted((run.get("marked") or {}).items()) if m.get("star") == at.split("-")[0]), None)
-            if des:
-                req = run["launch"] = {"rock": des, "at": at, "by": "auto"}
+            mine = f"fleet {f['name']}"
+            flying = [d for d, v in (await self.db.kv_get(rc.LAUNCHED_KV, {}) or {}).items()
+                      if (v or {}).get("by") == mine and d in rm.open_rocks(ctx["objs"])]
+            if flying:   # one launched rock at a time: the rigs work one rock
+                run["launch_note"] = f"next launch once {', '.join(sorted(flying))} is gone"
+            else:
+                run.pop("inbound", None)
+                need = (run.get("need") or {}).get("order") or rm.RESOURCES
+                des, why = rc.launch_choice(run.get("marked") or {}, at.split("-")[0], need, ctx.get("yields"))
+                run["launch_note"] = why
+                if des:
+                    req = run["launch"] = {"rock": des, "at": at, "by": "auto", "why": why}
         if not req:
             return []
         des, body = req["rock"], req["at"]
@@ -785,6 +904,10 @@ class ChaseMixin:
             req.update({"job": job["id"], "note": note})
             return [line]
         return []
+
+
+def rm_parse(run: dict) -> list[str]:
+    return list(((run.get("need") or {}).get("order")) or [])
 
 
 def rm_can_fly(d: dict) -> bool:

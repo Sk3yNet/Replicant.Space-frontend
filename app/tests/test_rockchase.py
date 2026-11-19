@@ -338,3 +338,117 @@ def test_every_next_target_exists_after_its_form():
             if not re.search(r'class="[^"]*\b' + re.escape(m.group(1)) + r'\b', s[m.end():]):
                 bad.append(f"{os.path.basename(p)}:{s[:m.start()].count(chr(10)) + 1} {m.group(1)}")
     assert not bad, bad
+
+
+def test_launch_choice_follows_what_the_stockpile_is_low_on():
+    """Joe 2026-11-19: launch the Kuiper objects that hold what the nearest stockpile is low on."""
+    need = rc.need_order({"structural": 900, "conductive": 500, "rares": 400, "silicates": 50, "volatiles": 20})
+    assert need[:3] == ["carbon", "volatiles", "silicates"]
+    marks = {"SOL-KUIPER-1": {"star": "SOL", "composition": "metallic", "mass_class": "large"},
+             "SOL-KUIPER-2": {"star": "SOL", "composition": "ice", "mass_class": "medium"},
+             "SOL-KUIPER-3": {"star": "SOL", "composition": "rock", "mass_class": "large"},
+             "VEGA-KUIPER-1": {"star": "VEGA", "composition": "ice", "mass_class": "large"}}
+    des, why = rc.launch_choice(marks, "SOL", need)
+    assert des == "SOL-KUIPER-2" and "carbon" in why
+    marks.pop("SOL-KUIPER-2")
+    assert rc.launch_choice(marks, "SOL", need)[0] == "SOL-KUIPER-3"   # unseen composition: may hold anything
+    # once the app has seen what rock holds, a rock without any low resource is left alone, like the metallic one
+    des, why = rc.launch_choice(marks, "SOL", need, {"rock": ["structural", "silicates"]})
+    assert des == "SOL-KUIPER-3"
+    des, why = rc.launch_choice(marks, "SOL", need, {"rock": ["structural"]})
+    assert des is None and "SOL-KUIPER-1 (metallic)" in why
+
+
+def test_learn_yields_from_tracked_rocks():
+    known = {}
+    objs = {"SOL-OBJ-1": {"composition": "Rock", "resource_sites": [{"resources_remaining_pct": {"silicates": 0, "structural": 80}}]},
+            "SOL-OBJ-2": {"composition": "", "resource_sites": [{"resources_remaining_pct": {"rares": 9}}]}}
+    assert rc.learn_yields(objs, known) and known == {"rock": ["silicates", "structural"]}
+    assert not rc.learn_yields(objs, known)
+
+
+def test_follow_need_mines_the_scarcest_then_everything_else():
+    from rsweb import rockmining as rm
+    cfg = {**rc.DEFAULTS, "priority": ", ".join(rc.need_order({"rares": 500, "carbon": 0}))}
+    o = {"launched_by_you": True, "resource_sites": [{"resources_remaining_pct": {"carbon": 0, "conductive": 100, "rares": 0}}]}
+    assert rm.pick(o, cfg) == "conductive"   # the wanted ones are gone: the rigs take the rest (Joe: when idle)
+
+
+def test_spent_vector_charge_is_replaced_from_the_spares(client):  # noqa: F811
+    """Live 2026-11-19: Chaser_1 used its only vector charge at 04:28 and none came back (the loadout pass skips
+    unstationed fleets). A spare is now sent by logistics to where the carrier waits, and joins on arrival."""
+    spare = {"device_code": "VCS", "device_type": "vector_charge", "location": "SOL-BELT-1", "status": "idle",
+             "tags": ["spare"], "features": ["cruise", "stow"], "available_commands": ["travel"]}
+    db, e = _setup(client, [rig("RIG1", "SOL-3-L4"), carrier("PLAT", "SOL-3-L4"), spare], {})
+    f = client.portal.call(e.fleets)
+    f[0]["wants"] = {"mining_rig": 1, "surge_platform": 1, "vector_charge": 1}
+    f[0]["chase_run"] = {"searched": {"SOL": iso(0)}}
+    client.portal.call(e.save_fleets, f)
+    out = client.portal.call(e.rock_chase_pass)
+    assert any("VCS (vector_charge) is free: logistics brings it to SOL-3-L4" in x for x in out)
+    run = client.portal.call(e.fleets)[0]["chase_run"]
+    assert run["fetch_at"] == "SOL-3-L4" and "VCS" in run["fetch"]
+    job = next(j for j in client.portal.call(e.jobs) if "members for SOL-3-L4" in j["title"])
+    for j in [job]:
+        j["status"] = "done"
+        client.portal.call(e._update, j)
+    devs = client.portal.call(db.kv_get, "devices")
+    for d in devs:
+        if d["device_code"] == "VCS":
+            d.update({"location": "SOL-3-L4", "tags": ["at:sol-3-l4"]})
+    client.portal.call(db.kv_set, "devices", devs)
+    out = client.portal.call(e.rock_chase_pass)
+    assert any("VCS (vector_charge) arrived at SOL-3-L4 and joins" in x for x in out)
+    assert not client.portal.call(e.fleets)[0]["chase_run"].get("fetch")
+
+
+def test_auto_launch_waits_while_its_last_rock_flies(client):  # noqa: F811
+    charge = {"device_code": "VC1", "device_type": "vector_charge", "location": "SOL-KUIPER", "status": "idle",
+              "tags": ["fleet:rc"], "features": ["cruise"], "available_commands": ["detonate", "travel"]}
+    db, e = _setup(client, [rig("RIG1", "SOL-OBJ-9"), charge], {"SOL-OBJ-9": rock("SOL-OBJ-9")},
+                   {"launch_at": "SOL-3", "auto_launch": True})
+    client.portal.call(db.kv_set, rc.LAUNCHED_KV, {"SOL-OBJ-9": {"by": "fleet Chaser", "status": "launched"}})
+    f = client.portal.call(e.fleets)
+    f[0]["chase_run"] = {"searched": {"SOL": iso(0)}, "read": {"SOL": iso(0)},
+                         "marked": {"SOL-KUIPER-1": {"star": "SOL", "composition": "ice", "mass_class": "medium", "found_at": iso(0)}}}
+    client.portal.call(e.save_fleets, f)
+    out = client.portal.call(e.rock_chase_pass)
+    assert not any("launched" in x for x in out)
+    run = client.portal.call(e.fleets)[0]["chase_run"]
+    assert "SOL-OBJ-9" in run["launch_note"] and not run.get("launch")
+
+
+def test_idle_member_leaves_a_rock_the_fleet_is_not_working(client):  # noqa: F811
+    """Joe 2026-11-19: freighter 2CBD7A06 sat idle at RENGRELOR-OBJ-1 hours before the impact."""
+    fr = {"device_code": "FR1", "device_type": "cargo_freighter", "location": "SOL-OBJ-1", "status": "idle",
+          "tags": ["fleet:rc"], "features": ["transport", "cruise"], "cargo_capacity": 500,
+          "available_commands": ["travel"]}
+    db, e = _setup(client, [rig("RIG1", "SOL-3-L4"), fr], {"SOL-OBJ-1": rock(pct={"rares": 0})})
+    f = client.portal.call(e.fleets)
+    f[0]["chase_run"] = {"phase": "idle", "drops": {"SOL-OBJ-1": "SOL-3-L4"}, "searched": {"SOL": iso(0)}}
+    client.portal.call(e.save_fleets, f)
+    out = client.portal.call(e.rock_chase_pass)
+    assert "Chaser: FR1 leaves SOL-OBJ-1 for SOL-3-L4: nothing waits at a rock" in out
+
+
+def test_rock_leaver_loads_the_pile_and_the_card_shows_each_step(client):  # noqa: F811
+    from test_ops import H
+    fr = {"device_code": "FR1", "device_type": "cargo_freighter", "location": "SOL-OBJ-1", "status": "idle",
+          "tags": ["fleet:rc"], "features": ["transport", "cruise"], "cargo_capacity": 500, "cargo_used": 0,
+          "available_commands": ["travel", "collect_resources"]}
+    db, e = _setup(client, [rig("RIG1", "SOL-3-L4"), fr], {"SOL-OBJ-1": rock(pct={"rares": 0})}, {"launch_at": "SOL-3"})
+    inv = client.portal.call(db.kv_get, "inventory") or []
+    client.portal.call(db.kv_set, "inventory", inv + [{"location": "SOL-OBJ-1", "items": {"rares": 40}}])
+    client.portal.call(db.kv_set, rc.LAUNCHED_KV, {"SOL-OBJ-1": {"by": "fleet Chaser", "status": "launched"}})
+    f = client.portal.call(e.fleets)
+    f[0]["chase_run"] = {"phase": "idle", "drops": {"SOL-OBJ-1": "SOL-3-L4"}, "searched": {"SOL": iso(0)}}
+    client.portal.call(e.save_fleets, f)
+    client.portal.call(e.rock_chase_pass)
+    job = next(j for j in client.portal.call(e.jobs) if "FR1 off SOL-OBJ-1" in j["title"])
+    bodies = [st.get("body") for st in job["steps"]]
+    assert bodies[0] == {"command": "collect_resources", "resources": {"rares": 40}}
+    assert {"command": "deposit_resources"} in bodies
+    run = client.portal.call(e.fleets)[0]["chase_run"]
+    assert run["inbound"][0]["rock"] == "SOL-OBJ-1"
+    page = client.get("/fleets/details?all=1", headers=H).text
+    assert "4 Inbound" in page and "SOL-OBJ-1 → SOL-3" in page and "7 Resupply" in page
