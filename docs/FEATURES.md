@@ -210,13 +210,13 @@ your relays / wards / beacons / devices, fleet homes, trade posts); the rest dro
   - A delivered relay is switched on before its carrier leaves.
   - A switched-off relay gets a red ring unless its system has a working relay or hub.
 - **Suggested bridges**: the fewest new relays (at most 10) joining two networks, with *Add route* to order them.
-  With *long-range stations* on, a deep space relay station goes where it saves devices (one of your systems may get
+  With *long-range stations* on, a deep space relay station goes where it saves five relays or more (one of your systems may get
   one beside its relay); the page shows the station blueprint's cost.
 - **Relay targets**: name a system you visit often and the app orders a relay in every system on the shortest chain
   (fewest new relays) linking it to one of your relay networks with a hub, so commands reach it without a replicant
   there. Systems on order count as up, so targets share chains; a target is rechecked every few minutes, and dropped
-  orders or a link that breaks later are ordered again until you remove it. Chains may use long-range stations when
-  *long-range stations* is ticked.
+  orders or a link that breaks later are ordered again until you remove it. Only relays and, with *long-range
+  stations* ticked, a deep space relay station where it saves five relays or more (never a hub).
 - **Relay rollout**: a relay in every system within a radius of seed systems you name, nearest first.
   - Each seed has its own radius (a box per seed, or `STAR:ly` in the seeds list); unset ones use the default.
   - As many orders open as your logistics vessels with a replicant aboard have free hold slots (each as *add* on the

@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.497.0"
+VERSION = "1.497.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.497.1", "2026-11-19", "Deep space relay stations only where they pay (Joe): relay target chains and suggested bridges count a station as five relays, so they use one only where it saves five relays or more; otherwise plain relays. Hubs are never ordered to span gaps; the rollout already gives a station only to a system no relay chain reaches."),
     ("1.497.0", "2026-11-19", "Relay targets on Map › Relays (Joe): name a system you visit often and the app orders a relay in every system on the shortest chain linking it to one of your relay networks with a hub (fewest new relays; systems on order count as up, so targets share chains), so it needs no replicant there. Checked every few minutes; dropped orders and broken links are ordered again until you remove the target."),
     ("1.496.0", "2026-11-19", "Spare carriers are no longer borrowed (Joe): device moves use only logistics carriers and a fleet's own carriers, so fleetless spares gather at the nearest hub for you to assign. A new Fleets setting, Borrow spare (fleetless) carriers for device moves, brings back the old behavior. Logistics fleet cards get a release after its run box per member: it leaves the fleet at once so no new run picks it, finishes the run it's on, and is tagged spare to gather at a hub; the fleet then wants one fewer of its type."),
     ("1.495.0", "2026-11-19", "Needs an active replicant aboard works per carrier on logistics fleets (Joe): each idle logistics carrier with an empty cradle, a heaven vessel or a matrix container riding on a mobile fleet or surge platform, fetches the nearest filled matrix tagged spare within the supply range and stows it in the cradle, so it can escort trips beyond the relay network. One spare per cradle; the fleet card shows what it did. Other fleets keep the fleet-wide check."),

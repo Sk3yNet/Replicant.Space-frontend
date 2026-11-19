@@ -24,7 +24,7 @@
     <i>Add route</i> asks for a relay in each system on it, like <i>add</i> on the Systems list: an idle one there is switched
     on, else a spare is sent, else one is printed in range; placement takes it to an L4/L5 point.
     {% if roll.long %}With <i>long-range stations</i> on (Relay rollout below), a deep space relay station ({{ station.range | round(1) }} ly)
-    goes where it saves relays, and one of your systems may get one beside its relay (<span class="pill small">station</span>).{% else %}Gaps no relay chain crosses
+    goes where it saves five relays or more, and one of your systems may get one beside its relay (<span class="pill small">station</span>).{% else %}Gaps no relay chain crosses
     show up once <i>long-range stations</i> is ticked under Relay rollout.{% endif %}</p>
   {% if station.known %}<p class="small">Deep space relay station <code>deep_space_relay_station</code>: {{ station.range | round(1) }} ly
     · costs {% for r, q in station.cost | dictsort %}{{ q | num }} {{ r }}{{ ', ' if not loop.last }}{% else %}?{% endfor %}
@@ -46,7 +46,7 @@
     it to one of your relay networks with a system hub (fewest new relays; systems with a relay on order count as up, so
     targets share chains), so commands reach it without a replicant there. Orders work as <i>add</i> on the Systems list.
     It's checked again every few minutes and stays until you remove it: an order that drops, or a link that breaks later,
-    is ordered again. {% if roll.long %}Long-range stations are on (Relay rollout below), so a chain may use one.{% else %}Tick <i>long-range stations</i> under Relay rollout to let a chain cross gaps no relay spans.{% endif %}</p>
+    is ordered again. {% if roll.long %}Long-range stations are on (Relay rollout below), so a chain may use one where it saves five relays or more.{% else %}Tick <i>long-range stations</i> under Relay rollout to let a chain cross gaps no relay spans.{% endif %}</p>
   <form class="row small" hx-post="/map/relays/target" hx-target="next .rt-out">
     <input type="hidden" name="action" value="add">
     <label>System <input name="star" size="20" placeholder="e.g. ISOLITHOR"></label><button>Add target</button>

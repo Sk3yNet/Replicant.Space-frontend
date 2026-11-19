@@ -27,6 +27,9 @@ STATION_LY = 10.0
 RANGES = {"ftl_relay": RELAY_LY, STATION: STATION_LY, "system_hub": HUB_LY}   # when neither device nor blueprint says
 RELAY_TYPES = ("ftl_relay", STATION)   # what the relay orders and the rollout put up
 MAX_BRIDGE = 10
+# a deep space relay station costs about five relays' worth of resources (owner 2026-11-19): a route takes one only
+# where it saves STATION_COST relays or more; fewer saved, the all-relay route wins
+STATION_COST = 5
 # one color per network, clear of the map's hazard red, resource orange, anomaly magenta and supply amber
 PALETTE = ["#4fc3f7", "#fff176", "#69f0ae", "#b39ddb", "#d4e157", "#80cbc4", "#e0e0e0", "#90a4ff", "#c5a880", "#a5d6a7"]
 
@@ -311,7 +314,8 @@ def bridges(net: dict, pos: dict[str, Any], max_new: int = MAX_BRIDGE, long: boo
     """The fewest new relays linking each pair of your networks (≤ max_new). [{a, b, stars: [new relay systems in order],
     n, long: [those of them that get a long-range station]}] — one per pair, cheapest first. A search from each network
     over catalog stars, 7.5 ly a hop; with `long`, a deep space relay station (10 ly) may go where it saves devices (an
-    existing system of yours may get one beside its relay), fewest stations among equally short routes."""
+    existing system of yours may get one beside its relay) only where it saves STATION_COST relays or more (a station
+    counts as that many relays; owner 2026-11-19); fewest stations among equally cheap routes."""
     ns, of = net["nodes"], net["of"]
     if len(net["networks"]) < 2:
         return []
@@ -383,9 +387,9 @@ def _bridges(net: dict, pos: dict[str, Any], max_new: int, long: bool = False) -
                 cost[state], prev[state], placed[state] = c, parent, new
                 heapq.heappush(heap, (c, state))
         for s in g["stars"]:
-            push((0, 0), (s, ns[s]["range"]), None, False)
+            push((0, 0, 0), (s, ns[s]["range"]), None, False)
             if lh > ns[s]["range"]:   # a station added beside what works there
-                push((1, 1), (s, lh), None, True)
+                push((STATION_COST, 1, 1), (s, lh), None, True)
         while heap:
             c, state = heapq.heappop(heap)
             if cost.get(state) != c:
@@ -402,23 +406,26 @@ def _bridges(net: dict, pos: dict[str, Any], max_new: int, long: bool = False) -
                         continue
                     if links(d, r, ns[t]["range"]):
                         total, extra = c, None
-                    elif lh and links(d, r, lh) and c[0] < max_new:
-                        total, extra = (c[0] + 1, c[1] + 1), t   # a station added at the far end
+                    elif lh and links(d, r, lh) and c[2] < max_new:
+                        total, extra = (c[0] + STATION_COST, c[1] + 1, c[2] + 1), t   # a station added at the far end
                     else:
                         continue
                     k = tuple(sorted((start, other)))
-                    if total[0] and (k not in best or (best[k]["n"], len(best[k]["long"])) > total):
+                    if total[2] and (k not in best or best[k]["cost"] > total):
                         stars, lng = path(state, prev, placed)
                         if extra:
                             stars, lng = stars + [extra], lng + [extra]
-                        best[k] = {"a": k[0], "b": k[1], "stars": stars, "n": total[0], "long": lng}
+                        best[k] = {"a": k[0], "b": k[1], "stars": stars, "n": total[2], "long": lng, "cost": total}
                     continue
-                if c[0] >= max_new:
+                if c[2] >= max_new:
                     continue
                 for rt in kinds:
                     if links(d, r, rt):
-                        push((c[0] + 1, c[1] + (rt == lh)), (t, rt), state, True)
-    return sorted(best.values(), key=lambda b: (b["n"], len(b["long"]), b["a"], b["b"]))
+                        st = rt == lh
+                        push((c[0] + (STATION_COST if st else 1), c[1] + st, c[2] + 1), (t, rt), state, True)
+    for b in best.values():
+        b.pop("cost")
+    return sorted(best.values(), key=lambda b: (b["n"] + (STATION_COST - 1) * len(b["long"]), len(b["long"]), b["a"], b["b"]))
 
 
 MAX_CHAIN = 25   # new relays a target's chain may need at most (a relay target, Map › Relays)
@@ -436,7 +443,8 @@ def chain_to_hub(net: dict, pos: dict[str, Any], target: str, planned: dict[str,
     already is in one; else {linked: False, stars: [systems needing a new relay, hub side first], long: [those that
     get a long-range station], via: [systems on order already that the chain uses], hub: the hub network's system it
     links to, hub_net, n}; None when no chain of max_new relays or fewer does. `planned` {star: ly}: systems with a
-    relay or station on order, used as if up. Fewest new relays first, then fewest stations, then shortest."""
+    relay or station on order, used as if up. Never a hub: relays, and a long-range station only where it saves
+    STATION_COST relays or more (a station counts as that many). Fewest relays first, then fewest stations, then shortest."""
     import heapq
     ns, of = net["nodes"], net["of"]
     hubs = hub_nets(net)
@@ -465,12 +473,12 @@ def chain_to_hub(net: dict, pos: dict[str, Any], target: str, planned: dict[str,
             heapq.heappush(heap, (c, state))
     if target in ns:   # a network of yours without a hub: any of its systems may start the chain
         for s in net["networks"][of[target]]["stars"]:
-            push((0, 0, 0.0), (s, ns[s]["range"]), None)
+            push((0, 0, 0.0, 0), (s, ns[s]["range"]), None)
     elif target in planned:
-        push((0, 0, 0.0), (target, planned[target]), None)
+        push((0, 0, 0.0, 0), (target, planned[target]), None)
     else:
         for rt in kinds:
-            push((1, int(rt == lh), 0.0), (target, rt), None)
+            push((STATION_COST if rt == lh else 1, int(rt == lh), 0.0, 1), (target, rt), None)
     end = None
     while heap:
         c, state = heapq.heappop(heap)
@@ -490,18 +498,19 @@ def chain_to_hub(net: dict, pos: dict[str, Any], target: str, planned: dict[str,
                 if not links(d, r, ns[t]["range"]):
                     continue
                 if of[t] in hubs:
-                    if GOAL not in cost or (c[0], c[1], ly) < cost[GOAL]:
-                        push((c[0], c[1], ly), GOAL, state)
+                    if GOAL not in cost or (c[0], c[1], ly, c[3]) < cost[GOAL]:
+                        push((c[0], c[1], ly, c[3]), GOAL, state)
                         goal_hub[0] = t
                     continue
-                push((c[0], c[1], ly), (t, ns[t]["range"]), state)
+                push((c[0], c[1], ly, c[3]), (t, ns[t]["range"]), state)
             elif t in planned:
                 if links(d, r, planned[t]):
-                    push((c[0], c[1], ly), (t, planned[t]), state)
-            elif c[0] < max_new:
+                    push((c[0], c[1], ly, c[3]), (t, planned[t]), state)
+            elif c[3] < max_new:
                 for rt in kinds:
                     if links(d, r, rt):
-                        push((c[0] + 1, c[1] + (rt == lh), ly), (t, rt), state)
+                        st = rt == lh
+                        push((c[0] + (STATION_COST if st else 1), c[1] + st, ly, c[3] + 1), (t, rt), state)
     if end is None:
         return None
     walk, c = [], prev[GOAL]

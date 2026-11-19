@@ -1754,3 +1754,19 @@ def test_relay_target_pass_orders_chain(client):
     assert client.post("/map/relays/target", headers=HX, data={"action": "add", "star": "NOPE"}).text.count("not in the star catalog")
     client.post("/map/relays/target", headers=HX, data={"action": "remove", "star": "T"})
     assert client.portal.call(db.kv_get, rr.TARGETS_KV, {}) == {}
+
+
+def test_station_only_when_it_saves_five_relays():
+    """Owner 2026-11-19: a station costs about five relays more, so a chain takes one only where it saves five or more."""
+    from rsweb import relaynet
+    hub = [{"device_code": "HUB", "device_type": "system_hub", "location": "H-4-L4", "status": "active"}]
+
+    def chain(u):   # A 15 ly from the hub, T 10 ly past it; relays go round a U of 2u + 3 relays
+        pts = {"H": (0, 0), "A": (15, 0), "T": (25, 0), "M": (20, 7 * u + 5)}
+        pts |= {f"L{j}": (15, 7 * j) for j in range(1, u + 1)} | {f"R{j}": (25, 7 * j) for j in range(1, u + 1)}
+        pos = {s: {"x": x, "y": y, "z": 0} for s, (x, y) in pts.items()}
+        return relaynet.chain_to_hub(relaynet.networks(hub, pos), pos, "T", long=True)
+    res = chain(1)   # 5 relays against a relay and a station: relays
+    assert res["long"] == [] and len(res["stars"]) == 5
+    res = chain(2)   # 7 relays against 2 devices: the station saves 5
+    assert res["stars"] == ["A", "T"] and res["long"] == ["T"]
