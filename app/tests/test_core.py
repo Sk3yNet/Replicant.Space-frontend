@@ -2287,7 +2287,7 @@ def test_relocation_waits_for_command_reach_at_the_new_home(client):
     f = {"id": "m", "name": "M", "role": "explore", "home": "BBB", "station": True, "wants": {}}
     reach = {"AAA"}
 
-    async def commandable(devices, stars=None, without=None):
+    async def commandable(devices, stars=None, without=None, **kw):
         return reach
     eng.commandable = commandable
     how = client.portal.call(eng.start_relocation, f, "AAA", "BBB", [ves, d1])

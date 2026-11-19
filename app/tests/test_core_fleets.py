@@ -1143,7 +1143,7 @@ def test_a_fleet_whose_miners_sit_idle_at_home_for_6_hours_moves_on(client):
     assert pa.idle_miners("fleet:m1", "HOMEA", [ctrl]) is None                                                 # no miners
     eng, db = client.app.state.worker.automations, client.app.state.db
 
-    async def commandable(devices, stars=None, without=None):
+    async def commandable(devices, stars=None, without=None, **kw):
         return {"HOMEA", "AHEADB"}
     eng.commandable = commandable
     stars = {"HOMEA": (0, 0, 0), "AHEADB": (5, 0, 0)}
@@ -1408,7 +1408,7 @@ def test_prospector_fleet_tours_one_prospect_per_star(client, monkeypatch, obs_t
     client.portal.call(db.kv_set, "devices", [obs, car])
     client.portal.call(db.kv_set, "prospected_from", {"HOME": {"at": "2026-10-15T00:00:00+00:00", "outcome": "3 new star(s)"}})
     client.portal.call(eng.save_fleets, [{"id": "pro", "name": "Prospector 1", "role": "prospector", "home": "HOME", "wants": {}}])
-    async def covered(devices, stars=None):   # a relay network over the whole area
+    async def covered(devices, stars=None, **kw):   # a relay network over the whole area
         return {"HOME", "NEAR", "FAR"} | {f"C{i}" for i in range(5)}
     monkeypatch.setattr(eng, "commandable", covered)
     out = client.portal.call(eng.prospector_pass)
@@ -1442,7 +1442,7 @@ def test_prospector_fleet_picks_up_every_member_first(client, monkeypatch):
     client.portal.call(db.kv_set, "devices", [obs, car, mat])
     client.portal.call(db.kv_set, "prospected_from", {"HOME": {"at": "2026-10-15T00:00:00+00:00", "outcome": "3 new star(s)"}})
     client.portal.call(eng.save_fleets, [{"id": "pro", "name": "Prospector 1", "role": "prospector", "home": "HOME", "wants": {}}])
-    async def covered(devices, stars=None):   # a relay network over the whole area
+    async def covered(devices, stars=None, **kw):   # a relay network over the whole area
         return {"HOME", "NEAR", "FAR"} | {f"C{i}" for i in range(5)}
     monkeypatch.setattr(eng, "commandable", covered)
     out = client.portal.call(eng.prospector_pass)

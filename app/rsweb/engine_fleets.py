@@ -269,7 +269,7 @@ class FleetsMixin:
                                    "reward_devices": lg.times(fl_counts((tr.get("rewards") or {}).get("devices")), n_)})
         # a replicant about to leave doesn't cover its system for a delivery planned now (seen live 2026-10-17: two
         # deliveries to RHYBRENEUS-3 sent unescorted found the system out of comms range on arrival)
-        commandable = await self.commandable(devices, stars, without=leaving)
+        commandable = await self.commandable(devices, stars, without=leaving, steady=True)
         evac = await self.evacuation_targets(devices, stars)   # piles where an asteroid is due: {location: safe spot}
         drop_raw = lambda s_: lo.drop_point(s_, devices, inv, stars)  # noqa: E731
         homes_now = {f.get("home") for f in items if f.get("home") and f.get("station")}

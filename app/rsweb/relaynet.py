@@ -223,6 +223,33 @@ def replicant_stars(replicants: dict[str, dict], devices: list[dict]) -> set[str
     return out
 
 
+def roaming_replicants(replicants: dict[str, dict], devices: list[dict], fleets: list[dict], busy: set[str]) -> set[str]:
+    """Replicants that may leave their system any moment, so it isn't covered for a carrier without a replicant of its
+    own (live 2026-11-18: empty heaven vessels flew relays after Surveyor 2's vessel into ALIFMBES, KELAANEL, ZALBOTH …
+    and were stranded out_of_range there once it moved on). Roaming: a device it rides is in a job or in motion, in a
+    logistics fleet, in a fleet that isn't stationed, on a running mission, or away from its fleet's home."""
+    by = {d.get("device_code"): d for d in devices}
+    by_fleet = {f.get("id"): f for f in fleets or []}
+    out = set()
+    for code, r in (replicants or {}).items():
+        c, seen, chain = r.get("hosted_device_code"), set(), []
+        while c and c not in seen and c in by:
+            seen.add(c)
+            chain.append(by[c])
+            c = by[c].get("attached_to_device_code") or by[c].get("stowed_in_device_code")
+        star = star_of(r.get("location") or r.get("current_location") or (chain[-1].get("location") if chain else None))
+        for d in chain:
+            fid = next((t[6:] for t in d.get("tags") or [] if t.startswith("fleet:")), None)
+            f = by_fleet.get(fid) if fid else None
+            status = str(d.get("status") or "").lower()
+            if (d.get("device_code") in busy or status.startswith(("travel", "cruis", "surg", "moving", "recall", "returning"))
+                    or (f and (f.get("role") == "logistics" or not f.get("station") or f.get("home") != star
+                               or (f.get("mission") or {}).get("status") == "running"))):
+                out.add(code)
+                break
+    return out
+
+
 def dark_stars(devices: list[dict]) -> set[str]:
     """Systems the game says are out of comms range: a device of yours there reports in_control_range false and none
     there reports true. The game's word beats the distance model (live 2026-10-18: 18 logistics devices sent to

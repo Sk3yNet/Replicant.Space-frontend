@@ -131,7 +131,7 @@ def test_auto_scout_goes_beyond_relay_coverage_with_a_replicant_aboard(client):
     e = client.app.state.worker.automations
     db = client.app.state.db
 
-    async def commandable(devices, stars=None, without=None):
+    async def commandable(devices, stars=None, without=None, **kw):
         return {"HOMEA"}
     e.commandable = commandable
     client.portal.call(db.kv_set, "stars", {"stars": [{"designation": s, "position": {"x": x, "y": 0, "z": 0}}

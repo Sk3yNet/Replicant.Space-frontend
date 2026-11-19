@@ -1052,7 +1052,7 @@ def test_relocation_only_when_the_carriers_fit_everyone(client):
            "features": ["surge", "cruise"], "stow_capacity": 2}
     f = {"id": "m", "name": "M", "role": "mining", "home": "BBB", "station": True, "wants": {}}
 
-    async def commandable(devices, stars=None, without=None):
+    async def commandable(devices, stars=None, without=None, **kw):
         return {"AAA", "BBB"}
     eng.commandable = commandable
     how = client.portal.call(eng.start_relocation, dict(f), "AAA", "BBB", [ves, rider("D1"), rider("D2")])

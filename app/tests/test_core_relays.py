@@ -600,7 +600,7 @@ def test_pathing_pass_prospects_then_relocates(client):
     from rsweb import prospects
     eng, db = client.app.state.worker.automations, client.app.state.db
 
-    async def commandable(devices, stars=None, without=None):   # a replicant on the relay network: every system it covers
+    async def commandable(devices, stars=None, without=None, **kw):   # a replicant on the relay network: every system it covers
         return {"HOMEA", "AHEADB", "BEHINDC"}
     eng.commandable = commandable
     stars = {"HOMEA": (0, 0, 0), "AHEADB": (5, 0, 0), "BEHINDC": (-5, 0, 0)}
@@ -672,7 +672,7 @@ def test_pathing_never_picks_a_home_beyond_the_sector_range(client):
 
     eng, db = client.app.state.worker.automations, client.app.state.db
 
-    async def commandable(devices, stars=None, without=None):
+    async def commandable(devices, stars=None, without=None, **kw):
         return {"HOMEA", "FARB"}
     eng.commandable = commandable
     client.portal.call(db.kv_set, "stars", {"stars": [{"designation": "HOMEA", "position": {"x": 0, "y": 0, "z": 0}}]})
@@ -693,7 +693,7 @@ def test_pathing_waits_for_the_fleet_before_judging_a_home_dry(client):
     """Joe 2026-11-17: Delta Miner 2 hopped homes four times in a day, each marked dry before its devices arrived."""
     eng, db = client.app.state.worker.automations, client.app.state.db
 
-    async def commandable(devices, stars=None, without=None):
+    async def commandable(devices, stars=None, without=None, **kw):
         return {"HOMEA", "OLDB"}
     eng.commandable = commandable
     client.portal.call(db.kv_set, "stars", {"stars": [{"designation": "HOMEA", "position": {"x": 0, "y": 0, "z": 0}}]})
@@ -968,7 +968,7 @@ def test_prospector_lets_go_of_an_observatory_still_towed(client, monkeypatch):
     client.portal.call(db.kv_set, "devices", [obs, car])
     client.portal.call(db.kv_set, "prospected_from", {"HOME": {"at": "2026-10-15T00:00:00+00:00", "outcome": "3 new star(s)"}})
     client.portal.call(eng.save_fleets, [{"id": "pro", "name": "Prospector 3", "role": "prospector", "home": "HOME", "wants": {}}])
-    async def covered(devices, stars=None):
+    async def covered(devices, stars=None, **kw):
         return {"HOME", "NEAR", "NEXT"}
     monkeypatch.setattr(eng, "commandable", covered)
     out = client.portal.call(eng.prospector_pass)
@@ -1660,3 +1660,43 @@ def test_wormhole_leg_takes_no_trip_time():
                                                    {"from": "TWAFFY", "to": "TWAFFY-11-L4", "type": "cruise", "time_seconds": 300}]}}
     legs = transit.trip(d, now=0)["legs"]
     assert [round(x["t1"] - x["t0"]) for x in legs] == [300, 0, 300]
+
+
+def test_roaming_replicants_dont_cover_for_empty_carriers():
+    """Live 2026-11-18: empty heaven vessels followed Surveyor 2's vessel into ALIFMBES and were stranded when it left."""
+    from rsweb import relaynet as rn
+    devices = [
+        {"device_code": "SURV", "device_type": "heaven_vessel", "location": "ALIFMBES-3-L4", "status": "idle",
+         "tags": ["fleet:surveyor-2"]},
+        {"device_code": "MINE", "device_type": "heaven_vessel", "location": "AXOLOTOL-BELT-1", "status": "idle",
+         "tags": ["fleet:miner-1"]},
+        {"device_code": "AWAY", "device_type": "heaven_vessel", "location": "GYREPHIX-BELT-1", "status": "idle",
+         "tags": ["fleet:miner-1"]},
+        {"device_code": "LOGI", "device_type": "heaven_vessel", "location": "FALQUORYX-1-L4", "status": "idle",
+         "tags": ["fleet:logistics"]},
+        {"device_code": "MAT", "device_type": "replicant_matrix", "location": None, "status": "stowed",
+         "stowed_in_device_code": "LONE", "tags": []},
+        {"device_code": "LONE", "device_type": "heaven_vessel", "location": "ADHARA-OBJ-2", "status": "idle", "tags": []},
+        {"device_code": "BUSY", "device_type": "heaven_vessel", "location": "KELAANEL-8-L4", "status": "idle", "tags": []},
+    ]
+    fleets = [{"id": "surveyor-2", "role": "explore", "station": True, "home": "FALQUORYX", "mission": {"status": "running"}},
+              {"id": "miner-1", "role": "mining", "station": True, "home": "AXOLOTOL", "mission": {"status": "done"}},
+              {"id": "logistics", "role": "logistics", "station": False, "home": "FALQUORYX"}]
+    reps = {"R1": {"hosted_device_code": "SURV"}, "R2": {"hosted_device_code": "MINE"}, "R3": {"hosted_device_code": "AWAY"},
+            "R4": {"hosted_device_code": "LOGI"}, "R5": {"hosted_device_code": "MAT"}, "R6": {"hosted_device_code": "BUSY"}}
+    assert rn.roaming_replicants(reps, devices, fleets, {"BUSY"}) == {"R1", "R3", "R4", "R6"}
+
+
+def test_commandable_steady_leaves_out_roaming_replicants(client, monkeypatch):
+    db, eng = client.app.state.db, client.app.state.worker.automations
+    devs = [{"device_code": "SURV", "device_type": "heaven_vessel", "location": "ALIFMBES-3-L4", "status": "idle",
+             "tags": ["fleet:surveyor-2"], "in_control_range": True}]
+
+    async def go():
+        async def fleets():
+            return [{"id": "surveyor-2", "role": "explore", "station": True, "home": "FALQUORYX", "mission": {"status": "running"}}]
+        monkeypatch.setattr(eng, "fleets", fleets)
+        await db.kv_set("replicants", {"R1": {"hosted_device_code": "SURV"}})
+        return await eng.commandable(devs, {}), await eng.commandable(devs, {}, steady=True)
+    plain, steady = client.portal.call(go)
+    assert "ALIFMBES" in plain and "ALIFMBES" not in steady

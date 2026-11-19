@@ -577,10 +577,12 @@ class LoadoutMixin:
         return f"{len(mine)} {g['type'].replace('_', ' ')} print(s) moved to the front of its queue"
 
     async def commandable(self, devices: list[dict], stars: dict | None = None, without: set[str] | None = None,
-                          networked: bool = False) -> set[str]:
+                          networked: bool = False, steady: bool = False) -> set[str]:
         """Systems you can give commands in: an active relay network's coverage (relaynet.coverage), or where one of your
         replicants is (other than the replicants in `without`). `networked`: the network's coverage only, without the
-        systems a replicant covers just by being there (it may leave)."""
+        systems a replicant covers just by being there (it may leave). `steady`: a roaming replicant (a survey or
+        logistics vessel, one in a job: relaynet.roaming_replicants) still keeps its network active but doesn't cover a
+        system off the network by being there, for trips a carrier makes without a replicant of its own."""
         from . import relaynet
         if stars is None:
             pos = await self.star_lookup("pos")   # shared, positions only
@@ -593,6 +595,11 @@ class LoadoutMixin:
         net = relaynet.networks(devices, pos, bps)
         cov = relaynet.coverage(net, pos, rstars)
         cover = set().union(*(cov["covered"][i] for i in cov["active"])) if networked else cov["commandable"]
+        if steady and not networked:
+            # a roaming replicant still keeps its network active, but its own system off the network isn't covered
+            roam = relaynet.roaming_replicants(reps, devices, await self.fleets(), self.busy_devices(await self.jobs()))
+            cover = set().union(*(cov["covered"][i] for i in cov["active"])) | relaynet.replicant_stars(
+                {c: r for c, r in reps.items() if c not in (without or ()) and c not in roam}, devices)
         return cover - relaynet.dark_stars(devices)
 
     async def evacuation_inputs(self) -> tuple[dict, set[str], dict]:
@@ -856,7 +863,7 @@ class LoadoutMixin:
         protect = {b["device_code"] for b in _beacons(devices) if b.get("location") in civ_locs}
         p = plan(cfg, devices, bps, inv, stars, hosts, busy, await self.loadout_orders(),
                  await self.db.kv_get("stowed_map", {}) or {}, only, await self.known_open_sites(), protect,
-                 await self.geography(devices, stars), await self.commandable(devices, stars),
+                 await self.geography(devices, stars), await self.commandable(devices, stars, steady=True),
                  await self.stuck_prints(devices, bps), dispatch=dispatch, job_pins=await self.station_job_pins())
         if not routes:
             p["routes"] = []

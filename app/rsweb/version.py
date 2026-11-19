@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.493.0"
+VERSION = "1.494.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.494.0", "2026-11-19", "Carriers without a replicant no longer follow a roaming replicant out of the relay network (Joe: spare heaven vessels carrying relays were stranded). A system off the network counted as covered while any replicant was in it, so empty vessels flew relays after Surveyor 2's vessel into ALIFMBES, KELAANEL, ZALBOTH and others and were left out of range when it moved on. Device and material deliveries now count such a system only for a replicant that stays put (a stationed fleet at its home, or a fleetless one not in a job); survey, logistics and other moving replicants still keep their relay network active."),
     ("1.493.0", "2026-11-19", "Rock chasers mine less wanted resources only when nothing better is to be had (Joe): rigs on a rock with none of the stockpile's three lowest resources left move on as soon as another rock in reach holds one, instead of grinding out the leftovers."),
     ("1.492.0", "2026-11-19", "Rock chasers use the game docs' list of what each rock holds (Joe): ice volatiles, carbon, silicates; rock silicates, structural, rares; carbonaceous carbon, volatiles, silicates, rares; metallic structural, conductive, rares. Mixed rocks hold three random resources, so they rank after the matching ones. Between rocks that hold the wanted resource, the bigger one goes first, for launches and for mining targets (Joe: larger rocks hold more)."),
     ("1.491.0", "2026-11-19", "Terraforming consoles stop undoing your settings (Joe): a commanded switch or setting stays dotted until a device read shows the game agrees (up to 15 minutes, was a flat 2), and a console redraw asked for before you changed a control is thrown away instead of putting the old value back over your change."),

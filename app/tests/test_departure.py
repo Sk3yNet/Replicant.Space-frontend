@@ -9,7 +9,7 @@ def dev(code, t, loc=None, **kw):
 
 def _reach_everywhere(e):
     """Every system commandable (a relay network with a replicant everywhere): relocations aren't held for reach."""
-    async def commandable(devices, stars=None, without=None):
+    async def commandable(devices, stars=None, without=None, **kw):
         return {fl.star_of(d.get("location")) for d in devices} | {"SOL", "LERNA", "LYRHYRAN", "FALQUORYX", "A", "B",
                                                                     "ABOTEIN", "AHEADB"}
     e.commandable = commandable

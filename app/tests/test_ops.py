@@ -552,7 +552,7 @@ def test_civ_beacon_pass_covers_quiet_civilizations_in_relay_range(client, monke
         return [dict(row)]
     reach = {"stars": set()}
 
-    async def commandable(devices, stars=None, without=None, networked=False):
+    async def commandable(devices, stars=None, without=None, networked=False, **kw):
         return reach["stars"]
     monkeypatch.setattr(e, "civ_coverage", cov)
     monkeypatch.setattr(e, "commandable", commandable)
