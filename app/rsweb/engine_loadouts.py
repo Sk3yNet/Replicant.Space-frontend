@@ -299,7 +299,7 @@ class LoadoutMixin:
             for o in st["orders"]:
                 b = o.get("body") or {}
                 tags = b.get("tags") or []
-                if (rolled and o.get("prio") in (2, 3) and vqm.ROLLOUT not in tags
+                if (rolled and o.get("prio") in (2, 3) and vqm.ROLLOUT not in tags and vqm.TARGET not in tags
                         and b.get("device_type") in ("ftl_relay", "deep_space_relay_station")
                         and "component" not in tags and any(t in rolled for t in tags)):
                     b["tags"] = list(tags) + [vqm.ROLLOUT]

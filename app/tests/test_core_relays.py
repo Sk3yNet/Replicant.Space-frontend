@@ -1732,7 +1732,8 @@ def test_relay_target_pass_orders_chain(client):
     async def devices():
         return devs
 
-    async def order(kind, star, user="", rollout=False):
+    async def order(kind, star, user="", rollout=False, target=False):
+        assert target and not rollout
         calls.append((kind, star))
         orders = await db.kv_get(wo.kv_key(kind), {}) or {}
         orders[star] = {"at": "2026-11-19T00:00:00+00:00", "how": "print"}
@@ -1770,3 +1771,21 @@ def test_station_only_when_it_saves_five_relays():
     assert res["long"] == [] and len(res["stars"]) == 5
     res = chain(2)   # 7 relays against 2 devices: the station saves 5
     assert res["stars"] == ["A", "T"] and res["long"] == ["T"]
+
+
+def test_relay_target_prints_ahead_of_rollout(client):
+    """Joe 2026-11-19: a target's relay prints go just ahead of the rollout's; a rollout order a chain shares moves up."""
+    from rsweb import vqueue as vqm
+    from rsweb import ward_orders as wo
+    assert vqm.priority({"device_type": "ftl_relay", "tags": ["to:b", vqm.TARGET]}) == 4.5
+    assert vqm.priority({"device_type": "ftl_relay", "tags": ["to:b", vqm.ROLLOUT]}) == 5
+    db = client.app.state.db
+    eng = client.app.state.worker.automations
+    client.portal.call(db.kv_set, wo.kv_key("relay"), {"B": {"at": "2026-11-19T00:00:00+00:00", "how": "print", "rollout": True}})
+    client.portal.call(db.kv_set, vqm.KV, {"orders": [
+        {"seq": 1, "prio": 5, "body": {"device_type": "ftl_relay", "tags": ["to:b", vqm.ROLLOUT]}},
+        {"seq": 2, "prio": 5, "body": {"device_type": "ftl_relay", "tags": ["to:c", vqm.ROLLOUT]}}]})
+    client.portal.call(eng._target_order, "relay", "B")
+    assert client.portal.call(db.kv_get, wo.kv_key("relay"), {})["B"]["target"]
+    q = client.portal.call(db.kv_get, vqm.KV, {})["orders"]
+    assert (q[0]["prio"], q[0]["body"]["tags"]) == (4.5, ["to:b", vqm.TARGET]) and q[1]["prio"] == 5

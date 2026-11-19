@@ -65,11 +65,12 @@ class OpsRules:
         reach = float(((await self.loadout_cfg()).get("settings") or {}).get("max_supply_ly") or DEFAULT_SETTINGS["max_supply_ly"])
         return pos, reach
 
-    async def order_outpost(self, kind: str, star: str, user: str = "", rollout: bool = False) -> str:
+    async def order_outpost(self, kind: str, star: str, user: str = "", rollout: bool = False, target: bool = False) -> str:
         """Add a ward / relay / beacon in `star`: activate one there, else send a spare, else print one (ward_orders.py).
         A beacon in a system with local civilizations goes to each civilization body still missing one.
         `rollout`: ordered by the relay rollout, so a print for it is tagged `rollout` and waits behind every other
-        print (vqueue.ROLLOUT, owner 2026-11-16)."""
+        print (vqueue.ROLLOUT, owner 2026-11-16). `target`: for a relay target's chain, tagged vqueue.TARGET, just ahead
+        of the rollout's prints (Joe 2026-11-19)."""
         from . import ward_orders as wo
         from . import wardhub as wh
         from . import wards
@@ -105,6 +106,8 @@ class OpsRules:
         order = {"at": now_iso(), "by": user}
         if rollout:
             order["rollout"] = True
+        if target:
+            order["target"] = True
         if here:
             order.update(how="activate", device=here["device_code"])
             msg = f"activating {here['device_code']} in {star} ({label})"
@@ -116,7 +119,7 @@ class OpsRules:
             msg = f"a {label} for {star} is already in the print queue of {fab['device_code']} (the loadout pass then carries it)"
         else:
             how, msg = await self._outpost_source(kind, star, devices, busy, orders, at=missing[0] if civ else None,
-                                                  rollout=rollout)
+                                                  rollout=rollout, target=target)
             if not how:
                 return msg
             order.update(how)
@@ -131,7 +134,8 @@ class OpsRules:
         return msg
 
     async def _outpost_source(self, kind: str, star: str, devices: list[dict], busy: set[str],
-                              orders: dict, at: str | None = None, rollout: bool = False) -> tuple[dict | None, str]:
+                              orders: dict, at: str | None = None, rollout: bool = False,
+                             target: bool = False) -> tuple[dict | None, str]:
         """Get a ward / relay / beacon on its way to `star`: send a spare, else print one on the nearest autofactory.
         `at`: the exact spot (a civilization's body for a beacon), pinned so the carrier drops it right there and not
         at the relay's drop point, where no vessel is left to move it on.
@@ -173,7 +177,8 @@ class OpsRules:
                               lo.print_steps({"factory": f["device_code"], "factory_star": star_of_(f.get("location")),
                                               "device_type": dtype, "n": 1, "star": star,
                                               "tags": [lo.to_tag(star)] + ([lo.at_tag(at)] if at else [])
-                                              + ([vqm.ROLLOUT] if rollout and kind in wo.RELAY_KINDS else [])}),
+                                              + ([vqm.TARGET] if target and kind in wo.RELAY_KINDS
+                                                 else [vqm.ROLLOUT] if rollout and kind in wo.RELAY_KINDS else [])}),
                               {"devices": [], "outpost": star}, force=True)
         return ({"how": "print", "factory": f["device_code"], "sourced": now_iso()},
                 f"printing a {label} on {f['device_code']} for {star} (the loadout pass then carries it there)")
@@ -255,7 +260,7 @@ class OpsRules:
                     o.pop("factory", None)
                     how, msg = await self._outpost_source(kind, star, devices, busy, orders,
                                                           at=(o.get("civ") or [None])[0] if civ else None,
-                                                          rollout=bool(o.get("rollout")))
+                                                          rollout=bool(o.get("rollout")), target=bool(o.get("target")))
                     if how:
                         o.update(how, at=now_iso())   # its 3 days start now: nothing was ever on its way
                         o.pop("factory" if how["how"] == "send" else "device", None)
@@ -662,8 +667,9 @@ class OpsRules:
                 for s in res["stars"]:
                     kind = "station" if s in res["long"] else "relay"
                     if s in (stations if kind == "station" else relays):
+                        await self._target_order(kind, s)   # one order per system: a rollout one moves up a tier
                         continue
-                    msg = await self.order_outpost(kind, s, t.get("by") or "relay target")
+                    msg = await self.order_outpost(kind, s, t.get("by") or "relay target", target=True)
                     have = await self.db.kv_get(wo.kv_key(kind), {}) or {}
                     if s in have:
                         out.append(f"{star}: {s}: {msg}")
@@ -676,6 +682,31 @@ class OpsRules:
                 targets[star] = t
                 await self.db.kv_set(rr.TARGETS_KV, targets)
         return out
+
+    async def _target_order(self, kind: str, star: str) -> None:
+        """A relay target's chain uses a system the rollout (or a hand order) already has on order: mark the order a
+        target's, and its prints still waiting in the app's queue go just ahead of the rollout's (vqueue.TARGET)."""
+        from . import loadouts as lo
+        from . import vqueue as vqm
+        from . import ward_orders as wo
+        orders = await self.db.kv_get(wo.kv_key(kind), {}) or {}
+        o = orders.get(star)
+        if not o or o.get("target"):
+            return
+        o["target"] = True
+        await self.db.kv_set(wo.kv_key(kind), orders)
+        vq = await self.db.kv_get(vqm.KV, {}) or {}
+        moved = 0
+        for x in vq.get("orders") or []:
+            b = x.get("body") or {}
+            tags = list(b.get("tags") or [])
+            if (b.get("device_type") == wo.KINDS[kind] and lo.to_tag(star) in tags and "component" not in tags
+                    and vqm.TARGET not in tags and float(x.get("prio") or 0) > 4.5):
+                b["tags"] = [t_ for t_ in tags if t_ != vqm.ROLLOUT] + [vqm.TARGET]
+                x["prio"] = 4.5
+                moved += 1
+        if moved:
+            await self.db.kv_set(vqm.KV, vq)
 
     async def station_swap_pass(self) -> list[str]:
         """A long-range station a plain relay could stand in for (relaynet.swappable_stations) gets a relay ordered in

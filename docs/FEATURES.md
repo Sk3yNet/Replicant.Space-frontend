@@ -217,6 +217,8 @@ your relays / wards / beacons / devices, fleet homes, trade posts); the rest dro
   there. Systems on order count as up, so targets share chains; a target is rechecked every few minutes, and dropped
   orders or a link that breaks later are ordered again until you remove it. Only relays and, with *long-range
   stations* ticked, a deep space relay station where it saves five relays or more (never a hub).
+  - Their prints rank just ahead of the rollout's (*relay target* in print queues). A system both want gets one
+    order; a rollout order a chain uses moves up to the target's priority.
 - **Relay rollout**: a relay in every system within a radius of seed systems you name, nearest first.
   - Each seed has its own radius (a box per seed, or `STAR:ly` in the seeds list); unset ones use the default.
   - As many orders open as your logistics vessels with a replicant aboard have free hold slots (each as *add* on the
