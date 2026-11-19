@@ -455,3 +455,22 @@ def test_rock_leaver_loads_the_pile_and_the_card_shows_each_step(client):  # noq
     assert run["inbound"][0]["rock"] == "SOL-OBJ-1"
     page = client.get("/fleets/details?all=1", headers=H).text
     assert "4 Inbound" in page and "SOL-OBJ-1 → SOL-3" in page and "7 Resupply" in page
+
+
+def test_rigs_leave_leftovers_for_a_rock_with_a_wanted_resource(client):  # noqa: F811
+    """Joe 2026-11-19: less wanted resources are mined only when nothing better is to be had."""
+    db, e = _setup(client, [rig("RIG1", "SOL-OBJ-1", "mining (structural)"), carrier("PLAT", "SOL-OBJ-1")],
+                   {"SOL-OBJ-1": rock(pct={"structural": 100, "rares": 0}),
+                    "SOL-OBJ-2": rock("SOL-OBJ-2", pct={"rares": 100})})
+    inv = [{"location": "SOL-BELT-1", "items": {r: 1000 for r in ("structural", "conductive", "silicates")}}]
+    client.portal.call(db.kv_set, "inventory", inv)
+    f = client.portal.call(e.fleets)
+    f[0]["chase_run"] = {"target": "SOL-OBJ-1", "phase": "mining", "arrived": "SOL-OBJ-1", "searched": {"SOL": iso(0)}}
+    client.portal.call(e.save_fleets, f)
+    assert client.portal.call(e._chase_better, client.portal.call(e.fleets)[0], {**rc.DEFAULTS, "mode": "hub",
+                              "priority": ", ".join(rc.need_order(inv[0]["items"]))},
+                              {}, {"objs": client.portal.call(db.kv_get, "objects"), "cover": set(), "pos": {},
+                                   "fleets": [], "full": {}}, rock(pct={"structural": 100}), "SOL-OBJ-1",
+                              rc.need_order(inv[0]["items"]))
+    out = client.portal.call(e.rock_chase_pass)
+    assert any("SOL-OBJ-2" in x for x in out), out

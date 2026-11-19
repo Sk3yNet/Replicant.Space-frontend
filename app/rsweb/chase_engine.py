@@ -135,8 +135,8 @@ class ChaseMixin:
             # live 2026-11-16 (Chaser_1, RENGRELOR-OBJ-1): minutes after the arrival job the cached device list still showed
             # the rigs aboard and idle, so the pass sent them again; trust the job: the rigs it took there
             rigs_at = [d for d in k["rigs"] if (ctx["state"].get(d["device_code"]) or {}).get("rock") == target]
-        if target and rigs_at and (rc.due_to_leave(o, cfg) or not rm.pick(o, cfg)):   # due, or mined down: move on
-            out += await self._chase_leave(f, cfg, run, ctx, k, target)
+        if target and rigs_at and (rc.due_to_leave(o, cfg) or not rm.pick(o, cfg) or self._chase_better(f, cfg, run, ctx, o, target, need)):
+            out += await self._chase_leave(f, cfg, run, ctx, k, target)   # due, mined down, or a rock with what's wanted waits
         elif target and rigs_at:
             run["phase"] = "mining"
             out += await self._chase_mine(f, cfg, run, ctx, k, target)
@@ -186,6 +186,25 @@ class ChaseMixin:
                 ctx["busy"].add(code)
                 out.append(f"{code} leaves {loc} for {to}: nothing waits at a rock")
         return out
+
+    def _chase_better(self, f: dict, cfg: dict, run: dict, ctx: dict, o: dict, rock: str, need: list[str]) -> bool:
+        """Joe 2026-11-19: a less wanted resource is mined only while nothing better is to be had. With follow_need on, rigs
+        whose rock has none of the stockpile's `LOW_COUNT` lowest left move on when another rock in the area holds one."""
+        from . import rockchase as rc
+        from . import rockmining as rm
+        if not cfg.get("follow_need"):
+            return False
+        low = need[:rc.LOW_COUNT]
+        if rm.pick(o, cfg) in low:
+            return False
+        area = rc.area(cfg, f["home"], ctx["cover"], ctx["pos"])
+        taken = {(x.get("chase_run") or {}).get("target") for x in ctx["fleets"] if x is not f} - {None}
+        cands = rc.candidates(ctx["objs"], cfg, area, rock, ctx["pos"], taken | set(run.get("skip") or {}) | {rock},
+                              set(ctx["full"]))
+        better = next((c for c in cands if c["resource"] in low), None)
+        if better:
+            run["note"] = f"{better['rock']} holds {better['resource']}: leaving {rock}'s {rm.pick(o, cfg)}"
+        return bool(better)
 
     def _chase_need(self, f: dict, run: dict, ctx: dict, k: dict) -> list[str]:
         """Resources by how little the nearest printing hub's stockpile holds (the fleet's haul ends up there; no hub
