@@ -675,8 +675,9 @@ class OpsRules:
                         out.append(f"{star}: {s}: {msg}")
                     else:
                         failed[s] = msg
-                t.update(status="building", chain=res["stars"], long=res["long"], via=res["via"], hub=res.get("hub"),
-                         waiting=res["stars"] + res["via"], failed=failed)
+                # the whole chain still to go: on the next pass its systems are on order and count as up in the search
+                t.update(status="building", chain=res["path"], long=res["path_long"], via=res["via"], hub=res.get("hub"),
+                         waiting=res["path"], failed=failed)
             targets = await self.db.kv_get(rr.TARGETS_KV, {}) or {}
             if star in targets:   # removed meanwhile: leave it out
                 targets[star] = t

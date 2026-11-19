@@ -520,5 +520,7 @@ def chain_to_hub(net: dict, pos: dict[str, Any], target: str, planned: dict[str,
     stars = [s for s, _ in walk if s not in ns and s not in planned]   # walk runs hub side first
     lng = [s for s, r in walk if s in stars and lh and r == lh]
     via = [s for s, _ in walk if s in planned]
+    path = [s for s, _ in walk if s not in ns]   # every system still without a working relay, ordered or not
+    path_long = [s for s, r in walk if s in path and lh and r == lh]
     return {"linked": False, "stars": stars, "long": lng, "via": via, "hub": goal_hub[0], "hub_net": of[goal_hub[0]],
-            "n": len(stars)}
+            "n": len(stars), "path": path, "path_long": path_long}

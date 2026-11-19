@@ -1747,6 +1747,7 @@ def test_relay_target_pass_orders_chain(client):
     assert t["status"] == "building" and t["chain"] == ["B", "T"] and t["hub"] == "H"
     client.portal.call(eng.relay_target_pass)
     assert len(calls) == 2   # on order already: not asked twice
+    assert client.portal.call(db.kv_get, rr.TARGETS_KV, {})["T"]["chain"] == ["B", "T"]   # still listed while on order
     page = client.get("/map/relays", headers=H).text
     assert "Relay targets" in page and "building" in page
     devs += [{"device_code": f"R{s}", "device_type": "ftl_relay", "location": f"{s}-1-L4", "status": "relaying"} for s in "BT"]

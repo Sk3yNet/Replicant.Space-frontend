@@ -51,7 +51,7 @@
     <input type="hidden" name="action" value="add">
     <label>System <input name="star" size="20" placeholder="e.g. ISOLITHOR"></label><button>Add target</button>
   </form><span class="rt-out"></span>
-  {% if targets %}<table class="small"><tr><th>Target</th><th>State</th><th class="num">New relays</th><th>Chain (hub side first)</th><th></th></tr>
+  {% if targets %}<table class="small"><tr><th>Target</th><th>State</th><th class="num" title="systems on the chain still without a working relay: on order (a spare on its way or a print) or not ordered yet">To deploy</th><th>Chain (hub side first)</th><th></th></tr>
     {% for s, t in targets | dictsort %}<tr><td><a href="/systems/{{ s }}">{{ s }}</a></td>
       <td>{% if t.status == 'linked' %}<span class="lv-done" title="in a hub's relay network">linked</span>
         {% elif t.status == 'building' %}<span class="st-move">building</span>{% if t.hub %} <span class="muted">to {{ t.hub }}</span>{% endif %}
@@ -59,7 +59,7 @@
         {% else %}<span class="muted">planning</span>{% endif %}</td>
       <td class="num">{{ (t.chain or []) | length if t.status == 'building' else '' }}</td>
       <td>{% for x in t.chain or [] %}<a href="/systems/{{ x }}">{{ x }}</a>{% if x in (t.long or []) %} <span class="pill small">station</span>{% endif %}{% if x in (t.failed or {}) %} <span class="pill small lv-alert" title="{{ t.failed[x] }}">can't order</span>{% elif x in orders %} <span class="pill small st-move">on order</span>{% endif %}{{ ' → ' if not loop.last }}{% endfor %}
-        {% if t.via %}<br><span class="muted">also uses {{ t.via | join(', ') }} (on order)</span>{% endif %}</td>
+</td>
       <td><button class="small ghost" hx-post="/map/relays/target" hx-vals='{{ {"action": "check", "star": s} | tojson }}' hx-target="next .rt-row">Check now</button>
         <button class="small ghost" hx-post="/map/relays/target" hx-vals='{{ {"action": "remove", "star": s} | tojson }}' hx-target="next .rt-row"
           hx-confirm="Stop working toward {{ s }}? Relay orders already made stay.">Remove</button><span class="rt-row"></span></td></tr>{% endfor %}
