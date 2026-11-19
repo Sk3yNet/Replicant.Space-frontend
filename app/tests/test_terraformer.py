@@ -600,3 +600,23 @@ def test_location_read_falls_back_to_fleet_tags(client):  # noqa: F811
     assert devs["SHADE2"]["status"] == "terraforming" and "FAR" not in devs   # nothing from elsewhere kept
     rec = client.portal.call(db.kv_get, "location_reads")[PLANET]
     assert rec["via"] == "tags" and rec["elsewhere"] >= 1
+
+
+def test_command_stays_pending_until_the_game_agrees(client):  # noqa: F811
+    """1.491.0: a commanded setting stays dotted past 2 minutes, and is dropped once a device read agrees."""
+    import time
+    from rsweb import web_terraform as wt
+    db = client.app.state.db
+    wt._dev_read.clear()
+    sep = dev("SEP", "gas_separator", status="terraforming", settings={"strength": 1.0, "direction": "increase"})
+    client.portal.call(db.kv_set, "devices", client.portal.call(db.kv_get, "devices") + [sep,
+        dev("MON", "terraform_monitor", status="monitoring", terraform_status={"body": PLANET, **report(temperature=280)})])
+    client.portal.call(db.kv_set, wt.PENDING_KV, {"SEP": {"set": {"direction": "decrease"}, "at": time.time() - 300}})
+    H = {"X-Auth-Request-Email": "joe@example.com", "HX-Request": "true"}
+    client.get(f"/terraforming/world/{PLANET}", headers=H)
+    assert "SEP" in client.portal.call(db.kv_get, wt.PENDING_KV)   # 5 minutes on, the game still says increase
+    devs = client.portal.call(db.kv_get, "devices")
+    next(d for d in devs if d["device_code"] == "SEP")["settings"]["direction"] = "decrease"
+    client.portal.call(db.kv_set, "devices", devs)
+    client.get(f"/terraforming/world/{PLANET}", headers=H)
+    assert "SEP" not in client.portal.call(db.kv_get, wt.PENDING_KV)   # agreed: settled

@@ -57,4 +57,24 @@
         <select name="direction">{% for x in directions[d.device_type] %}<option {{ 'selected' if d._set and d._set.direction == x }}>{{ x }}</option>{% endfor %}</select>
         <button class="small ghost">Set</button></form><span class="tf-out"></span></td></tr>{% endfor %}</table>{% endif %}
 </div>
+<script>
+/* 1.491.0 (Joe 2026-11-19): a console redraw that was asked for before you changed a control in it is thrown away, so
+   it can't put the old value back (or drop the change still waiting behind it); the next redraw shows the command. */
+if (!window.tfSwapGuard) {
+  window.tfSwapGuard = true;
+  document.addEventListener('change', function (e) {
+    var c = e.target.closest && e.target.closest('.tf-world');
+    if (c) c.dataset.touched = String(Date.now());
+  }, true);
+  document.addEventListener('htmx:beforeRequest', function (e) {
+    var el = e.detail.elt;
+    if (el && el.classList && el.classList.contains('tf-world')) el.dataset.asked = String(Date.now());
+  });
+  document.addEventListener('htmx:beforeSwap', function (e) {
+    var el = e.detail.elt;
+    if (el && el.classList && el.classList.contains('tf-world') && e.detail.requestConfig && e.detail.requestConfig.verb === 'get'
+        && Number(el.dataset.touched || 0) >= Number(el.dataset.asked || 0)) e.detail.shouldSwap = false;
+  });
+}
+</script>
 {% endblock %}

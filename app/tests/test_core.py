@@ -2149,8 +2149,10 @@ def test_terraforming_training_controls(client):
     assert row["_on"] is True and row["_pending"]
     row = _overlay({"device_code": "M0", "device_type": "orbital_mirror", "status": "terraforming"}, pend)
     assert row["_on"] is True and not row.get("_pending")
-    old = {"M0": {**pend["M0"], "at": _t.time() - 600}}
+    old = {"M0": {**pend["M0"], "at": _t.time() - 1000}}
     assert _overlay({"device_code": "M0", "status": "idle"}, old)["_on"] is False   # stale command: the game wins
+    mid = {"M0": {**pend["M0"], "at": _t.time() - 600}}   # 1.491.0: dotted until the game agrees, up to 15 min
+    assert _overlay({"device_code": "M0", "status": "idle"}, mid)["_pending"]
     row = _overlay({"device_code": "A1", "status": "terraforming", "settings": {"direction": "increase"}},
                    {"A1": {"set": {"direction": "decrease"}, "at": _t.time()}})
     assert row["_set"]["direction"] == "decrease" and row["_pending"] and row["_set_pending"]

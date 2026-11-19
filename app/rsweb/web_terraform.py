@@ -3,6 +3,7 @@ bio seeder preconditions), your terraforming devices with their strength / direc
 (detect Kuiper objects, launch one with a vector charge). terraform.py has the rules."""
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import time
@@ -63,18 +64,33 @@ async def _read_devices(request: Request, bodies) -> None:
 
 
 PENDING_KV = "terraform_pending"   # {code: {"on": bool, "set": {...}, "at": epoch}}: what was last commanded
-PENDING_S = 120   # the game can report a device's old state for a while after a command: show the command meanwhile
+# the game can report a device's old state for a while after a command: show the command (dotted) meanwhile. 1.491.0
+# (Joe 2026-11-19): it stays until a device read agrees, up to PENDING_S (was a flat 2 minutes, after which the old
+# state came back and the page looked like it undid his settings)
+PENDING_S = 900
+_pending_lock = asyncio.Lock()
 
 
 async def _remember(db, code: str, **kw) -> None:
-    import time
-    p = await db.kv_get(PENDING_KV, {}) or {}
-    p = {c: e for c, e in p.items() if time.time() - float(e.get("at") or 0) < PENDING_S}
-    e = p.get(code) or {}
-    if "set" in kw:
-        kw["set"] = {**(e.get("set") or {}), **kw["set"]}
-    p[code] = {**e, **kw, "at": time.time()}
-    await db.kv_set(PENDING_KV, p)
+    async with _pending_lock:
+        p = await db.kv_get(PENDING_KV, {}) or {}
+        p = {c: e for c, e in p.items() if time.time() - float(e.get("at") or 0) < PENDING_S}
+        e = p.get(code) or {}
+        if "set" in kw:
+            kw["set"] = {**(e.get("set") or {}), **kw["set"]}
+        p[code] = {**e, **kw, "at": time.time()}
+        await db.kv_set(PENDING_KV, p)
+
+
+async def _settle(db, agreed: dict[str, float]) -> None:
+    """Drop the commands the game now reports (agreed: {code: the command's at}), and any older than PENDING_S. An
+    entry commanded again meanwhile (a newer at) stays."""
+    async with _pending_lock:
+        p = await db.kv_get(PENDING_KV, {}) or {}
+        keep = {c: e for c, e in p.items() if time.time() - float(e.get("at") or 0) < PENDING_S
+                and not (c in agreed and float(e.get("at") or 0) <= agreed[c])}
+        if keep != p:
+            await db.kv_set(PENDING_KV, keep)
 
 
 def _overlay(d: dict, pend: dict) -> dict:
@@ -84,6 +100,7 @@ def _overlay(d: dict, pend: dict) -> dict:
     e = pend.get(d.get("device_code") or "")
     if not e or time.time() - float(e.get("at") or 0) >= PENDING_S:
         return row
+    row["_cmd_at"] = float(e.get("at") or 0)
     if "on" in e and e["on"] != row["_on"]:
         row["_on"], row["_pending"] = e["on"], True
     for k, v in (e.get("set") or {}).items():
@@ -134,8 +151,14 @@ async def _ctx(request: Request) -> dict:
     devs = [d for d in st["devices"] if tf.kind(d)]
     by_loc: dict[str, list[dict]] = defaultdict(list)
     pend = await db.kv_get(PENDING_KV, {}) or {}
+    agreed: dict[str, float] = {}
     for d in devs:
-        by_loc[d.get("location") or "aboard / in transit"].append(_overlay(d, pend))
+        row = _overlay(d, pend)
+        if row.get("_cmd_at") and not row.get("_pending"):   # the game reports what was commanded: no longer dotted
+            agreed[row["device_code"]] = row["_cmd_at"]
+        by_loc[d.get("location") or "aboard / in transit"].append(row)
+    if agreed or any(time.time() - float(e.get("at") or 0) >= PENDING_S for e in pend.values()):
+        await _settle(db, agreed)
     # how long each running regulator has been on: its latest terraform.device_activated (the run's goal may need time)
     since: dict[str, str] = {}
     for d in devs:
