@@ -90,7 +90,7 @@ def spare_ward(devices: list[dict], star: str, busy: set[str], pos: dict, reach:
             host = next((x for x in devices if x.get("device_code") == (d.get("stowed_in_device_code") or "")), {})
             here = star_of(host.get("location"))
         dist = lo._dist(here, star, pos) if here else 1e9
-        if reach and reach < dist < 1e9:
+        if not here or beyond(here, star, pos, reach):   # never from beyond the sector range (Joe 2026-11-19)
             continue
         out.append((d.get("device_code") in kept, dist, d.get("device_code"), d))
     return min(out, key=lambda x: x[:3])[3] if out else None
@@ -151,11 +151,19 @@ def factory_near(devices: list[dict], star: str, busy: set[str], pos: dict, reac
                 or f.get("attached_to_device_code"):
             continue
         dist = lo._dist(star_of(f["location"]), star, pos)
-        if (reach and reach < dist < 1e9) or room(f, 0 if virtual else (ordered or {}).get(f["device_code"], 0)) <= 0:
+        if beyond(star_of(f["location"]), star, pos, reach) or room(f, 0 if virtual else (ordered or {}).get(f["device_code"], 0)) <= 0:
             continue
         out.append((stocked is not None and f["device_code"] not in stocked,
                     load(f) + (ordered or {}).get(f["device_code"], 0), dist, f["device_code"], f))
     return min(out, key=lambda x: x[:4])[4] if out else None
+
+
+def beyond(a: str, b: str, pos: dict, reach: float) -> bool:
+    """`a` is out of reach of `b` for a ward / relay / beacon order: never beyond the sector range, whatever the supply
+    setting (Joe 2026-11-19: "keep the printer selection within the sector limit above all"); a charted star and an
+    uncharted one count as far apart (fleets.beyond_reach)."""
+    from .fleets import beyond_reach, sector_reach
+    return beyond_reach(a, b, pos, sector_reach(reach))
 
 
 def print_only(jobs: list[dict], code: str) -> set[str]:

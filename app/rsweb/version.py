@@ -21,6 +21,7 @@ VERSION = "1.499.0"
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.498.2", "2026-11-19", "Ward, relay, station and beacon orders take spares and printers only within the sector range (1728 ly), above every other choice (Joe): before, a supply range of 0 (any) or a factory or star with no catalog position slipped past the limit."),
     ("1.499.0", "2026-11-19", "Print queues (Joe): Next up no longer repeats a print waiting for resources, which the panel already shows as the current one (9E13498F showed its one orbital foundry twice), and the time left no longer counts it twice. Each game queue now holds the current print and one more (two before), so everything else waits in the app's queue where any factory at the spot can take it."),
     ("1.498.1", "2026-11-19", "Relay targets list the whole chain while it's on order (Joe asked what New relays meant): before, the next check counted its own orders as up and the row emptied. The column is now To deploy: systems on the chain still without a working relay, ordered or not."),
     ("1.498.0", "2026-11-19", "Relay target prints get their own priority, just ahead of the relay rollout's (Joe): tagged relaytarget, shown as 'relay target' in print queues. A rollout order a target's chain shares is marked the target's and its prints still in the app's queue move up; still one order per system."),

@@ -1790,3 +1790,20 @@ def test_relay_target_prints_ahead_of_rollout(client):
     assert client.portal.call(db.kv_get, wo.kv_key("relay"), {})["B"]["target"]
     q = client.portal.call(db.kv_get, vqm.KV, {})["orders"]
     assert (q[0]["prio"], q[0]["body"]["tags"]) == (4.5, ["to:b", vqm.TARGET]) and q[1]["prio"] == 5
+
+
+def test_outpost_sources_stay_in_sector_range():
+    """Joe 2026-11-19: printers and spares for a relay order only within the sector range, even with the supply range off."""
+    from rsweb import ward_orders as wo
+    pos = {"A": {"x": 0, "y": 0, "z": 0}, "FAR": {"x": 5000, "y": 0, "z": 0}, "NEAR": {"x": 100, "y": 0, "z": 0}}
+    fab = lambda c, s: {"device_code": c, "device_type": "autofactory", "location": f"{s}-BELT-1", "status": "idle",  # noqa: E731
+                        "features": ["fabrication"], "print_queue": [], "queue_size": 10}
+    far = fab("F1", "FAR")
+    assert wo.factory_near([far], "A", set(), pos, 0) is None
+    assert wo.factory_near([far], "UNCHARTED", set(), pos, 0) is None
+    near = fab("F2", "NEAR")
+    assert wo.factory_near([far, near], "A", set(), pos, 0)["device_code"] == "F2"
+    spare = {"device_code": "R1", "device_type": "ftl_relay", "location": "FAR-1-L4", "status": "inactive", "tags": ["spare"]}
+    assert wo.spare_ward([spare], "A", set(), pos, 0, "ftl_relay") is None
+    spare["location"] = "NEAR-1-L4"
+    assert wo.spare_ward([spare], "A", set(), pos, 0, "ftl_relay")["device_code"] == "R1"
