@@ -262,6 +262,7 @@ BUSY_RE = re.compile(r"while (the )?(replicant|device|carrier|vessel)? ?is (stil
 # "No conductive remaining at any active site" (live 2026-10-23, Delta Force): the belt's open sites lack that resource.
 # Nothing to fix by hand: the step is skipped quietly and doesn't count toward stopping the job.
 GONE_OBJECT_RE = re.compile(r"no system object at this location", re.I)   # a pin to a STAR-OBJ-n that is gone
+REFUSED_WARD = "cannot activate a ward in a system with a hub"   # the game's refusal: learn_ward_refused
 NO_SITE_RE = re.compile(r"\bno \w+ remaining at any active site", re.I)
 # Refusals the engine sorts out by itself (live 2026-10-30): a belt surveyor re-activated after a move with no site left to
 # track ("Nothing to activate"), a search at a belt already holding the game's most sites (reopen_sites waits for them).

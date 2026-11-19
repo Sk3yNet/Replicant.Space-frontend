@@ -1807,3 +1807,47 @@ def test_outpost_sources_stay_in_sector_range():
     assert wo.spare_ward([spare], "A", set(), pos, 0, "ftl_relay") is None
     spare["location"] = "NEAR-1-L4"
     assert wo.spare_ward([spare], "A", set(), pos, 0, "ftl_relay")["device_code"] == "R1"
+
+
+def test_no_ward_in_hub_or_station_systems(client):
+    """Live 2026-11-19: the game refused ward 26959E31 in ALKALAROPS ("Cannot activate a ward in a system with a hub"):
+    space stations count as hubs. Orders there are refused, an open one is dropped and its ward marked spare, and a
+    refusal is learned for systems the app didn't know."""
+    from rsweb import wards
+    from rsweb import ward_orders as wo
+    from rsweb.fleets import unload_steps
+    db = client.app.state.db
+    eng = client.app.state.worker.automations
+    client.portal.call(db.kv_set, "stars", {"stars": [{"designation": "HUBBY", "has_hub": True}, {"designation": "ALKA"}]})
+    client.portal.call(db.kv_set, "colony_stations", ["ALKA"])
+    ward = {"device_code": "26959E31", "device_type": "system_ward", "location": "ALKA-5-L4", "status": "inactive",
+            "tags": [], "available_commands": ["activate"], "in_control_range": True}
+    devs = [ward]
+    client.portal.call(db.kv_set, "devices", devs)
+
+    async def devices():
+        return devs
+    eng.devices = devices
+    assert {"HUBBY", "ALKA"} <= client.portal.call(eng.no_ward_stars)
+    assert "won't switch a ward on" in client.portal.call(eng.order_outpost, "ward", "ALKA")
+    client.portal.call(db.kv_set, wo.kv_key("ward"), {"ALKA": {"at": "2026-11-18T20:29:01+00:00", "how": "send",
+                                                                 "device": "26959E31"}})
+    client.portal.call(eng.ward_orders_pass)
+    assert client.portal.call(db.kv_get, wo.kv_key("ward"), {}) == {}
+    jobs = client.portal.call(eng.jobs)
+    assert not any((s.get("body") or {}).get("command") == "activate" for j in jobs for s in j["steps"])
+    assert any("marked spare" in j["title"] and j["device"] == "26959E31" for j in jobs)
+    # a refusal teaches the system
+    devs.append({"device_code": "W2", "device_type": "system_ward", "location": "OTHER-1-L4", "status": "inactive"})
+    client.portal.call(db.kv_set, "devices", devs)
+    client.portal.call(eng.learn_ward_refused, "W2")
+    assert "OTHER" in client.portal.call(eng.no_ward_stars)
+    # a fleet's ward is only set down there, never switched on
+    fleet = {"id": "f1", "home": "ALKA", "loadout": {}, "members": ["W3"]}
+    assert wards.no_ward([], [{"device_type": "system_hub", "location": "Z-1-L4", "status": "active"}]) == {"Z"}
+    crew = [{"device_code": "W3", "device_type": "system_ward", "location": "ALKA-3",
+                                  "stowed_in_device_code": "C1", "tags": ["fleet:f1"]},
+                                 {"device_code": "C1", "device_type": "cargo_vessel", "location": "ALKA-3",
+                                  "tags": ["fleet:f1"], "features": ["surge"], "hold_capacity": 5}]
+    cmds = lambda nw: [(s.get("body") or {}).get("command") for s in unload_steps(fleet, crew, no_ward=nw)]  # noqa: E731
+    assert "activate" in cmds(set()) and "activate" not in cmds({"ALKA"}) and "deploy" in cmds({"ALKA"})

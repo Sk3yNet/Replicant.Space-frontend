@@ -1072,8 +1072,10 @@ def loaded_outer(fleet: dict, devices: list[dict]) -> bool:
     return any(aboard(d, out) for d in r["members"] if d.get("device_type") not in ("ftl_relay", "ftl_beacon"))
 
 
-def unload_steps(fleet: dict, devices: list[dict], spot: str | None = None) -> list[dict]:
-    """Deploy / detach every passenger. `spot`: carriers in the outer system fly there first."""
+def unload_steps(fleet: dict, devices: list[dict], spot: str | None = None,
+                 no_ward: set[str] | frozenset = frozenset()) -> list[dict]:
+    """Deploy / detach every passenger. `spot`: carriers in the outer system fly there first. `no_ward`: systems where
+    a ward can't be switched on (a hub or space station there, wards.no_ward): a ward is only set down there."""
     r = roster(fleet, devices)
     carriers = {c["device_code"] for c in r["carriers"]}
     out = []
@@ -1101,7 +1103,7 @@ def unload_steps(fleet: dict, devices: list[dict], spot: str | None = None) -> l
             out.append(st)
         else:
             continue
-        if d.get("device_type") == "system_ward":
+        if d.get("device_type") == "system_ward" and star_of(spot or d.get("location") or fleet.get("home")) not in no_ward:
             # the fleet's ward guards the system it's working: other players can't mine here while it's active
             out.append(step(f"{d['device_code']}: activate ward", f"/devices/{d['device_code']}", {"command": "activate"}))
     return out

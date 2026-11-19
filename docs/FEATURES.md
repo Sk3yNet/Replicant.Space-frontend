@@ -343,7 +343,9 @@ Unverified live whether the game shows another player's profile text; an error i
 
 ### Wards & hubs
 Your wards (against the 25 cap), hub shield and upkeep with warnings, the `evicted_miners` log. Other players' warded
-systems are left alone by every mining rule and mission.
+systems are left alone by every mining rule and mission. No ward goes to a system with a hub (anyone's) or a space
+station, since the game won't switch one on there: an open order is dropped and its ward marked spare, and a refusal from
+the game is remembered for that system.
 
 ### Defense
 

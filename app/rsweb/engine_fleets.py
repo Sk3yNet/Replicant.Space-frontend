@@ -867,7 +867,7 @@ class FleetsMixin:
             if not spot:
                 self._mlog(m, f"nothing known inside {target} yet (no scan): unloading where the carrier is")
             # survey crews no longer drop relays or beacons (2026-10-11): ask for one on the Systems page instead
-            return fl.unload_steps(fleet, devices, spot), []
+            return fl.unload_steps(fleet, devices, spot, await self.no_ward_stars(devices)), []
         if phase == "work":
             if fleet["role"] == "explore" and m.get("skip_survey") and m["skip_survey"] == star_of(target or ""):
                 return [], []
@@ -902,7 +902,7 @@ class FleetsMixin:
                 pre, at = [], ctrl.get("location") if ctrl else None
                 if fl.loaded_outer(fleet, devices):   # still aboard at the Kuiper belt / Oort cloud (the deploy phase)
                     drop = fl.deploy_spot(geo) or pl.target("ami_survey_controller", geo)
-                    pre = fl.unload_steps(fleet, devices, drop)
+                    pre = fl.unload_steps(fleet, devices, drop, await self.no_ward_stars(devices))
                     at = at or drop
                 spot = pl.target("ami_survey_controller", geo) if not ctrl or not pl.ok("ami_survey_controller", at, geo) \
                     else None   # no controller: where drones off a body or belt go to scan
@@ -964,7 +964,7 @@ class FleetsMixin:
             # boards again).
             pile = lo.drop_point(m.get("drop_star") or fleet["home"], devices, inv, stars)
             if fleet.get("station") and fleet.get("role") != "explore":   # a survey crew stays aboard, ready to go again
-                steps = fl.unload_steps(fleet, devices)
+                steps = fl.unload_steps(fleet, devices, no_ward=await self.no_ward_stars(devices))
                 self._mlog(m, "home: devices come off the carriers to work the home system (stationed fleet)")
             else:
                 steps = []

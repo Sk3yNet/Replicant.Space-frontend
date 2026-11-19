@@ -151,12 +151,14 @@ class BootstrapMixin:
         snaps = oth.normalize(await self.db.kv_get(oth.KV, {}))["stars"]
         now = now_iso()
         samples = b.setdefault("output", {})
+        no_ward = await self.no_ward_stars(devices)
         for g in kids:
             star = g["home"]
             total = sum(sum(bt.amounts(items).values()) for loc, items in w["inventory"].items() if star_of(loc) == star)
             hist = [x for x in samples.get(star) or [] if x[0] >= _hours_ago(24)] + [[now, total]]
             samples[star] = hist[-48:]
-            if (g.get("wants") or {}).get("system_ward") or star in wards.ours(devices) or n_wards >= WARD_CAP:
+            if (g.get("wants") or {}).get("system_ward") or star in wards.ours(devices) or star in no_ward \
+                    or n_wards >= WARD_CAP:
                 continue
             crowded = oth.drones_at(snaps.get(star), star) > 0
             rate = _rate(samples[star])

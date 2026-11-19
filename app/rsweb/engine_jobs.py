@@ -460,6 +460,8 @@ class JobsMixin:
                     await self.db.kv_set("surveyed", surveyed)
             if not ok and (st.get("body") or {}).get("command") == "attach" and "cannot attach a large device" in (err or "").lower():
                 await self.learn_no_attach(str((st.get("body") or {}).get("device") or ""))
+            if not ok and (st.get("body") or {}).get("command") == "activate" and REFUSED_WARD in (err or "").lower():
+                await self.learn_ward_refused(str(st.get("path") or "").rsplit("/", 1)[-1])
             if not ok:
                 hint = next((h for k, h in (st.get("hint") or {}).items() if k in (err or "").lower()), None)
                 st["error"] = err = f"{err} — {hint}" if hint else err

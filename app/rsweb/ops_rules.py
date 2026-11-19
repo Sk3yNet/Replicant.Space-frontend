@@ -86,6 +86,8 @@ class OpsRules:
                 return f"{star} is already warded by another player"
             if star in {star_of_(x.get("location")) for x in devices if wh.is_hub(x) and wh.deployed(x)}:
                 return f"you have a system hub in {star}: wards and hubs don't go together"
+            if star in await self.no_ward_stars(devices):
+                return f"{star} has a system hub or a space station: the game won't switch a ward on there"
             w = wh.wards(devices)
             if w["active"] + len([o for s_, o in orders.items() if s_ != star]) >= wh.WARD_CAP:
                 return f"{w['active']} wards active and {len(orders)} on order — the game allows {wh.WARD_CAP}"
@@ -183,6 +185,51 @@ class OpsRules:
         return ({"how": "print", "factory": f["device_code"], "sourced": now_iso()},
                 f"printing a {label} on {f['device_code']} for {star} (the loadout pass then carries it there)")
 
+    async def no_ward_stars(self, devices: list[dict] | None = None) -> set[str]:
+        """Systems where no ward can be switched on: a hub there (anyone's) or a space station (wards.no_ward)."""
+        from . import megas
+        from . import wards
+        if devices is None:
+            devices = await self.devices()
+        return wards.no_ward(await self.db.kv_get("stars", {}) or {}, devices, await megas.stations(self.db),
+                             await self.db.kv_get(wards.REFUSED_KV, {}) or {})
+
+    async def learn_ward_refused(self, code: str) -> None:
+        """The game refused to switch ward `code` on beside a hub: remember its system (kv ward_refused), so no ward
+        automation tries there again."""
+        from . import wards
+        loc = next((d.get("location") for d in await self.db.kv_get("devices", []) or [] if d.get("device_code") == code), None)
+        star = wards.star_of(loc)
+        if not star:
+            return
+        known = await self.db.kv_get(wards.REFUSED_KV, {}) or {}
+        if star not in known:
+            known[star] = now_iso()
+            await self.db.kv_set(wards.REFUSED_KV, known)
+            await self.log("wards", f"{star}: the game won't switch a ward on beside a hub or station there; "
+                                    "no ward goes there again", "warning")
+
+    async def _retire_ward_order(self, star: str, o: dict, devices: list[dict], busy: set[str]) -> str:
+        """A ward order for a system where no ward can work: the order goes, and the ward of ours there (idle, or on its
+        way) is marked spare, so a later order elsewhere can send it."""
+        from . import loadouts as lo
+        from . import ward_orders as wo
+        code = o.get("device")
+        d = next((x for x in devices if x.get("device_code") == code), None) if code else None
+        d = d or wo.ward_here(devices, star) or wo.bound_to(devices, star)
+        msg = f"{star}: ward order dropped — a hub or space station there keeps any ward from switching on"
+        if d and d["device_code"] not in busy and lo.SPARE not in (d.get("tags") or []):
+            tags = d.get("tags") or []
+            rem = [t for t in tags if t.startswith(("home:", "at:", "to:"))]
+            if await self.create_job("wards", f"ward {d['device_code']} in {star} marked spare (hub or station there)",
+                                     d["device_code"], [lo.tag_step(d["device_code"], [lo.SPARE], rem or None)],
+                                     {"devices": [d["device_code"]]}, force=True):
+                await self.remember_tags(d["device_code"], sorted((set(tags) - set(rem)) | {lo.SPARE}))
+                busy.add(d["device_code"])
+                msg += f"; {d['device_code']} marked spare"
+        await self.log("wards", msg, "warning")
+        return msg
+
     async def ward_orders_pass(self) -> list[str]:
         """Ward / relay / beacon orders: one of yours deployed and idle in the ordered system is switched on (a ward
         within the cap and never beside a hub of yours; a relay only at an L4/L5 point — placement takes it there)."""
@@ -204,7 +251,13 @@ class OpsRules:
             changed = False
             jobs = await self.jobs()
             cov = await self.civ_coverage() if kind == "beacon" else []
+            nw = await self.no_ward_stars(devices) if kind == "ward" else set()
             for star, o in list(orders.items()):
+                if star in nw:
+                    orders.pop(star)
+                    changed = True
+                    out.append(await self._retire_ward_order(star, o, devices, busy))
+                    continue
                 here = wo.ward_here(devices, star, dtype)
                 civ = wo.civ_places(cov, star)
                 if civ and not wo.expired(o):
