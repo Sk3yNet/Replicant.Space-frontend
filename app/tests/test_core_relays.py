@@ -735,6 +735,21 @@ def test_travel_shows_on_the_map_straight_away(client):
     assert any("2AC61212" in m["label"] for m in ov["moving"])
 
 
+def test_prospect_next_star_fills_gaps_from_home_outward():
+    """Tours fill the inner shells around home first, the biggest open gap first, and skip covered ground (Joe 2026-11-19)."""
+    from rsweb import prospecting as pr
+    xyz = {"HOME": [0, 0, 0], "EDGE": [55, 0, 0], "HOLE": [0, 12, 0], "HOLE2": [0, 14, 1], "NEXT": [3, 0, 0],
+           "DONE": [-8, 0, 0], "MID": [0, 0, 25]}
+    xyz.update({f"C{i}": [-40, i * 0.5, 0] for i in range(6)})   # a crowd far west
+    done = {"HOME", "DONE"}
+    # NEXT sits 3 ly from HOME (covered); EDGE is the emptiest neighborhood but in the outermost shell
+    assert pr.next_star("HOME", "HOME", xyz, done, set(), None, 60) == ("HOLE2", 11)   # shell 1, the bigger gap
+    assert pr.next_star("HOME", "HOME", xyz, done, {"HOLE2"}, None, 60)[0] == "MID"   # HOLE lies by another prospector's
+    assert pr.next_star("HOME", "HOME", xyz, done | {"HOLE2", "MID"}, set(), None, 60)[0] == "C0"   # shell 4 before 5
+    rest = {s for s in xyz if s not in ("NEXT",)}
+    assert pr.next_star("HOME", "HOME", xyz, rest, set(), None, 60)[0] == "NEXT"     # covered ground comes last
+
+
 def test_prospect_directions():
     from rsweb import prospecting as pr
     import math

@@ -96,11 +96,20 @@ def rank_directions(dirs: list[list[float]], here, xyz_all: dict[str, list[float
     return sorted(dirs, key=crowd)   # stable: ties keep the heading-first order
 
 
+SHELL_LY = 10.0   # ly: tours finish one shell around home before the next (a dense sphere grows outward)
+COVER_LY = 5.0    # ly: a star this close to one prospected from (or another prospector's) lies in covered ground
+
+
 def next_star(here: str, home: str, xyz_all: dict[str, list[float]], done: set[str], taken: set[str],
               allowed: set[str] | None, radius: float = 30.0, r: float = SPARSE_R) -> tuple[str | None, int]:
     """Where a prospector goes next: a star within `radius` ly of `home` not prospected from yet (`done`), not another
-    prospector's (`taken`), commandable (`allowed`, None = any). The emptiest neighborhood wins, nearer breaking ties
-    (each catalog star within `r` counts 1, each ly of the hop 0.1). Returns (star, candidates left)."""
+    prospector's (`taken`), commandable (`allowed`, None = any). Returns (star, candidates left).
+
+    Coverage grows from home outward as a dense sphere (Joe 2026-11-19: the emptiest-neighborhood rule sent tours to the
+    frontier and left big unprospected holes inside the relay network): stars in open ground (over COVER_LY from every
+    star prospected from or taken) come before covered ones; then the innermost shell (SHELL_LY wide) around home; in a
+    shell the biggest gap (farthest from anything prospected) first; then the emptier neighborhood (catalog stars
+    within `r`), then the shorter hop."""
     h, c = xyz_all.get(home), xyz_all.get(here) or xyz_all.get(home)
     if not h:
         return None, 0
@@ -108,11 +117,12 @@ def next_star(here: str, home: str, xyz_all: dict[str, list[float]], done: set[s
              and _dist(p, h) <= radius and (allowed is None or s in allowed)]
     if not cands:
         return None, 0
-
+    seen = [xyz_all[s] for s in (done | taken | {here}) if xyz_all.get(s)]
     local = [q for q in xyz_all.values() if q and _dist(q, h) <= radius + r]   # all a candidate's neighbors can be
 
     def score(s):
         p = xyz_all[s]
+        gap = min((_dist(p, q) for q in seen), default=radius)
         crowd = sum(1 for q in local if 0 < _dist(p, q) <= r)
-        return (crowd + 0.1 * (_dist(p, c) if c else 0), s)
+        return (gap < COVER_LY, int(_dist(p, h) // SHELL_LY), -round(gap), crowd, _dist(p, c) if c else 0, s)
     return min(cands, key=score), len(cands)

@@ -1303,7 +1303,8 @@ class AutomationEngine(JobsMixin, LoadoutMixin, FleetsMixin, MiningRulesMixin, O
     async def prospector_pass(self) -> list[str]:
         """Fleets with role "prospector" (an observatory and a carrier): tour the stars within the home's radius (kv prospect_radii, 30 ly) of the fleet's
         home, one prospect each (observatory_pass prospects and compacts), then the carrier takes the observatory to the next
-        star — the emptiest neighborhood not prospected from yet, nearer first, commandable. A tour that hasn't moved on or
+        star — commandable, not prospected from yet, filling from home outward (prospecting.next_star: open ground first,
+        inner shell first, biggest gap first). A tour that hasn't moved on or
         found anything for STALL_HOURS raises a warning (once per stall)."""
         from . import fleets as fl
         from . import pathing as pa
