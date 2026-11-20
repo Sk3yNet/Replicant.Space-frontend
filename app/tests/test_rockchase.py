@@ -540,3 +540,42 @@ def test_propulsors_stop_pushing_a_rock_the_fleet_left(client):  # noqa: F811
     assert "Chaser: P1 leaves SOL-OBJ-1 for SOL-3-L4: nothing waits at a rock" in out, out
     job = next(j for j in client.portal.call(e.jobs) if "P1 off SOL-OBJ-1" in j["title"])
     assert [st["body"] for st in job["steps"]][0] == {"command": "deactivate"}
+
+
+def test_propulsors_keep_pushing_while_the_pile_is_hauled(client):  # noqa: F811
+    """Joe 2026-11-20: time for the stockpile to be moved as well as the mining."""
+    prop = {"device_code": "P1", "device_type": "propulsor", "location": "SOL-OBJ-1", "status": "diverting",
+            "tags": ["fleet:rc"], "features": ["cruise"], "available_commands": ["deactivate", "travel"]}
+    db, e = _setup(client, [rig("RIG1", "SOL-3-L4"), prop], {"SOL-OBJ-1": rock(pct={"rares": 0})})
+    inv = client.portal.call(db.kv_get, "inventory") or []
+    client.portal.call(db.kv_set, "inventory", [{"location": "SOL-BELT-1", "items": {"structural": 900, "conductive": 900,
+                                                                                    "silicates": 900}},
+                                                {"location": "SOL-OBJ-1", "items": {"rares": 40}}])
+    f = client.portal.call(e.fleets)
+    f[0]["chase_run"] = {"phase": "idle", "drops": {"SOL-OBJ-1": "SOL-3-L4"}, "searched": {"SOL": iso(0)}}
+    client.portal.call(e.save_fleets, f)
+    out = client.portal.call(e.rock_chase_pass)
+    assert not any("P1 leaves" in x for x in out), out
+    # only less wanted material left in the pile: they go
+    client.portal.call(db.kv_set, "inventory", [{"location": "SOL-BELT-1", "items": {"structural": 900, "conductive": 900,
+                                                                                    "silicates": 900}},
+                                                {"location": "SOL-OBJ-1", "items": {"structural": 40}}])
+    out = client.portal.call(e.rock_chase_pass)
+    assert any("P1 leaves" in x for x in out), out
+
+
+def test_propulsors_stop_once_priority_materials_are_picked_up(client):  # noqa: F811
+    prop = {"device_code": "P1", "device_type": "propulsor", "location": "SOL-OBJ-1", "status": "diverting",
+            "tags": ["fleet:rc"], "features": ["cruise"], "available_commands": ["deactivate", "travel"]}
+    db, e = _setup(client, [rig("RIG1", "SOL-OBJ-1", "mining (structural)"), prop],
+                   {"SOL-OBJ-1": rock(minutes=600, pct={"structural": 80, "rares": 0})})
+    client.portal.call(db.kv_set, "inventory", [{"location": "SOL-BELT-1", "items": {"structural": 900, "conductive": 900,
+                                                                                    "silicates": 900}}])
+    client.portal.call(db.kv_set, rc.LAUNCHED_KV, {"SOL-OBJ-1": {"by": "fleet Chaser", "status": "launched"}})
+    f = client.portal.call(e.fleets)
+    f[0]["chase_run"] = {"target": "SOL-OBJ-1", "phase": "mining", "arrived": "SOL-OBJ-1", "searched": {"SOL": iso(0)},
+                         "drops": {"SOL-OBJ-1": "SOL-3-L4"},
+                         "slow": {"rock": "SOL-OBJ-1", "dir": "decrease", "set": {"P1": "decrease"}}}
+    client.portal.call(e.save_fleets, f)
+    out = client.portal.call(e.rock_chase_pass)
+    assert "Chaser: P1 stops slowing SOL-OBJ-1: priority materials all picked up" in out, out

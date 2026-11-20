@@ -172,6 +172,9 @@ class ChaseMixin:
                     or d.get("attached_to_device_code") or not rm_can_fly(d) \
                     or (str(d.get("status") or "").lower() != "idle" and not pushing):
                 continue   # live 2026-11-20: Chaser_1's propulsors kept pushing RENGRELOR-OBJ-2 after it was mined out
+            o = ctx["objs"].get(loc) or {}
+            if pushing and self._priority_left(run, ctx, loc, o) and (rm_hours(o) or 0) > rc.SLOW_STOP_H:
+                continue   # Joe 2026-11-20: keep buying time while priority materials are still on the rock or its pile
             to = (run.get("drops") or {}).get(loc) or ((car or {}).get("location") if fl.star_of((car or {}).get("location")) == fl.star_of(loc) else None)
             if not to or rc.is_rock(to):
                 continue
@@ -207,10 +210,28 @@ class ChaseMixin:
             return []
         slow = run.get("slow") or {}
         eta = _ts(o.get("impact_eta"))
+        if slow.get("rock") == rock and not self._priority_left(run, ctx, rock, o):
+            # Joe 2026-11-20: once every priority material is mined and picked up, the propulsors stop and go; the rigs
+            # use whatever time is left for the rest
+            out = []
+            drop = (run.get("drops") or {}).get(rock)
+            for p in k["propulsors"]:
+                code = p["device_code"]
+                if p.get("location") != rock or code in ctx["busy"] or not drop:
+                    continue
+                steps = [step(f"{code}: switch off", f"/devices/{code}", {"command": "deactivate"}),
+                         step(f"{code} → {drop}", f"/devices/{code}", {"command": "travel", "destination": drop}, critical=True),
+                         fl._wait_arrive(code, drop)]
+                if await self.create_job("rock_chaser", f"{f['name']}: {code} off {rock} → {drop}", code, steps, {"devices": [code]}):
+                    ctx["busy"].add(code)
+                    out.append(f"{code} stops slowing {rock}: priority materials all picked up")
+            slow["note"] = "priority materials all picked up: propulsors stopped"
+            slow["off"] = slow.get("off") or "done"
+            return out
         if slow.get("rock") != rock:
             slow = {"rock": rock, "dir": rc.SLOW_DIR, "set": {}, "eta0": o.get("impact_eta")}
         run["slow"] = slow
-        if slow.get("off") or not eta or (eta - _now()) / 3600 < rc.SLOW_STOP_H:
+        if slow.get("off") or not eta or (eta - _now()) / 3600 < rc.SLOW_STOP_H:   # the evacuation takes them off
             return []
         out: list[str] = []
         on = slow.get("eta_on")
@@ -259,6 +280,15 @@ class ChaseMixin:
             gained = (eta - _ts(slow["eta0"])) / 60
             slow["note"] = f"propulsors on {slow['dir']}: ETA {'+' if gained >= 0 else ''}{gained:.0f} min since launch"
         return out
+
+    def _priority_left(self, run: dict, ctx: dict, rock: str, o: dict) -> bool:
+        """A priority material (the hub's `LOW_COUNT` lowest) is still on the rock or in its pile waiting for pickup."""
+        from . import rockchase as rc
+        from . import rockmining as rm
+        low = ((run.get("need") or {}).get("order") or rm.RESOURCES)[:rc.LOW_COUNT]
+        left = rm.resources_left(o)
+        pile = (ctx.get("inv") or {}).get(rock) or {}
+        return any(float(left.get(r) or 0) > 0 or float(pile.get(r) or 0) > 0 for r in low)
 
     def _chase_better(self, f: dict, cfg: dict, run: dict, ctx: dict, o: dict, rock: str, need: list[str]) -> bool:
         """Joe 2026-11-19: a less wanted resource is mined only while nothing better is to be had. With follow_need on, rigs
@@ -1016,6 +1046,11 @@ class ChaseMixin:
             req.update({"job": job["id"], "note": note})
             return [line]
         return []
+
+
+def rm_hours(o: dict) -> float | None:
+    from .rockmining import hours_left
+    return hours_left(o, _now())
 
 
 def rm_parse(run: dict) -> list[str]:
