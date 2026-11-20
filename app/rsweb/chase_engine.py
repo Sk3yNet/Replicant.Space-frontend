@@ -167,9 +167,11 @@ class ChaseMixin:
         out: list[str] = []
         for d in ms:
             code, loc = d["device_code"], d.get("location") or ""
+            pushing = d.get("device_type") == "propulsor" and str(d.get("status") or "").lower() not in ("idle", "inactive", "")
             if not rc.is_rock(loc) or loc == working or code in ctx["busy"] or d.get("stowed_in_device_code") \
-                    or d.get("attached_to_device_code") or not rm_can_fly(d) or str(d.get("status") or "").lower() != "idle":
-                continue
+                    or d.get("attached_to_device_code") or not rm_can_fly(d) \
+                    or (str(d.get("status") or "").lower() != "idle" and not pushing):
+                continue   # live 2026-11-20: Chaser_1's propulsors kept pushing RENGRELOR-OBJ-2 after it was mined out
             to = (run.get("drops") or {}).get(loc) or ((car or {}).get("location") if fl.star_of((car or {}).get("location")) == fl.star_of(loc) else None)
             if not to or rc.is_rock(to):
                 continue
@@ -177,6 +179,8 @@ class ChaseMixin:
             take = rc.ship_take((ctx.get("inv") or {}).get(loc) or {}, d, rm_parse(run))
             steps = [step(f"{code}: load {', '.join(f'{q} {r}' for r, q in take.items())}", f"/devices/{code}",
                           {"command": "collect_resources", "resources": take})] if take else []
+            if pushing:   # an active propulsor won't travel
+                steps.append(step(f"{code}: switch off", f"/devices/{code}", {"command": "deactivate"}))
             steps += [step(f"{code} → {to}", f"/devices/{code}", {"command": "travel", "destination": to}, critical=True),
                       fl._wait_arrive(code, to)]
             if take:

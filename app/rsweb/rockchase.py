@@ -373,7 +373,8 @@ def rm_cargo(d: dict) -> bool:
         return False
 
 
-SLOW_DIR = "decrease"   # first guess for lengthening a launched rock's flight; flipped when the ETA moves earlier
+SLOW_DIR = "decrease"   # lengthens the flight: live 2026-11-20, 4 propulsors on RENGRELOR-OBJ-2 moved its ETA 4 h later
+#                        in ~10 h (the activate answer still says "activated": "diversion"; progress stayed 0 %)
 SLOW_STOP_H = 1.5       # no new slowing this close to the ETA: the evacuation takes the propulsors off at 45 min
 
 

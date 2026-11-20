@@ -525,3 +525,18 @@ def test_propulsors_slow_a_rock_the_fleet_launched(client):  # noqa: F811
     client.portal.call(e._update, job)
     out = client.portal.call(e.rock_chase_pass)
     assert any("switching to increase" in x for x in out) and "Chaser: P1 pushes SOL-OBJ-1 (increase)" in out, out
+
+
+def test_propulsors_stop_pushing_a_rock_the_fleet_left(client):  # noqa: F811
+    """Live 2026-11-20: RENGRELOR-OBJ-2 was mined out (status depleted) and the fleet went idle, but its four propulsors
+    kept pushing it."""
+    prop = {"device_code": "P1", "device_type": "propulsor", "location": "SOL-OBJ-1", "status": "diverting",
+            "tags": ["fleet:rc"], "features": ["cruise"], "available_commands": ["deactivate", "travel"]}
+    db, e = _setup(client, [rig("RIG1", "SOL-3-L4"), prop], {"SOL-OBJ-1": rock(pct={"rares": 0})})
+    f = client.portal.call(e.fleets)
+    f[0]["chase_run"] = {"phase": "idle", "drops": {"SOL-OBJ-1": "SOL-3-L4"}, "searched": {"SOL": iso(0)}}
+    client.portal.call(e.save_fleets, f)
+    out = client.portal.call(e.rock_chase_pass)
+    assert "Chaser: P1 leaves SOL-OBJ-1 for SOL-3-L4: nothing waits at a rock" in out, out
+    job = next(j for j in client.portal.call(e.jobs) if "P1 off SOL-OBJ-1" in j["title"])
+    assert [st["body"] for st in job["steps"]][0] == {"command": "deactivate"}

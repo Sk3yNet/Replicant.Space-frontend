@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.513.0"
+VERSION = "1.514.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.514.0", "2026-11-20", "Rock chaser propulsors stop pushing a rock once the fleet is done with it (live: Chaser_1's four propulsors kept pushing RENGRELOR-OBJ-2 after it was mined out). They switch off and fly to the drop like any other member left at a rock. Confirmed live that the decrease direction lengthens a launched rock's flight: four propulsors moved RENGRELOR-OBJ-2's ETA about 4 h later."),
     ("1.513.0", "2026-11-20", "Dashboard › Hub stockpiles (Joe): a chart per printing hub (each receiving hub fleet's home, SOLARES, FALQUORYX …) with a line per resource, counting only the stockpiles where its autofactories work (spare printers left out; a hub with none counts its drop point). The title names the hub fleet and those locations. Saved with each inventory poll from this version on, so no extra game reads; the history starts now. 2d / 7d / 30d like the other charts."),
     ("1.512.0", "2026-11-20", "Fleets › Production (Joe): what each mining and rock chaser fleet mined in the last 24 h, 7 and 30 days, units per hour, drones and rigs mining now, and for the chosen window the split by resource, location and day. Devices an AMI controller runs send no mining amounts, so output is measured as the pile gains where each fleet's devices mine (every inventory poll, shared by devices mining there, a rig counting 1.5), from this version on; the game's own mining.stopped totals of the last 30 days show beside it."),
     ("1.511.0", "2026-11-20", "Logistics matches the carrier to the pile (Joe: a hauler shouldn't take a bit of a 500-unit pile and a freighter go there later). A ship with room for at least half the load goes before a smaller one, however near; before, the nearest went first, so a hauler at the pile took 80 and a freighter fetched the rest on another trip. When only small carriers are free and a big enough one is busy, the request waits for it (the Logistics page says so); urgent requests still take any carrier at once."),
