@@ -187,6 +187,75 @@ class ChaseMixin:
                 out.append(f"{code} leaves {loc} for {to}: nothing waits at a rock")
         return out
 
+    async def _chase_slow(self, f: dict, cfg: dict, run: dict, ctx: dict, k: dict, rock: str, o: dict) -> list[str]:
+        """Joe 2026-11-20: the fleet's propulsors buy more time on a rock it launched. Game docs: a propulsor set to
+        `increase` or `decrease` changes the approach speed and the impact ETA (the default, `diversion`, would push the rock
+        off course). Which one lengthens the flight isn't documented: they start on SLOW_DIR, and if the ETA moves earlier
+        they switch to the other; if that moves it earlier too, they stop. Trajectory deflectors only change the approach
+        angle (the terraform effect), not the time, so they are left alone. The evacuation takes the propulsors off at 45 min."""
+        from . import fleets as fl
+        from . import rockchase as rc
+        from . import rockmining as rm
+        from .automations import step
+        mine = f"fleet {f['name']}"
+        launched = (await self.db.kv_get(rc.LAUNCHED_KV, {}) or {}).get(rock) or {}
+        if not cfg.get("slow_rocks") or not k["propulsors"] or launched.get("by") != mine:
+            return []
+        slow = run.get("slow") or {}
+        eta = _ts(o.get("impact_eta"))
+        if slow.get("rock") != rock:
+            slow = {"rock": rock, "dir": rc.SLOW_DIR, "set": {}, "eta0": o.get("impact_eta")}
+        run["slow"] = slow
+        if slow.get("off") or not eta or (eta - _now()) / 3600 < rc.SLOW_STOP_H:
+            return []
+        out: list[str] = []
+        on = slow.get("eta_on")
+        if on and _ts(on) and eta < _ts(on) - 120 and (_now() - (_ts(slow.get("on_at")) or _now())) > 600:
+            if slow.get("flipped"):
+                slow["off"] = f"both directions brought the ETA earlier ({o.get('impact_eta')}): propulsors switched off"
+                for p in k["propulsors"]:
+                    if p.get("location") == rock and p["device_code"] not in ctx["busy"]:
+                        await self.send("POST", f"/devices/{p['device_code']}", {"command": "deactivate"},
+                                        f"auto: rock chaser stops slowing {rock}")
+                await self.log("rock_chaser", f"{f['name']}: {slow['off']}", "warning")
+                return [slow["off"]]
+            old = slow["dir"]
+            slow.update({"dir": "increase" if old == "decrease" else "decrease", "flipped": True, "set": {}, "eta_on": None})
+            await self.log("rock_chaser", f"{f['name']}: propulsors on {old} brought {rock}'s ETA earlier: switching to {slow['dir']}")
+            out.append(f"propulsors on {old} brought {rock}'s ETA earlier: switching to {slow['dir']}")
+        sent = slow.setdefault("set", {})
+        for p in k["propulsors"]:
+            code, loc = p["device_code"], p.get("location") or ""
+            if code in ctx["busy"] or p.get("stowed_in_device_code") or p.get("attached_to_device_code"):
+                continue
+            active = str(p.get("status") or "").lower() not in ("idle", "inactive", "")
+            if loc != rock:
+                if fl.star_of(loc) != fl.star_of(rock) or not rm_can_fly(p):
+                    continue
+                steps = ([step(f"{code}: switch off", f"/devices/{code}", {"command": "deactivate"})] if active else []) + \
+                    [step(f"{code} → {rock}", f"/devices/{code}", {"command": "travel", "destination": rock}, critical=True),
+                     fl._wait_arrive(code, rock)]
+                sent.pop(code, None)
+                title, line = f"{f['name']}: {code} → {rock} to slow it", f"{code} → {rock} to slow it"
+            elif sent.get(code) != slow["dir"]:
+                steps = [step(f"{code}: direction {slow['dir']}", f"/devices/{code}",
+                              {"configuration": {"settings": {"direction": slow["dir"]}}}, method="PATCH", critical=True),
+                         step(f"{code}: switch on", f"/devices/{code}", {"command": "activate"})]
+                sent[code] = slow["dir"]
+                if not slow.get("eta_on"):
+                    slow["eta_on"] = o.get("impact_eta")
+                slow["on_at"] = now_iso()
+                title, line = f"{f['name']}: {code} slows {rock} ({slow['dir']})", f"{code} pushes {rock} ({slow['dir']})"
+            else:
+                continue
+            if await self.create_job("rock_chaser", title, code, steps, {"devices": [code]}):
+                ctx["busy"].add(code)
+                out.append(line)
+        if slow.get("eta0") and _ts(slow["eta0"]):
+            gained = (eta - _ts(slow["eta0"])) / 60
+            slow["note"] = f"propulsors on {slow['dir']}: ETA {'+' if gained >= 0 else ''}{gained:.0f} min since launch"
+        return out
+
     def _chase_better(self, f: dict, cfg: dict, run: dict, ctx: dict, o: dict, rock: str, need: list[str]) -> bool:
         """Joe 2026-11-19: a less wanted resource is mined only while nothing better is to be had. With follow_need on, rigs
         whose rock has none of the stockpile's `LOW_COUNT` lowest left move on when another rock in the area holds one."""
@@ -234,15 +303,12 @@ class ChaseMixin:
         from . import rockchase as rc
         fetch = run.setdefault("fetch", {})
         spot = run.get("fetch_at") if fetch else None
-        if not spot:
-            car = k["carriers"][0] if k["carriers"] else None
-            loc = (car or {}).get("location") or ""
-            if not car or car.get("stowed_in_device_code") or car.get("attached_to_device_code") or rc.is_rock(loc) \
-                    or fl.star_of(loc) != f["home"]:
+        if not spot:   # the home drop: logistics doesn't unload at the Kuiper belt; the gather takes them on from there
+            spot = self._chase_drop(rc.settings(f), f["home"], ctx)
+            if not spot or rc.is_rock(spot):
                 if not fetch:
                     run.pop("fetch", None)
                 return []
-            spot = loc
         if not fetch and not fl.short_list(f, ctx["devices"]):
             run.pop("fetch", None)
             run.pop("fetch_at", None)
@@ -299,7 +365,8 @@ class ChaseMixin:
                 run["note"] = f"no rock meets the criteria in {len(area)} system(s){where}"
         return None
 
-    def _passengers(self, k: dict, car: dict | None, devices: list[dict], busy: set[str]) -> tuple[dict, list, list[str]]:
+    def _passengers(self, k: dict, car: dict | None, devices: list[dict], busy: set[str],
+                    keep: set[str] | frozenset = frozenset()) -> tuple[dict, list, list[str]]:
         """Who rides the carrier: {location: [(code, mode)]} to pick up, [(code, mode)] for everyone aboard after, and the
         codes left out. Self-flying shippers (cargo freighters) fly on their own."""
         from . import fleets as fl
@@ -312,6 +379,8 @@ class ChaseMixin:
         aboard, left = [], []
         for d in riders:
             code = d["device_code"]
+            if code in keep and not (d.get("attached_to_device_code") == cc or d.get("stowed_in_device_code") == cc):
+                continue   # stays at the Kuiper belt (searching, ready to launch)
             if d.get("attached_to_device_code") == cc:
                 aboard.append((code, "attach"))
                 continue
@@ -381,7 +450,10 @@ class ChaseMixin:
                 run["note"] = f"waiting for the carrier {car['device_code']} (busy)"
                 return []
             cc = car["device_code"]
-            stops, aboard, left = self._passengers(k, car, devices, busy)
+            keep: set[str] = set()
+            if cfg.get("stage_kuiper") and c["star"] == f["home"]:
+                keep = {d["device_code"] for d in k["sensors"] + k["charges"]}
+            stops, aboard, left = self._passengers(k, car, devices, busy, keep)
             tour, _at = fl.pickup_tour(cc, car.get("location"), stops)
             steps += tour
             steps += [step(f"{cc} → {rock}", f"/devices/{cc}", {"command": "travel", "destination": rock}, critical=True),
@@ -417,10 +489,17 @@ class ChaseMixin:
         from .logistics import SECTOR_RANGE_LY
         if (f.get("mission") or {}).get("status") in ("running", "stalled", "stopped"):
             return []   # a fleet mission (recall, end mission) has the members
+        from . import rockchase as rc
         home, devices, busy, pos = f["home"], ctx["devices"], ctx["busy"], ctx["pos"]
         drop = self._chase_drop(cfg, home, ctx)
         if not drop:
             return []
+        # Joe 2026-11-20: everything waits at the Kuiper belt (sensor sweeping it, close to a rock when it launches), but
+        # the haulers and the AMI controllers, which run the supply ferry from the drop
+        stage = rc.stage_spot(ctx["scans"].get(home)) if cfg.get("stage_kuiper") else None
+
+        def spot_for(d: dict) -> str:
+            return stage if stage and rc.stages(d) else drop
 
         def star(loc: str | None) -> str:
             return (loc or "").split("-")[0]
@@ -442,8 +521,10 @@ class ChaseMixin:
                     aboard[t["device_code"]].append((code, "attach" if d.get("attached_to_device_code") else "stow"))
                 continue
             st = star(d.get("location"))
-            if not d.get("location") or st == home or code in busy:
-                continue
+            if not d.get("location") or code in busy or (st == home and (d["location"] == spot_for(d) or spot_for(d) == drop)):
+                continue   # in place (a member that waits at the drop may wait anywhere at home, as before)
+            if st == home and (rc.is_rock(d["location"]) or str(d.get("status") or "").lower() not in ("idle", "inactive")):
+                continue   # at a rock: _chase_off_rocks moves it; working: left alone
             if not near(st):
                 left.append(code)
             elif fl.flies_itself(d):
@@ -467,24 +548,31 @@ class ChaseMixin:
         for cc, c in carriers.items():
             if cc in busy or not near(star(c.get("location"))):
                 continue
-            if not stops[cc] and star(c.get("location")) == home:
-                continue   # home already; what it carries goes along on the next chase
+            dest = stage or drop
+            if not stops[cc] and (c.get("location") == dest or (not stage and star(c.get("location")) == home)):
+                continue   # in place; what it carries goes along on the next chase
+            if stage and not stops[cc] and not aboard[cc] and star(c.get("location")) == home and c.get("location") != dest \
+                    and str(c.get("status") or "").lower() not in ("idle", "inactive"):
+                continue
             tour, _at = fl.pickup_tour(cc, c.get("location"), stops[cc])
-            steps = tour + [step(f"{cc} → {drop}", f"/devices/{cc}", {"command": "travel", "destination": drop}, critical=True),
-                            fl._wait_arrive(cc, drop)] + self._unload(cc, aboard[cc])
+            steps = tour + [step(f"{cc} → {dest}", f"/devices/{cc}", {"command": "travel", "destination": dest}, critical=True),
+                            fl._wait_arrive(cc, dest)] + self._unload(cc, aboard[cc])
             codes = {cc} | {x for x, _ in aboard[cc]}
             if await self.create_job("rock_chaser", f"{f['name']}: {cc} gathers the fleet at {home}", cc, steps,
                                      {"devices": sorted(codes)}):
                 busy.update(codes)
                 n = len(aboard[cc])
-                out.append(f"{cc} brings {n} member(s) home to {drop}" if n else f"{cc} flies home to {drop}")
+                out.append(f"{cc} brings {n} member(s) home to {dest}" if n else f"{cc} flies home to {dest}")
         for d in fly:
-            code = d["device_code"]
-            if await self.create_job("rock_chaser", f"{f['name']}: {code} → {drop} (home)", code,
-                                     [step(f"{code} → {drop}", f"/devices/{code}", {"command": "travel", "destination": drop},
-                                           critical=True), fl._wait_arrive(code, drop)], {"devices": [code]}):
+            code, to = d["device_code"], spot_for(d)
+            steps = []
+            if d.get("device_type") == "propulsor" and str(d.get("status") or "").lower() not in ("idle", "inactive"):
+                steps.append(step(f"{code}: switch off", f"/devices/{code}", {"command": "deactivate"}))   # it won't travel on
+            steps += [step(f"{code} → {to}", f"/devices/{code}", {"command": "travel", "destination": to}, critical=True),
+                      fl._wait_arrive(code, to)]
+            if await self.create_job("rock_chaser", f"{f['name']}: {code} → {to} (home)", code, steps, {"devices": [code]}):
                 busy.add(code)
-                out.append(f"{code} flies home to {drop}")
+                out.append(f"{code} flies home to {to}")
         if out or left:
             run["note"] = (run.get("note") or "") + (f"; gathering at {home}" if out else "") + \
                 (f"; can't fetch: {', '.join(left)} (out of reach, beyond {SECTOR_RANGE_LY:g} ly or no free seat)" if left else "")
@@ -520,6 +608,7 @@ class ChaseMixin:
                     ctx["scanned"])
         out = await self.rock_commands(p, ctx["state"], ctx["full"], rule="rock_chaser")
         out += await self.rock_scan_jobs(p["scan"], rule="rock_chaser")
+        out += await self._chase_slow(f, cfg, run, ctx, k, rock, o)
         if rock in ctx["full"]:
             run["note"] = f"{rock}: the game says its slots are taken"
         else:

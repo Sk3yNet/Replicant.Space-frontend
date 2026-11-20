@@ -19,6 +19,7 @@
     {{ pill('6 Ship', run.ship_note or ('to ' ~ ((run.drops or {}).get(run.target) or 'drop')) if run.target else '—', run.target and run.phase == 'mining') }}
     {{ pill('7 Resupply', ((run.fetch | length) ~ ' on the way') if run.fetch else ('short ' ~ (run.short_why | join(', ') | replace('_', ' ')) if run.short_why else 'full'), run.fetch) }}
   </div>
+  {% if run.slow and run.slow.get('note') %}<div class="muted">Slowing {{ run.slow.rock }}: {{ run.slow.note }}{% if run.slow.get('off') %} · {{ run.slow.off }}{% endif %}</div>{% endif %}
   {% if run.need %}<div class="muted">Stockpile at {{ run.need.hub }} lowest on {% for r in run.need.order[:3] %}{{ r }} ({{ run.need.stock.get(r, 0) }}){{ ', ' if not loop.last }}{% endfor %}{% if c.follow_need %}: mined first, then everything else{% endif %}</div>{% endif %}
   {% if run.fetch %}<div class="muted">On the way by logistics to {{ run.fetch_at }}: {% for code, v in run.fetch | dictsort %}{{ code }} ({{ v.type | replace('_', ' ') }}){{ ', ' if not loop.last }}{% endfor %}</div>{% endif %}
   {% if run.short_why %}<div class="muted">Short: {% for t, why in run.short_why | dictsort %}{{ t | replace('_', ' ') }} ({{ why }}){{ '; ' if not loop.last }}{% endfor %}</div>{% endif %}
@@ -74,6 +75,10 @@
           <span class="muted">Kuiper objects at least this big are listed below as marked for launch. Launched rocks arrive in 6 to 24 h, smaller ones slower. Default medium.</span></label>
         <label class="f">launch at <input name="launch_at" value="{{ c.launch_at }}" placeholder="planet or moon, e.g. {{ f.home }}-3" size="16">
           <span class="muted">The body a marked object is launched at: it hits there, with its terraform effect, unless mined out.</span></label>
+        <label class="f">wait at the Kuiper belt <input type="checkbox" name="stage_kuiper" {{ 'checked' if c.stage_kuiper }}>
+          <span class="muted">Between rocks the fleet waits at {{ f.home }}'s Kuiper belt: the sensor array sweeps it and the vector charge is ready, close to a rock when it launches. Haulers and AMI controllers stay at the drop for the supply ferry. Default on.</span></label>
+        <label class="f">slow launched rocks <input type="checkbox" name="slow_rocks" {{ 'checked' if c.slow_rocks }}>
+          <span class="muted">The fleet's propulsors fly to a rock it launched and push on its speed for more mining time (never diversion). If the ETA moves earlier they switch direction, and stop if that does too. Default on.</span></label>
         <label class="f">auto launch <input type="checkbox" name="auto_launch" {{ 'checked' if c.auto_launch }}>
           <span class="muted">Launch marked objects at the launch-at body without asking, one rock in flight at a time: the one holding what the stockpile is lowest on (an object known to hold none of its three lowest is left alone). Each launch uses up a vector charge; a new one comes from the spares by logistics. Off: you press Launch.</span></label>
       </fieldset>

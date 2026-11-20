@@ -32,7 +32,7 @@ MODES = ("hub", "roam")
 DEFAULTS: dict[str, Any] = {"mode": "roam", "radius": 100.0, "min_size": "small", "priority": "", "min_hours": 2.0,
                             "leave_minutes": 80.0, "ship_min": 50.0, "drop": "", "keep_pct": 5.0, "launched_resources": "",
                             "search_hours": 24.0, "launch_size": "medium", "launch_at": "", "auto_launch": False,
-                            "follow_need": True}
+                            "follow_need": True, "stage_kuiper": True, "slow_rocks": True}
 SURGE_S_PER_LY = 50.0   # rough surge pace for ranking; the chosen trip is checked with the game's preview
 CRUISE_H = 0.25         # rough in-system trip for ranking
 KUIPER_HOURS = 24.0     # a detected Kuiper object stays this long (docs)
@@ -175,7 +175,7 @@ def kinds(ms: list[dict]) -> dict[str, list[dict]]:
     surveyors (belt surveyors first), sensors (sensor arrays), charges (vector charges)."""
     from . import fleets as fl
     from .sites import is_surveyor, surveyors_first
-    out: dict[str, list[dict]] = {k: [] for k in ("rigs", "carriers", "shippers", "surveyors", "sensors", "charges", "ferried")}
+    out: dict[str, list[dict]] = {k: [] for k in ("rigs", "carriers", "shippers", "surveyors", "sensors", "charges", "ferried", "propulsors")}
     for d in sorted(ms, key=lambda d: d.get("device_code") or ""):
         t = d.get("device_type") or ""
         if rm.is_rig(d):
@@ -192,6 +192,8 @@ def kinds(ms: list[dict]) -> dict[str, list[dict]]:
             out["sensors"].append(d)
         elif t == "vector_charge":
             out["charges"].append(d)
+        elif t == "propulsor":
+            out["propulsors"].append(d)
     out["surveyors"] = surveyors_first(out["surveyors"])
     out["carriers"].sort(key=lambda c: -(fl.capacity(c) + fl.hold(c)))
     return out
@@ -347,6 +349,32 @@ def launch_choice(marks: dict[str, dict], star: str, need: list[str], known: dic
     if skipped:
         why = f"none holds what the stockpile is low on ({', '.join(low)}): {', '.join(skipped)} left alone"
     return None, why
+
+
+def stage_spot(scan: dict | None) -> str | None:
+    """The system's Kuiper belt from its scan (Joe 2026-11-20: a chaser waits there, its sensor array sweeping it and close
+    to a rock when it launches). None: no Kuiper belt, or the system isn't scanned yet."""
+    return ((((scan or {}).get("outer_system") or {}).get("kuiper") or {}).get("designation") or None)
+
+
+STAGED_OUT = ("ami_", )   # controllers run the supply ferry from the drop: they stay there with the freighters
+
+
+def stages(d: dict) -> bool:
+    """A member that waits at the Kuiper belt: everything but the haulers / freighters and the AMI controllers."""
+    t = d.get("device_type") or ""
+    return not t.startswith(STAGED_OUT) and not ("transport" in (d.get("features") or []) or rm_cargo(d))
+
+
+def rm_cargo(d: dict) -> bool:
+    try:
+        return int(d.get("cargo_capacity") or 0) > 0
+    except (TypeError, ValueError):
+        return False
+
+
+SLOW_DIR = "decrease"   # first guess for lengthening a launched rock's flight; flipped when the ETA moves earlier
+SLOW_STOP_H = 1.5       # no new slowing this close to the ETA: the evacuation takes the propulsors off at 45 min
 
 
 def marked(kuiper: list[dict], cfg: dict, star: str, at: str) -> dict[str, dict]:

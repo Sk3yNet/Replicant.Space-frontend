@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.504.1"
+VERSION = "1.505.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.505.0", "2026-11-20", "Rock chasers wait at the Kuiper belt and slow the rocks they launch (Joe). Between rocks, everything but the haulers and AMI controllers (they run the supply ferry from the drop) gathers at the home system's Kuiper belt, so the sensor array sweeps it and the vector charge is ready close to the launch. Live: Chaser_1's sensor array sat attached to a carrier at RENGRELOR-3-L4 and hadn't searched since 11-19 03:17. For home-system rocks the sensor array and vector charge stay behind at the belt. New option slow launched rocks (on): the fleet's propulsors fly to a rock it launched and push on its speed (decrease first, never diversion) for more mining time; if the ETA moves earlier they switch to increase, and stop if that does too. Trajectory deflectors only change the approach angle (the terraform effect), so the chaser leaves them alone. Spares for a short fleet now go to the home drop."),
     ("1.504.1", "2026-11-20", "Megastructure contributions anticipate the owner rule (Joe, Delta gate): devices owned by a replicant that isn't at the structure are first handed to one of yours that is (change_owner), on the Contribute button and in scheduled deliveries, which now check every minute so the delivering carrier's replicant is still there; with none of yours there the order says so."),
     ("1.504.0", "2026-11-20", "Scheduled megastructure deliveries (Joe): a megastructure's page (e.g. Frontier Assembly at LAOWAOI-OBJ-2) has Schedule a delivery: pick the device types and an amount each (blank: all it still needs), optionally print what no spare covers. Logistics brings spares nearest first within the sector range and contributes them on arrival until the amount is given or the structure is complete; Pause, Resume and Remove on the location page and on Megastructures, which lists every scheduled delivery."),
     ("1.503.0", "2026-11-20", "Fleet missions and other automated jobs the app starts on its own count against the sector range too (Joe): before, any job marked forced skipped the check, so a fleet mission could still be sent on a trip of days. Only command chains you start yourself (and steps you allowed to go far) skip it now; a forced job's trip of unknown length still goes, as before."),

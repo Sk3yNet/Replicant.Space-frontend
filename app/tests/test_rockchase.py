@@ -388,20 +388,21 @@ def test_spent_vector_charge_is_replaced_from_the_spares(client):  # noqa: F811
     f[0]["chase_run"] = {"searched": {"SOL": iso(0)}}
     client.portal.call(e.save_fleets, f)
     out = client.portal.call(e.rock_chase_pass)
-    assert any("VCS (vector_charge) is free: logistics brings it to SOL-3-L4" in x for x in out)
     run = client.portal.call(e.fleets)[0]["chase_run"]
-    assert run["fetch_at"] == "SOL-3-L4" and "VCS" in run["fetch"]
-    job = next(j for j in client.portal.call(e.jobs) if "members for SOL-3-L4" in j["title"])
+    spot = run["fetch_at"]   # the home drop: logistics never unloads at the Kuiper belt
+    assert any(f"VCS (vector_charge) is free: logistics brings it to {spot}" in x for x in out), out
+    assert "VCS" in run["fetch"] and "KUIPER" not in spot
+    job = next(j for j in client.portal.call(e.jobs) if f"members for {spot}" in j["title"])
     for j in [job]:
         j["status"] = "done"
         client.portal.call(e._update, j)
     devs = client.portal.call(db.kv_get, "devices")
     for d in devs:
         if d["device_code"] == "VCS":
-            d.update({"location": "SOL-3-L4", "tags": ["at:sol-3-l4"]})
+            d.update({"location": spot, "tags": [f"at:{spot.lower()}"]})
     client.portal.call(db.kv_set, "devices", devs)
     out = client.portal.call(e.rock_chase_pass)
-    assert any("VCS (vector_charge) arrived at SOL-3-L4 and joins" in x for x in out)
+    assert any(f"VCS (vector_charge) arrived at {spot} and joins" in x for x in out)
     assert not client.portal.call(e.fleets)[0]["chase_run"].get("fetch")
 
 
@@ -474,3 +475,53 @@ def test_rigs_leave_leftovers_for_a_rock_with_a_wanted_resource(client):  # noqa
                               rc.need_order(inv[0]["items"]))
     out = client.portal.call(e.rock_chase_pass)
     assert any("SOL-OBJ-2" in x for x in out), out
+
+
+def _scan(client, db):
+    import json
+    scan = {"planets": [{"designation": "SOL-3"}], "asteroid_belt": {"belts": [{"designation": "SOL-BELT-1"}]},
+            "outer_system": {"kuiper": {"designation": "SOL-KUIPER", "distance_au": 40}}}
+    client.portal.call(db.execute, "INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
+                       ("SOL", json.dumps(scan), iso(0)))
+
+
+def test_idle_chaser_waits_at_the_kuiper_belt(client):  # noqa: F811
+    """Joe 2026-11-20: the sensor array sat attached to a carrier at RENGRELOR-3-L4 for a day (no search since 11-19
+    03:17); everything should wait at the Kuiper belt, close to a rock when it launches."""
+    sensor = {"device_code": "SENS", "device_type": "sensor_array", "location": "SOL-3-L4", "status": "idle",
+              "tags": ["fleet:rc"], "features": ["cruise"], "attached_to_device_code": "PLAT",
+              "available_commands": ["detect_object", "travel"]}
+    fr = {"device_code": "FR1", "device_type": "cargo_freighter", "location": "SOL-3-L4", "status": "idle",
+          "tags": ["fleet:rc"], "features": ["transport", "cruise"], "cargo_capacity": 500, "available_commands": ["travel"]}
+    db, e = _setup(client, [rig("RIG1", "SOL-3-L4", attached_to_device_code="PLAT"), carrier("PLAT", "SOL-3-L4"), sensor, fr], {})
+    _scan(client, db)
+    out = client.portal.call(e.rock_chase_pass)
+    assert "Chaser: PLAT brings 2 member(s) home to SOL-KUIPER" in out, out
+    job = next(j for j in client.portal.call(e.jobs) if "gathers" in j["title"])
+    bodies = [st.get("body") for st in job["steps"]]
+    assert {"command": "travel", "destination": "SOL-KUIPER"} in bodies
+    assert not any("FR1" in x for x in out)   # haulers stay at the drop for the supply ferry
+
+
+def test_propulsors_slow_a_rock_the_fleet_launched(client):  # noqa: F811
+    prop = {"device_code": "P1", "device_type": "propulsor", "location": "SOL-OBJ-1", "status": "idle", "tags": ["fleet:rc"],
+            "features": ["cruise"], "available_commands": ["activate", "travel"]}
+    db, e = _setup(client, [rig("RIG1", "SOL-OBJ-1", "mining (rares)"), prop], {"SOL-OBJ-1": rock(minutes=600)})
+    client.portal.call(db.kv_set, rc.LAUNCHED_KV, {"SOL-OBJ-1": {"by": "fleet Chaser", "status": "launched"}})
+    f = client.portal.call(e.fleets)
+    f[0]["chase_run"] = {"target": "SOL-OBJ-1", "phase": "mining", "arrived": "SOL-OBJ-1", "searched": {"SOL": iso(0)}}
+    client.portal.call(e.save_fleets, f)
+    out = client.portal.call(e.rock_chase_pass)
+    assert "Chaser: P1 pushes SOL-OBJ-1 (decrease)" in out, out
+    job = next(j for j in client.portal.call(e.jobs) if "slows" in j["title"])
+    assert job["steps"][0]["method"] == "PATCH" and job["steps"][0]["body"] == {"configuration": {"settings": {"direction": "decrease"}}}
+    # the ETA moved earlier 15 min after: the other direction
+    f = client.portal.call(e.fleets)
+    slow = f[0]["chase_run"]["slow"]
+    slow["on_at"] = iso(-15)
+    slow["eta_on"] = iso(700)
+    client.portal.call(e.save_fleets, f)
+    job["status"] = "done"
+    client.portal.call(e._update, job)
+    out = client.portal.call(e.rock_chase_pass)
+    assert any("switching to increase" in x for x in out) and "Chaser: P1 pushes SOL-OBJ-1 (increase)" in out, out
