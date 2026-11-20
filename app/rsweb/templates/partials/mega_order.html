@@ -5,6 +5,7 @@
     {% if morder.status == "active" %}<span class="pill small">delivering</span>{% elif morder.status == "paused" %}<span class="pill small">paused</span>{% else %}<span class="pill small">done</span>{% endif %}
     {% if morder.print %}· prints what no spare covers{% else %}· spares only{% endif %}
     {% if morder.checked_at %}<span class="muted">· checked {{ morder.checked_at | ago }}</span>{% endif %}
+    {% if morder.note and morder.status == "active" %}<br><span class="muted">{{ morder.note }}</span>{% endif %}
     {% if morder.error %}<span class="lv-alert small">{{ morder.error }}</span>{% endif %}</p>
   <table class="small"><tr><th>Device type</th><th class="num">Asked</th><th class="num">Given</th><th class="num">Still to bring</th><th>On the way</th></tr>
     {% for t, n in morder.types | dictsort %}{% set r = (msupply.rows or []) | selectattr("type", "equalto", t) | first %}

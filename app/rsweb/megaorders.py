@@ -121,6 +121,36 @@ def to_contribute(order: dict, devices: list[dict], tag: str, busy: set[str]) ->
     return out
 
 
+def present_replicants(loc: str, reps: dict, devices: list[dict]) -> list[str]:
+    """Your replicants at the location: standing there, or aboard a device that is (sorted, for a stable pick)."""
+    by = {d.get("device_code"): d for d in devices}
+    out = []
+    for c, r in reps.items():
+        here = r.get("location") or r.get("current_location")
+        host = by.get(r.get("hosted_device_code") or "")
+        if str(here or "").upper() == loc or (host and str(host.get("location") or "").upper() == loc):
+            out.append(c)
+    return sorted(out)
+
+
+def contribute_steps(loc: str, give: list[dict], present: list[str]) -> tuple[list[dict], str | None]:
+    """The game takes a device only from its owner, standing at the structure (Delta gate, Joe 2026-11-20). Devices whose
+    owner (replicant_code) is there go as they are; the others are first handed to a replicant that is there
+    (change_owner). With nobody there they are tried as they are, and the order says so."""
+    from .engine_base import step
+    if not give:
+        return [], None
+    steps = []
+    for d in give:
+        if present and d.get("replicant_code") not in present and "change_owner" in (d.get("available_commands") or ["change_owner"]):
+            steps.append(step(f"{d['device_code']} ({d.get('device_type')}): owner {d.get('replicant_code')} → {present[0]}",
+                              f"/devices/{d['device_code']}", {"command": "change_owner", "target": present[0]}))
+    codes = [d["device_code"] for d in give]
+    steps.append(step(f"contribute {', '.join(codes)} to {loc}", f"/locations/{loc}/contribute", {"devices": codes}))
+    return steps, (None if present else f"none of your replicants is at {loc}: if the game wants the owner there, "
+                                        "devices stay until one arrives")
+
+
 def user_fields(o: dict) -> dict:
     """What the page changes on an order."""
     return {k: o.get(k) for k in ("types", "print", "status")}
@@ -153,11 +183,12 @@ class MegaOrdersMixin:
         if not any(o.get("status") == "active" for o in orders.values()):
             return []
         last = _ts(await self.db.kv_get("mega_orders_last", None))
-        if not force and last and datetime.now(timezone.utc).timestamp() - last < 240:
+        if not force and last and datetime.now(timezone.utc).timestamp() - last < 50:   # a carrier's replicant stays briefly
             return []
         await self.db.kv_set("mega_orders_last", now_iso())
         devices = await self.devices()
         busy = self.busy_devices(await self.jobs())
+        reps = await self.db.kv_get("replicants", {}) or {}
         out: list[str] = []
         user0 = {loc: user_fields(o) for loc, o in orders.items()}
         for loc, o in orders.items():
@@ -176,11 +207,12 @@ class MegaOrdersMixin:
                 o.pop("error", None)
             tag = contract_tag(key(loc))
             give = to_contribute(o, devices, tag, busy)
-            if give:
+            steps, why = contribute_steps(loc, give, present_replicants(loc, reps, devices))
+            o["note"] = why
+            if steps:
                 codes = [d["device_code"] for d in give]
                 if await self.create_job("contracts", f"megastructure {o.get('title') or loc}: contribute {len(codes)} device(s)",
-                                         None, [step(f"contribute {', '.join(codes)} to {loc}", f"/locations/{loc}/contribute",
-                                                     {"devices": codes})], {"devices": codes, "megastructure": loc}):
+                                         None, steps, {"devices": codes, "megastructure": loc}):
                     for d in give:
                         o.setdefault("pending", {})[d["device_code"]] = {"type": d.get("device_type"), "at": now_iso()}
                     busy |= set(codes)

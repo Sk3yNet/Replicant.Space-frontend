@@ -76,3 +76,15 @@ def test_order_finishes_when_nothing_is_left():
 def test_location_page_offers_a_schedule(client):  # noqa: F811
     page = client.get(f"/locations/{LOC}", headers=H).text
     assert "Schedule a delivery" in page and f'hx-post="/locations/{LOC}/deliveries"' in page
+
+
+def test_devices_go_to_an_owner_at_the_structure_first():
+    reps = {"R1": {"location": "SOL-3"}, "R2": {"hosted_device_code": "V1"}}
+    devs = [dev("V1", "racing_vessel", loc=LOC), dev("A", loc=LOC, replicant_code="R2"), dev("B", loc=LOC, replicant_code="R1")]
+    present = mo.present_replicants(LOC, reps, devs)
+    assert present == ["R2"]
+    steps, why = mo.contribute_steps(LOC, devs[1:], present)
+    assert why is None and [s["body"] for s in steps] == [{"command": "change_owner", "target": "R2"}, {"devices": ["A", "B"]}]
+    assert steps[0]["path"] == "/devices/B"
+    steps, why = mo.contribute_steps(LOC, devs[1:], [])
+    assert len(steps) == 1 and "none of your replicants" in why

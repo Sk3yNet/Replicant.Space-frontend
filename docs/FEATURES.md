@@ -294,7 +294,8 @@ Unexplored stars nearest a system, with ETA and route; stellar census per vessel
   button for your devices there, and *Schedule a delivery*: tick the device types and an amount each (blank: all it
   still needs), optionally *print what no spare covers*. Logistics tags spares nearest first (within the sector range)
   for it and carries them to the exact location, where they are contributed on arrival (engine stage
-  `mega_order_pass`, every few minutes); the order finishes once the amount is given or the structure needs no more.
+  `mega_order_pass`, every minute; a device owned by a replicant elsewhere is first handed to one of yours at the
+  structure, since only the owner there can give it); the order finishes once the amount is given or the structure needs no more.
   *Pause* keeps devices on their way tagged; *Remove* makes them spare again. `/megastructures` lists every scheduled
   delivery with what was given and what is on the way, above the leaderboard.
 - **Space stations**: megastructures of type `space_station`; the galaxy map gives them a silver wheel (lower right)

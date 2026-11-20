@@ -15,6 +15,21 @@ async def location_contribute(request: Request, code: str, user: str = Depends(c
     codes = [c.strip().upper() for c in form.getlist("devices") if c.strip()]
     if not codes:
         return HTMLResponse('<div class="result err">Tick at least one device.</div>')
+    # only a device's owner, at the structure, can give it (Delta gate, Joe 2026-11-20): hand the others to a replicant
+    # of yours that is there first
+    from . import megaorders as mo
+    st = await load_state(request)
+    by = {d.get("device_code"): d for d in st["devices"]}
+    present = mo.present_replicants(code.upper(), st["replicants"], st["devices"])
+    moved = []
+    for c in codes:
+        d = by.get(c) or {}
+        if present and d.get("replicant_code") and d["replicant_code"] not in present:
+            try:
+                await request.app.state.api.post(f"/devices/{c}", {"command": "change_owner", "target": present[0]})
+                moved.append(c)
+            except ApiError as e:
+                return HTMLResponse(f'<div class="result err">Handing {c} to {present[0]} failed: {html.escape(e.message)}</div>')
     return await run_action(request, user, "POST", f"/locations/{code.upper()}/contribute", {"devices": codes},
                             f"contribute {len(codes)} device(s) to {code.upper()}")
 
