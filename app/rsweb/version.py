@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.502.0"
+VERSION = "1.503.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.503.0", "2026-11-20", "Fleet missions and other automated jobs the app starts on its own count against the sector range too (Joe): before, any job marked forced skipped the check, so a fleet mission could still be sent on a trip of days. Only command chains you start yourself (and steps you allowed to go far) skip it now; a forced job's trip of unknown length still goes, as before."),
     ("1.502.0", "2026-11-20", "The one-way Delta gate is for trips you send yourself (Joe): a new season rescan sent Delta Logistics' 6AA05D44 from ARADRAXIS through the gate to CENIX, about 10 days from home, because the sector range measured only the gate's short way out. Automated trips no longer take the gate, so a trip out of the Delta sector is measured the long way and refused; the travel form and command chains still offer it. Sector-range refusals from before the gate opened count again, and the season rescan scouts only fleet homes within the sector range of its carrier."),
     ("1.501.0", "2026-11-19", "Orbital foundries count as factories everywhere (Joe): bootstrap compounds, splitting a batch over the factories at one spot, the print planner and the Terraforming page's factory systems now take any general factory, not only devices named autofactory. Decommissioning to learn a blueprint still goes to an autofactory (the game docs name only those)."),
     ("1.500.0", "2026-11-19", "Wards stay out of systems with a hub, anyone's, or a space station (Joe): the game refuses them there (\"Cannot activate a ward in a system with a hub\", ALKALAROPS beside New Havana Station). Systems/Prospects add ward refuses such a system, an open ward order there is dropped and its ward marked spare, fleets set their ward down without switching it on, bootstraps don't ask for one, and a refusal from the game teaches the app any other such system."),

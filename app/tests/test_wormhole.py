@@ -54,7 +54,7 @@ def _run(client, gate_works=True, start="ISOLITHOR-4-L4", dest="SOLARES-2-L4", h
     e.api.request, e.send = fake_request, fake_send
     job = client.portal.call(e.create_job, "fleets", "trip", "V1",
                              [au.step("V1 → SOLARES", "/devices/V1", {"command": "travel", "destination": dest})],
-                             {"by": "you"} if hand else {}, hand)
+                             {"by": "you"} if hand else {}, True)
     return sent, next(j for j in client.portal.call(e.jobs) if j["id"] == job["id"])
 
 

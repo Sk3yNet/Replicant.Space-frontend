@@ -5,7 +5,7 @@ from test_ops import H, client, eng  # noqa: F401  (fixture)
 POS = {"SOLARES": {"x": 0, "y": 0, "z": 0}, "FAR": {"x": 2000, "y": 0, "z": 0}, "NEAR": {"x": 100, "y": 0, "z": 0}}
 
 
-def _run(client, dest, force=False, catalog=True):
+def _run(client, dest, force=False, catalog=True, meta=None):
     from rsweb import automations as au
     e = eng(client)
     db = client.app.state.db
@@ -24,8 +24,8 @@ def _run(client, dest, force=False, catalog=True):
     e.api.request, e.send = fake_request, fake_send
     job = client.portal.call(e.create_job, "logistics", "trip", "F1",
                              [au.step("F1 → there", "/devices/F1", {"command": "travel", "destination": dest},
-                                      wait=["travel.arrived"])], {}, force)
-    return e, sent, job["id"]
+                                      wait=["travel.arrived"])], meta or {}, force)
+    return e, sent, (job or {}).get("id")
 
 
 def _job(client, e, jid):
@@ -63,8 +63,14 @@ def test_a_trip_held_for_confirm_before_is_stopped_by_the_tick(client):
 def test_trips_inside_the_sector_range_and_your_own_go_out(client):
     e, sent, _ = _run(client, "NEAR-BELT-1")
     assert sent and sent[0]["destination"] == "NEAR-BELT-1"
-    e, sent, _ = _run(client, "FAR-BELT-1", force=True)
+    e, sent, _ = _run(client, "FAR-BELT-1", force=True, meta={"by": "you"})   # a command chain you started
     assert sent
+
+
+def test_forced_automated_jobs_count_against_the_sector_range(client):
+    """Joe 2026-11-20: fleet missions are forced jobs and skipped the check; only your own chains skip it now."""
+    e, sent, jid = _run(client, "FAR-BELT-1", force=True)
+    assert not sent and "sector range" in _job(client, e, jid)["steps"][0]["error"]
 
 
 def test_a_star_the_catalog_lacks_is_measured_by_the_preview(client):

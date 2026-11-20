@@ -28,7 +28,7 @@ class JobsMixin:
         if not force and not (meta or {}).get("through_hold") and await self.held():
             await self.log(rule, f"[paused for the season change] not started: {title}")
             return None
-        if not force and not (meta or {}).get("sim"):
+        if not (meta or {}).get("by") and not (meta or {}).get("sim"):   # forced automated jobs too (owner 2026-11-20)
             far = await self._far_steps(steps)
             if far:   # never sent beyond the sector range (owner 2026-11-14): logged once a day per job title
                 seen = self.__dict__.setdefault("_far_logged", {})
@@ -1106,13 +1106,14 @@ class JobsMixin:
         ISOLITHOR to fetch a stockpile): an automated trip longer than logistics.SECTOR_RANGE_H at the game's surge pace,
         or of unknown length, is never sent (owner 2026-11-14; it waited for a Confirm before). Measured from the catalog; a trip over the range or off
         the catalog by the game's preview of its planned route (a hub can bring it under).
-        Trips you asked for (a forced job, an allow_far step), simulations and previews go as they are."""
+        Trips you asked for (a command chain, meta "by"; an allow_far step), simulations and previews go as they are.
+        Forced automated jobs (fleet missions and the like) are measured too (owner 2026-11-20)."""
         from . import hubroute
         from .logistics import SECTOR_RANGE_H, SURGE_S_PER_LY
         body, path = st.get("body") or {}, str(st.get("path") or "")
         rep = path.startswith("/replicants/") and path.endswith("/travel")
         if (not body.get("destination") or not (rep or (body.get("command") == "travel" and path.startswith("/devices/")))
-                or body.get("dry_run") or st.get("allow_far") or st.get("sector_ok") or job.get("forced")
+                or body.get("dry_run") or st.get("allow_far") or st.get("sector_ok") or (job.get("meta") or {}).get("by")
                 or (job.get("meta") or {}).get("sim")):
             return None
         if st.get("sector_h") is None:
@@ -1147,8 +1148,8 @@ class JobsMixin:
             st["sector_h"] = round(hours, 1) if hours is not None else -1.0
             st["sector_leg"] = f"{here}>{there}" if here and there else None
         h = st["sector_h"]
-        if 0 <= h <= SECTOR_RANGE_H:
-            return None
+        if 0 <= h <= SECTOR_RANGE_H or (h < 0 and job.get("forced")):
+            return None   # a forced job (a fleet mission) is held back only by a known length
         return (f"about {h:.0f} h of travel, beyond the {SECTOR_RANGE_H:.0f} h sector range" if h >= 0
                 else "a trip of unknown length (beyond the sector range?)")
 
