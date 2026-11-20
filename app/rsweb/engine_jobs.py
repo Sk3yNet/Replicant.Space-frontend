@@ -40,7 +40,7 @@ class JobsMixin:
         from .shapes import normalize_blueprints
         bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
         # drones tracking a site deactivate before moving; large (modular) devices compact (modular.py)
-        steps = prepare_moves(steps, await self.devices(), bps, await self.cooperation())
+        steps = prepare_moves(steps, await self.devices(), bps, await self.cooperation(), evacuation=rule == "evacuate")
         jobs = await self.jobs()
         job = {"id": f"{rule}-{int(_now().timestamp() * 1000)}-{len(jobs)}", "rule": rule, "title": title,
                "device": device, "steps": steps, "idx": 0, "status": "running", "created_at": now_iso(),

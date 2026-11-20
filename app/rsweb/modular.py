@@ -181,17 +181,42 @@ def with_untracking(steps: list[dict], devices: list[dict]) -> list[dict]:
     return steps
 
 
-def with_compaction(steps: list[dict], devices: list[dict], bps: dict[str, dict] | None = None) -> list[dict]:
+def compacting_wait(code: str, bps: dict[str, dict], d: dict) -> dict:
+    """Wait for a device already folding up to finish (device.compacted)."""
+    w = step(f"wait for {code} to finish compacting", "", None, method="WAIT", wait=["device.compacted"],
+             timeout=int(max(STEP_TIMEOUT, compact_seconds(d, bps) + 1800)))
+    w["wait_device"] = code
+    return w
+
+
+def with_compaction(steps: list[dict], devices: list[dict], bps: dict[str, dict] | None = None,
+                    evacuation: bool = False) -> list[dict]:
+    """Modular devices compact before they move and unfurl after. One still compacting holds the whole job until it's
+    done (owner 2026-11-20: a fleet doesn't leave with a member mid-compaction; live 2026-11-18, regulator D1E96D13 was
+    asked to attach while compacting and refused). An evacuation doesn't wait: a modular device that can fly cruises to
+    safety as it is (owner 2026-11-20)."""
     bps = bps or {}
     by = {d.get("device_code"): d for d in devices}
     mods = {c for c, d in by.items() if c and is_modular(d)}
     if not mods or any((s.get("body") or {}).get("command") in ("compact", "unfurl") for s in steps):
         return steps   # nothing modular here, or the job already handles it
+    moved = [(c, s) for c, s in ((_subject(s)[0], s) for s in steps if _subject(s)[1] == "move") if c in mods]
+    if evacuation:   # flying itself: no folding up, no unfolding after
+        mods -= {c for c, s in moved if (s.get("body") or {}).get("command") == "travel"
+                 and str(s.get("path") or "").split("/")[2] == c}
     # switched on later in the job (relay stations at the drop): the unfurl waits until the device is unfolded
     switched_on = {str(s.get("path") or "").split("/")[2] for s in steps
                    if (s.get("body") or {}).get("command") == "activate" and str(s.get("path") or "").startswith("/devices/")}
-    return _wrap(steps, mods, lambda code: None if compacted(by[code]) else compact_step(code, bps, by[code]),
-                 lambda code: unfurl_step(code, bps, by[code]) if code in switched_on else unfurl_step(code))
+    out = _wrap(steps, mods, lambda code: None if compacted(by[code]) else compact_step(code, bps, by[code]),
+                lambda code: unfurl_step(code, bps, by[code]) if code in switched_on else unfurl_step(code))
+    folding = sorted({c for c, _ in moved if c in mods and compacted(by[c]) and not folded(by[c])})
+    if not folding or evacuation:
+        return out
+    waits = [compacting_wait(c, bps, by[c]) for c in folding]   # first, before anyone leaves
+    for s in out:
+        if isinstance(s.get("seq0_from"), int):
+            s["seq0_from"] += len(waits)
+    return waits + out
 
 
 def _boarding(st: dict) -> tuple[str | None, str | None]:
@@ -264,11 +289,11 @@ def with_owner_handoff(steps: list[dict], devices: list[dict], coop: dict | None
 
 
 def prepare_moves(steps: list[dict], devices: list[dict], bps: dict[str, dict] | None = None,
-                  coop: dict | None = None) -> list[dict]:
+                  coop: dict | None = None, evacuation: bool = False) -> list[dict]:
     """Every job's steps: drones tracking a site deactivate before moving, large devices compact, and a device boarding
     another replicant's carrier is handed to that replicant first (unless replicant cooperation allows it as it is)."""
-    return with_owner_handoff(with_compaction(with_untracking(with_scan_waits(steps, devices), devices), devices, bps),
-                              devices, coop)
+    return with_owner_handoff(with_compaction(with_untracking(with_scan_waits(steps, devices), devices), devices, bps,
+                                              evacuation), devices, coop)
 
 
 def _wrap(steps: list[dict], codes: set[str], before_move, after_land) -> list[dict]:

@@ -464,7 +464,7 @@ rock chaser / trade post / terraformer / bootstrap), a home and a loadout (its o
 ### Stationed fleets and the loadout pass
 - The **loadout pass** keeps a stationed fleet at its loadout in its home system: extras become `spare`, spares are sent
   where they're short (within the supply range, default 1728 ly: the sector range), and what's still missing is printed and carried there
-  (large devices are compacted first). A spare at home that's busy right now is waited for rather than printed again,
+  (large devices are compacted first; a trip with a device still compacting waits for it, except an evacuation, where a large device that can fly cruises out as it is). A spare at home that's busy right now is waited for rather than printed again,
   and a spare at home takes the place of a loadout print still in a queue: the print comes off the queue (1.375.0). A
   print ordered beyond what the fleet still lacks comes off its queue too, as long as it hasn't started (1.387.2).
 - Placed beacons and relays are never made spare or moved.

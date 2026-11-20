@@ -1253,6 +1253,32 @@ def test_modular_devices_compact_before_moving_and_unfurl_after():
     assert [s["desc"] for s in with_compaction([st], [af], {})] == ["AF1: compact before moving", "AF1 → FAL-2", "AF1: unfurl"]
 
 
+def test_a_job_waits_for_a_member_still_compacting_and_evacuations_fly_unfolded():
+    # owner 2026-11-20: departures wait for devices mid-compaction (regulator D1E96D13 was asked to attach while
+    # compacting, 2026-11-18); an evacuation doesn't wait, the modular device cruises to safety as it is
+    from rsweb import fleets as fl
+    from rsweb import loadouts as lo
+    from rsweb.modular import with_compaction
+    reg = {"device_code": "REG", "device_type": "atmospheric_regulator", "location": "ALK-3", "status": "compacting",
+           "features": ["cruise", "modular", "terraform"], "available_commands": ["travel"]}
+    car = {"device_code": "MF", "device_type": "mobile_fleet", "location": "ALK-3", "status": "idle"}
+    steps = [lo.step("MF → ALK-3", "/devices/MF", {"command": "travel", "destination": "ALK-3"}),
+             fl.board_step("MF", "REG", "attach"),
+             lo.step("MF → ALP-3", "/devices/MF", {"command": "travel", "destination": "ALP-3"})]
+    out = with_compaction(steps, [reg, car], {})
+    assert out[0]["method"] == "WAIT" and out[0]["wait"] == ["device.compacted"] and out[0]["wait_device"] == "REG"
+    assert not any("compact before" in s["desc"] for s in out)
+    reg["status"], reg["folded"] = "compacted", True
+    assert with_compaction(steps, [reg, car], {})[0]["method"] != "WAIT"   # folded: nothing to wait for
+    reg["status"] = "idle"
+    reg.pop("folded")
+    fly = [lo.step("REG → ALK-5-L4", "/devices/REG", {"command": "travel", "destination": "ALK-5-L4"})]
+    assert [s["desc"] for s in with_compaction(fly, [reg], {}, evacuation=True)] == ["REG → ALK-5-L4"]
+    reg["status"] = "compacting"
+    assert [s["desc"] for s in with_compaction(fly, [reg], {}, evacuation=True)] == ["REG → ALK-5-L4"]
+    # boarding during an evacuation still needs it folded
+    assert any("compact" in s["desc"] or s["method"] == "WAIT" for s in with_compaction(steps[1:2], [reg, car], {}))
+
 def test_station_unfurls_fully_before_switch_on_at_the_drop():
     """Live 2026-10-30: 'activate AC330D54' was refused (Device is unfurling) at KELAAXIX, the carrier left, and the
     deep space relay station sat off out of reach until a rescue brought it home spare."""
