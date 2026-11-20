@@ -537,6 +537,7 @@ class FleetsMixin:
                             "designation": f"trade:{key}", "location": t["location"], "star": star_of(t["location"]),
                             "status": "open", "title": f"trade {tr.get('name') or tr.get('trade_code')}", "_need": need})
         trade_runs.update(await self.trade_post_supply(devices))   # trade posts' stock (tradepost.py)
+        trade_runs.update(await self.mega_order_supply())   # scheduled megastructure deliveries (megaorders.py)
         out: list[str] = []
         jobs = await self.jobs()
         busy = self.busy_devices(jobs)
@@ -619,7 +620,7 @@ class FleetsMixin:
                 ok_ = entry.setdefault("print_ok", {})
                 for t_, n_ in cs.need_of(prog).items():
                     ok_[t_] = max(int(ok_.get(t_) or 0), int(n_))
-            if "_need" in e:   # a trade you approved (or a trade fleet runs): that is the OK to print what no spare covers
+            if "_need" in e and not e.get("_no_print"):   # a trade you approved (or a trade fleet runs): that is the OK to print what no spare covers
                 ok_ = entry.setdefault("print_ok", {})   # (live 2026-11-02: 10 compute cores for the Crystal Synthesis
                 for t_, n_ in e["_need"].items():        # Lab at DELTA-OBJ-2 waited forever, spares only 29,000 ly away)
                     ok_[t_] = max(int(ok_.get(t_) or 0), int(n_))

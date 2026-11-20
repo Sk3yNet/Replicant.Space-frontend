@@ -19,6 +19,88 @@ async def location_contribute(request: Request, code: str, user: str = Depends(c
                             f"contribute {len(codes)} device(s) to {code.upper()}")
 
 
+async def mega_order_ctx(db, code: str, data: Any = None) -> dict:
+    """Context for partials/mega_order.html: the order, its device supply rows and the types the structure still needs."""
+    from . import contractsupply as cs
+    from . import locread
+    from . import megaorders as mo
+    code = code.upper()
+    if data is None:
+        data = await db.kv_get(f"loc:{code}", None)
+    morder = (await db.kv_get(mo.KV, {}) or {}).get(code)
+    mega = mo.mega_of(data)
+    mtypes = mo.remaining(mega) if mega.get("requirements") is not None else dict((morder or {}).get("remaining") or {})
+    msupply = (await db.kv_get(cs.KV, {}) or {}).get(mo.key(code)) or {}
+    return {"code": code, "morder": morder, "mtypes": mtypes, "msupply": msupply}
+
+
+@router.post("/locations/{code}/deliveries", response_class=HTMLResponse)
+async def mega_order_save(request: Request, code: str, user: str = Depends(current_user)):
+    """Schedule (or change) a delivery to a megastructure (megaorders.py): the ticked types, an amount each (blank: all
+    it still needs), and whether to print what no spare covers."""
+    from . import locread
+    from . import megaorders as mo
+    db, code = request.app.state.db, code.upper()
+    form = await request.form()
+    try:
+        data = await locread.read(db, request.app.state.api, code, mo.READ_S)
+    except ApiError as e:
+        data = None
+        err = e.message
+    else:
+        err = None
+    ctx = await mega_order_ctx(db, code, data)
+    types = {}
+    for t in form.getlist("bring"):
+        raw = str(form.get(f"n:{t}") or "").strip()
+        types[t] = int(raw) if raw.isdigit() else 0
+    if not types:
+        return partial(request, "partials/mega_order.html", **ctx, msg="Tick at least one device type.")
+    mega = mo.mega_of(data)
+    if not mega and not ctx["morder"]:
+        return partial(request, "partials/mega_order.html", **ctx, msg=f"{code} isn't a megastructure ({err or 'no requirements listed'}).")
+    orders = await db.kv_get(mo.KV, {}) or {}
+    old = orders.get(code)
+    if old and old.get("status") != "done":
+        old.update(types=types, print=bool(form.get("print")), status="active")
+        if mega.get("requirements") is not None:
+            old["remaining"] = mo.remaining(mega)
+        old["want"] = mo.want(old)
+    else:
+        orders[code] = mo.new_order(code, types, bool(form.get("print")), mega, now_iso())
+        orders[code]["read_at"] = now_iso() if mega.get("requirements") is not None else None
+        orders[code]["want"] = mo.want(orders[code])
+    await db.kv_set(mo.KV, orders)
+    await request.app.state.worker.automations.log(
+        "contracts", f"{user}: delivery to megastructure {orders[code].get('title') or code} ({code}) scheduled: "
+        + ", ".join(f"{n or 'all'} {t.replace('_', ' ')}" for t, n in sorted(types.items())))
+    ctx = await mega_order_ctx(db, code, data)
+    return partial(request, "partials/mega_order.html", **ctx,
+                   msg="Saved. Logistics picks spares within a few minutes (Logistics page lists the devices on their way).")
+
+
+@router.post("/megastructures/orders/{code}/{action}", response_class=HTMLResponse)
+async def mega_order_action(request: Request, code: str, action: str, user: str = Depends(current_user)):
+    """Pause, resume or remove a scheduled megastructure delivery."""
+    from . import megaorders as mo
+    db, code = request.app.state.db, code.upper()
+    orders = await db.kv_get(mo.KV, {}) or {}
+    o = orders.get(code)
+    msg = ""
+    if o is None:
+        msg = "No delivery scheduled there."
+    elif action == "pause":
+        o["status"], msg = "paused", "Paused: devices on their way stay tagged for it."
+    elif action == "resume":
+        o["status"], msg = "active", "Resumed."
+    elif action == "remove":
+        orders.pop(code)
+        msg = "Removed: its devices become spare on the next pass."
+    await db.kv_set(mo.KV, orders)
+    ctx = await mega_order_ctx(db, code)
+    return partial(request, "partials/mega_order.html", **ctx, msg=msg)
+
+
 @router.get("/megastructures", response_class=HTMLResponse)
 async def megastructures(request: Request, user: str = Depends(current_user)):
     """The all-time megastructure contribution leaderboard (GET /leaderboards/megastructure)."""
@@ -26,7 +108,10 @@ async def megastructures(request: Request, user: str = Depends(current_user)):
         board, err = (await request.app.state.api.get("/leaderboards/megastructure") or {}).get("leaderboard") or [], None
     except ApiError as e:
         board, err = [], e.message
-    return await page(request, user, "megastructures.html", "systems", board=board, err=err)
+    from . import megaorders as mo
+    db = request.app.state.db
+    orders = [await mega_order_ctx(db, loc) for loc in sorted(await db.kv_get(mo.KV, {}) or {})]
+    return await page(request, user, "megastructures.html", "systems", board=board, err=err, orders=orders)
 
 
 @router.get("/map/relays", response_class=HTMLResponse)

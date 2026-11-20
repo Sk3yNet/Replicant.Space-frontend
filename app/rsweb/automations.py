@@ -18,6 +18,7 @@ from .chase_engine import ChaseMixin
 from .tf_engine import TerraformerMixin
 from .chatter import ChatterMixin
 from .tradepost import TradePostMixin
+from .megaorders import MegaOrdersMixin
 from .engine_jobs import JobsMixin
 from .engine_loadouts import LoadoutMixin
 from .engine_fleets import FleetsMixin
@@ -36,7 +37,7 @@ def where_failed(e: BaseException) -> str:
     return f" ({os.path.basename(f.filename)}:{f.lineno} in {f.name})"
 
 
-class AutomationEngine(JobsMixin, LoadoutMixin, FleetsMixin, MiningRulesMixin, OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixin, ChatterMixin, TradePostMixin, TerraformerMixin):
+class AutomationEngine(JobsMixin, LoadoutMixin, FleetsMixin, MiningRulesMixin, OpsRules, BootstrapMixin, SimMixin, StockMixin, ChaseMixin, ChatterMixin, TradePostMixin, TerraformerMixin, MegaOrdersMixin):
     def __init__(self, db, api, hub, worker):
         self.db, self.api, self.hub, self.worker = db, api, hub, worker
         self.lock = EngineLock()
@@ -467,7 +468,7 @@ class AutomationEngine(JobsMixin, LoadoutMixin, FleetsMixin, MiningRulesMixin, O
                 self.stage = None
                 await self.note_tick()
                 return
-            for stage in ("season_snapshot_pass", "evacuate_pass", "rock_mining_pass", "rock_chase_pass", "terraformer_pass", "run_fleets", "auto_deals_pass", "trade_post_pass", "autobuy_pass", "contract_supply_pass", "dispatch_pass", "component_pass", "print_reroute_pass", "fill_fleets", "matrix_pickup_pass", "fleet_owners", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
+            for stage in ("season_snapshot_pass", "evacuate_pass", "rock_mining_pass", "rock_chase_pass", "terraformer_pass", "run_fleets", "auto_deals_pass", "trade_post_pass", "autobuy_pass", "mega_order_pass", "contract_supply_pass", "dispatch_pass", "component_pass", "print_reroute_pass", "fill_fleets", "matrix_pickup_pass", "fleet_owners", "dispatch_new_prints", "rule_contracts", "refresh_known_belts", "track_viability",
                           "rule_consolidate", "rule_reopen_sites", "rule_salvage", "rest_dry_controllers", "rule_restart_idle_miners",
                           "run_due_schedules", "run_due_repeats", "civ_beacon_pass", "maintenance_pass",
                           "decommission_queue_pass", "trail_follow_pass", "trail_pass", "fleet_rename_pass", "place_tag_pass", "rider_pass", "stray_pass", "pathing_pass", "observatory_pass", "auto_scout_pass", "repair_return_pass", "hub_watch_pass", "bootstrap_pass", "pending_home_pass", "ward_orders_pass", "relay_rollout_pass", "relay_target_pass", "dark_relay_pass", "season_rescan_pass", "station_swap_pass", "news_pass", "station_jobs_pass", "sim_pass", "prospector_pass", "stock_pass", "vqueue_pass", "chatter_pass", "shop_rollcall_pass"):

@@ -19,6 +19,7 @@
     <button class="small">Contribute</button></form>
   {% else %}<p class="muted small">Bring devices of the needed types here to contribute them.</p>{% endif %}
   <div id="mega-result"></div>
+  {% include "partials/mega_order.html" %}
   <p class="small"><a href="/megastructures">Contribution leaderboard →</a></p>
 </div>{% endif %}
 <div class="row between"><h2>{{ code }}</h2><a class="small" href="/locations/{{ code }}">open</a></div>

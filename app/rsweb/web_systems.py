@@ -323,10 +323,13 @@ async def location_detail(request: Request, code: str, user: str = Depends(curre
         data, err = {}, e.message
     st = await load_state(request)
     devices = [d for d in st["devices"] if d.get("location") == code]
+    from .web_map import mega_order_ctx
+    mo_ctx = await mega_order_ctx(request.app.state.db, code, data) if (data or {}).get("megastructure") else {}
+    mo_ctx.pop("code", None)
     tmpl = "partials/location.html" if request.headers.get("hx-request") else "location_page.html"
     if tmpl.startswith("partials"):
-        return partial(request, tmpl, code=code, data=data, err=err, devices=devices)
-    return await page(request, user, tmpl, "systems", code=code, data=data, err=err, devices=devices)
+        return partial(request, tmpl, code=code, data=data, err=err, devices=devices, **mo_ctx)
+    return await page(request, user, tmpl, "systems", code=code, data=data, err=err, devices=devices, **mo_ctx)
 
 
 __all__ = [n for n in dir() if not n.startswith("__")]   # everything, underscore helpers too

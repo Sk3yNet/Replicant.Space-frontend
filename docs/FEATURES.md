@@ -291,7 +291,12 @@ Unexplored stars nearest a system, with ETA and route; stellar census per vessel
   Snapshots older than 7 days are dropped.
 - An asteroid shows only while it's open; past ones are listed under Concluded on the Defense page.
 - **Megastructures**: a megastructure's location page shows its progress and what it still needs, with a Contribute
-  button for your devices there; `/megastructures` has the leaderboard.
+  button for your devices there, and *Schedule a delivery*: tick the device types and an amount each (blank: all it
+  still needs), optionally *print what no spare covers*. Logistics tags spares nearest first (within the sector range)
+  for it and carries them to the exact location, where they are contributed on arrival (engine stage
+  `mega_order_pass`, every few minutes); the order finishes once the amount is given or the structure needs no more.
+  *Pause* keeps devices on their way tagged; *Remove* makes them spare again. `/megastructures` lists every scheduled
+  delivery with what was given and what is on the way, above the leaderboard.
 - **Space stations**: megastructures of type `space_station`; the galaxy map gives them a silver wheel (lower right)
   instead of the hexagon. They come from system scans, plus the colony worlds the story overview names (kept in kv
   `colony_stations` after the storyline ends), so unscanned colony systems show one too.

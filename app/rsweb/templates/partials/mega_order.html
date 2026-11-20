@@ -1,0 +1,36 @@
+{# Scheduled delivery to a megastructure (megaorders.py). Context: code, mtypes {type: still needed}, morder, msupply. #}
+<div id="mega-order-{{ code }}" class="mega-order" style="margin-top:8px">
+  {% if morder %}{% set w = morder.want or {} %}{% set g = morder.given or {} %}
+  <p class="small" style="margin:4px 0"><b>Scheduled delivery</b> ·
+    {% if morder.status == "active" %}<span class="pill small">delivering</span>{% elif morder.status == "paused" %}<span class="pill small">paused</span>{% else %}<span class="pill small">done</span>{% endif %}
+    {% if morder.print %}· prints what no spare covers{% else %}· spares only{% endif %}
+    {% if morder.checked_at %}<span class="muted">· checked {{ morder.checked_at | ago }}</span>{% endif %}
+    {% if morder.error %}<span class="lv-alert small">{{ morder.error }}</span>{% endif %}</p>
+  <table class="small"><tr><th>Device type</th><th class="num">Asked</th><th class="num">Given</th><th class="num">Still to bring</th><th>On the way</th></tr>
+    {% for t, n in morder.types | dictsort %}{% set r = (msupply.rows or []) | selectattr("type", "equalto", t) | first %}
+    <tr><td>{{ t | human }}</td><td class="num">{{ n or "all" }}</td><td class="num">{{ g.get(t, 0) }}</td><td class="num">{{ w.get(t, 0) }}</td>
+      <td class="small">{% if r %}{{ r.here }} there{% if r.coming or r.sending %}, {{ (r.coming | length) + (r.sending | length) }} coming{% endif %}{% if r.printing or r.print %}, {{ r.printing + r.print }} printing{% endif %}{% if r.short %}, <b>{{ r.short }} short{% if not morder.print %} (no spare in range){% elif r.why %} ({{ r.why }}){% endif %}</b>{% endif %}{% elif w.get(t) %}<span class="muted">next pass</span>{% endif %}</td></tr>{% endfor %}
+  </table>
+  <div class="row" style="gap:6px;margin:4px 0">
+    {% if morder.status == "active" %}<button class="small" hx-post="/megastructures/orders/{{ code }}/pause" hx-target="#mega-order-{{ code }}" hx-swap="outerHTML">Pause</button>
+    {% elif morder.status == "paused" %}<button class="small" hx-post="/megastructures/orders/{{ code }}/resume" hx-target="#mega-order-{{ code }}" hx-swap="outerHTML">Resume</button>{% endif %}
+    <button class="small" hx-post="/megastructures/orders/{{ code }}/remove" hx-target="#mega-order-{{ code }}" hx-swap="outerHTML"
+            hx-confirm="Remove this delivery? Devices tagged for it become spare again.">Remove</button>
+  </div>{% endif %}
+  {% if mtypes %}<details{% if not morder %} open{% endif %}><summary class="small">{{ "Change the delivery" if morder else "Schedule a delivery" }}</summary>
+  <form hx-post="/locations/{{ code }}/deliveries" hx-target="#mega-order-{{ code }}" hx-swap="outerHTML" class="small">
+    <p class="muted small" style="margin:4px 0">Logistics brings spare devices (nearest first, within the sector range) to
+      {{ code }} and contributes them on arrival, until the amount is given or the structure needs no more.
+      Leave the amount blank for everything it still needs.</p>
+    <table class="small"><tr><th>Bring</th><th>Device type</th><th class="num">Still needed</th><th>Amount</th></tr>
+      {% for t, n in mtypes | dictsort %}{% set cur = (morder.types or {}) if morder else {} %}
+      <tr><td><input type="checkbox" name="bring" value="{{ t }}" {% if not morder or t in cur %}checked{% endif %}></td>
+        <td>{{ t | human }}</td><td class="num">{{ n }}</td>
+        <td><input type="number" min="1" name="n:{{ t }}" value="{{ cur.get(t) or '' }}" placeholder="all" style="width:6em"></td></tr>{% endfor %}
+    </table>
+    <label style="text-transform:none"><input type="checkbox" name="print" value="1" {% if morder and morder.print %}checked{% endif %}>
+      print what no spare covers (nearest autofactory in range)</label>
+    <button class="small">{{ "Update" if morder else "Schedule" }}</button>
+  </form></details>{% elif not morder %}<p class="muted small">The structure lists no requirements to deliver.</p>{% endif %}
+  {% if msg %}<div class="small">{{ msg }}</div>{% endif %}
+</div>

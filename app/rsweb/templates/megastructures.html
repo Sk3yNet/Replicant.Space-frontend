@@ -1,9 +1,15 @@
 {% extends "base.html" %}
 {% block title %}Megastructures{% endblock %}
 {% block content %}
-<h1>Megastructure leaderboard</h1>
+<h1>Megastructures</h1>
+{% if orders %}<h2>Scheduled deliveries</h2>
+{% for o in orders %}{% with code=o.code, morder=o.morder, mtypes=o.mtypes, msupply=o.msupply %}
+<div class="card" style="margin-bottom:8px"><h3 style="margin:0"><a href="/locations/{{ o.code }}">{{ o.morder.title or o.code }}</a>
+  <span class="muted small mono">{{ o.code }}</span>{% if o.morder.progress is not none and o.morder.progress is defined %} <span class="muted small">{{ o.morder.progress | round(1) }}% complete</span>{% endif %}</h3>
+  {% include "partials/mega_order.html" %}</div>{% endwith %}{% endfor %}{% endif %}
+<h2>Leaderboard</h2>
 <p class="muted small">All-time devices contributed to megastructures, across the galaxy. A megastructure's own page (its
-  location) shows its progress, what it still needs and a Contribute button for your devices there.</p>
+  location) shows its progress, what it still needs, a Contribute button for your devices there, and Schedule a delivery, which has logistics bring spares and contribute them on arrival.</p>
 <div class="card">
   {% if err %}<p class="lv-alert small">{{ err }}</p>{% endif %}
   {% if board %}<table class="small"><tr><th class="num">Rank</th><th>Replicant</th><th class="num">Devices</th></tr>
