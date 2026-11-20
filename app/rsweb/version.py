@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.510.0"
+VERSION = "1.511.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.511.0", "2026-11-20", "Logistics matches the carrier to the pile (Joe: a hauler shouldn't take a bit of a 500-unit pile and a freighter go there later). A ship with room for at least half the load goes before a smaller one, however near; before, the nearest went first, so a hauler at the pile took 80 and a freighter fetched the rest on another trip. When only small carriers are free and a big enough one is busy, the request waits for it (the Logistics page says so); urgent requests still take any carrier at once."),
     ("1.510.0", "2026-11-20", "Recalling a terraformer fleet works (Joe: Terraformer 1 at ALPHERAG-3, nothing compacted or moved). Recall now and Recall after task now run the fleet's own Return home: the planet is unassigned, the terraform devices switch off, modular ones compact, everyone boards the carriers and they fly to the home system. The general recall used to hold the fleet, which stopped the terraformer pass that knows how to pack it, and asked one carrier to attach everything as it stood. Recall after task lets a running trip finish first. The card shows recalling until it is home; assign a planet to send it out again."),
     ("1.509.0", "2026-11-20", "BobNet: news about another planet or station is no longer grayed as a repeat (Joe: Riker's ALPHERAG-3 / SPACE-STATION-007 settlement line matched the ALKALAROPS-3 / SPACE-STATION-001 one from 11-18). The repeat check keeps planet codes (STAR-n) and SPACE-STATION-n names; stars, other locations, device codes and numbers still count as the same line. The first-seen list is rebuilt once."),
     ("1.508.0", "2026-11-20", "Departures wait for devices still compacting (Joe): any trip that moves a modular device mid-compaction first waits for it to finish (device.compacted) before anything leaves, so a fleet no longer sets off without it or asks to attach it too early. Evacuations never wait: a modular device that can fly cruises to safety as it is, without compacting first or unfurling after."),

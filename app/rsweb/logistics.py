@@ -182,6 +182,7 @@ REPAIR_ALONE_BELOW = 70.0     # a repair patrol goes to a system with one worn d
 MIN_LOAD = 0.25               # a cross-system print delivery leaves with its hold at least this full (or all that's wanted)
 LONG_HAUL_LY = 15.0            # beyond this a part load waits even when a print is stalled for materials
 BIG_RIDE_SEATS = 4             # rides with more attach seats (mobile fleets, surge carriers) tow haulers only as a last resort
+SMALL_SHARE = 0.5              # a carrier holding less than this share of a pile waits for a bigger one that's busy
 RELAY_HOP = 7.5                # distances compared in relay hops: anything in the same hop counts as equally near
 RESCUE_NEAR_LY = 15.0          # a rescue carrier with seats to spare also picks up devices stranded this near
 MOVING = ("travel", "cruis", "surg", "moving", "recall", "returning", "collecting", "depositing", "mining", "printing")
@@ -1132,7 +1133,7 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                                                  _dist(star_of(d.get("location")), fstar, pos),
                                                  d["device_code"]), default=None)
             seats = attach_free(ride) if ride else 0
-            group, taken = [], {}
+            group, taken, waits = [], {}, False
             while need:
                 left = sum(min(q, sum(spare[l].get(x, 0.0) for l in piles if star_of(l) == fstar)) for x, q in need.items())
                 if left < 1:
@@ -1150,12 +1151,33 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                                   and any(can_surge(g["dev"]) for g in group))]
                 if not cands:
                     break
-                # one already holding what's needed first (e.g. loaded on a trip that failed), then nearest (by relay hop),
-                # then the smallest that takes the rest in one go, else the biggest
-                cargo = min(cands, key=lambda d: (-sum(min(q, held(d).get(x, 0.0)) for x, q in need.items()),
+                # one already holding what's needed first (e.g. loaded on a trip that failed), then one big enough for
+                # the pile (a hauler doesn't nibble at a 500-unit pile a freighter takes in one go: Joe 2026-11-20), then
+                # nearest (by relay hop), then the smallest that takes the rest in one go, else the biggest
+                def aboard(d: dict) -> float:
+                    return sum(min(q, held(d).get(x, 0.0)) for x, q in need.items())
+
+                def small(d: dict) -> bool:
+                    return room(d) < SMALL_SHARE * left and aboard(d) < 1
+                cargo = min(cands, key=lambda d: (-aboard(d), small(d),
                                                   round(_dist(star_of(d.get("location")), fstar, pos) / RELAY_HOP),
                                                   room(d) < left, room(d) if room(d) >= left else -room(d), d["device_code"]))
                 code = cargo["device_code"]
+                if not group and small(cargo) and r.get("tier", 9) > 0:
+                    # only small carriers are free: a big one busy elsewhere (on a job, in another lane, taken this
+                    # pass) takes the pile later in one trip instead of a hauler taking a bite now
+                    big = next((d for d in pool if d["device_code"] != code and can_surge(d)
+                                and (d["device_code"] in busy or d["device_code"] in used
+                                     or (d["device_code"] in every and d["device_code"] not in free))
+                                and (cg.capacity_of(d, bpl, None) or 0) >= SMALL_SHARE * left
+                                and _dist(star_of(d.get("location")), fstar, pos) <= reach), None)
+                    if big:
+                        if not any(u["req"] == r["id"] for u in unmet):
+                            unmet.append({"req": r["id"], "why": f"waiting for a carrier big enough for {left:g} units at "
+                                                                 f"{fstar} ({big['device_code']} is busy; {code} takes only "
+                                                                 f"{room(cargo):g})"})
+                        waits = True   # the reason is given: no "no cargo devices" below
+                        break
                 cap, legs, carry = room(cargo), [], {}
                 for x, h in held(cargo).items():   # what it already carries counts first: nothing to pick up for that
                     q = math.floor(min(need.get(x, 0.0), h))
@@ -1207,7 +1229,7 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                     seats -= 1
                 group.append({"code": code, "legs": legs, "carry": carry, "rides": rides_it, "dev": cargo, "room": room(cargo)})
             if not group:
-                if not assigned:
+                if not assigned and not waits:
                     unmet.append({"req": r["id"], "why": no_cargo_why(first, fstar, dest, same)})
                 break
             if ride and not any(g["rides"] for g in group):

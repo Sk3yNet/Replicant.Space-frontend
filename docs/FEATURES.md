@@ -719,8 +719,11 @@ Bump or skip a request on the Logistics page. Every logistics job still going ha
   more than 1728 ly from every logistics carrier and the logistics fleet's home, or a return whose pile is that far from
   where it would go, is left off the request list (a muted line names them), and no delivery loads at a pile that far
   from its destination. Stars missing from the catalog are left to the trip check, which measures them with the game's preview.
-- **Ships** are picked nearest first (by relay hop), then the smallest that takes the rest in one go (else the
-  biggest), and as many as the load needs go at once, as one convoy. Freighters and cargo vessels fly themselves (a
+- **Ships** are matched to the load: one with room for at least half of it goes before a smaller one, however near
+  (a hauler doesn't take 80 units of a 500-unit pile a freighter carries in one go); among those, nearest first (by
+  relay hop), then the smallest that takes the rest in one go (else the biggest). When only small ones are free and a
+  big enough one is busy (on a job, or on another task), the request waits for it, unless it is urgent (stalled prints,
+  evacuations, Sol trades), which takes any carrier at once. As many ships as the load needs go at once, as one convoy. Freighters and cargo vessels fly themselves (a
   freighter is too large to attach); haulers and drones stay in their system unless they ride (attached) on a free
   logistics carrier (plate, platform, carrier, fleet carrier). A hauler or drone in another system than the
   stockpile is fetched by that carrier first: it flies over, the hauler attaches, and it is towed to the pile to load.

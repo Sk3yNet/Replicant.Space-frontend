@@ -1631,3 +1631,22 @@ def test_a_closed_shop_holds_the_approved_trade_and_waits_longer_each_time():
     ok["running"]["C1:T1"] = "j4"
     lg.settle_trades(ok, [{"id": "j4", "status": "failed", "steps": [{"path": path, "status": "done"}]}])
     assert "C1:T1" not in ok["held"]
+
+
+def test_a_big_pile_waits_for_a_busy_freighter_rather_than_a_hauler_taking_a_bite():
+    hl = dict(cargo_capacity=80, available_commands=["travel", "collect_resources"])
+    devs = [dev("H1", "transport_hauler", "A-1", **hl), dev("PL", "surge_platform", "A-1", **SURGE),
+            dev("F9", "cargo_freighter", "A-2", cargo_capacity=500, **SURGE),
+            dev("AF", "autofactory", "Z-2", tags=[], status="printing",
+                print_queue=[{"device_type": "mining_drone", "quantity": 12}])]
+    kw = dict(fleets=FLEETS, devices=devs, bps=BPS, inventory={"A-1": {"carbon": 1000}}, pos=POS, commandable={"A", "B", "Z"},
+              hosts={}, reach=100, contracts=[], trades=[], incoming={}, replicants={}, drop=lambda s: f"{s}-1")
+    run = next(r for r in lg.plan(busy=set(), **kw)["runs"] if r["req"] == "print:Z-2")
+    assert lg.plan(busy=set(), **kw)["requests"][0]["tier"] > 0   # not a stalled print (those take any carrier at once)
+    assert cargo(run)[0] == "F9"                                    # the freighter, not the nearer hauler
+    p = lg.plan(busy={"F9"}, **kw)                                  # freighter on a job: the hauler doesn't take 80 of 480
+    assert not any(r["req"] == "print:Z-2" for r in p["runs"])
+    assert any(u["req"] == "print:Z-2" and "big enough" in u["why"] for u in p["unmet"])
+    devs.pop(2)                                                      # no freighter at all: the hauler goes
+    run = next(r for r in lg.plan(busy=set(), **kw)["runs"] if r["req"] == "print:Z-2")
+    assert cargo(run) == ["H1"]
