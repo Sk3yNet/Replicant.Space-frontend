@@ -270,3 +270,33 @@ def test_map_answers_are_reused_while_fresh(client, monkeypatch):  # noqa: F811
     t, out, b = web._MAP_LAST["overlay??"]
     web._MAP_LAST["overlay??"] = (t - 60, out, b)   # older than its fresh time
     assert client.get("/api/map.json?part=overlay", headers=H).json() == {"n": 2}
+
+
+def test_old_map_answers_are_served_while_one_rebuild_runs_and_kept_across_restarts(client, monkeypatch):  # noqa: F811
+    """Live 2026-11-20: after a deploy every map.json waited 30-45 s for a cold build; the wallpaper's first load ran
+    past the proxy's 60 s and stayed blank."""
+    import time
+    import rsweb.web_map as web
+    import rsweb.web_core as wc
+    calls = []
+
+    async def counting(request, part):
+        calls.append(part)
+        return {"n": len(calls)}
+    monkeypatch.setattr(web, "map_payload", counting)
+    monkeypatch.setattr(web, "map_fresh_for", lambda part, build_s: 30.0)
+    monkeypatch.setattr(wc, "serve_stale", lambda age: age < 3600)
+    assert client.get("/api/map.json?part=overlay", headers=H).json() == {"n": 1}
+    t, out, b = web._MAP_LAST["overlay??"]
+    web._MAP_LAST["overlay??"] = (t - 60, out, b)
+    assert client.get("/api/map.json?part=overlay", headers=H).json() == {"n": 1}   # the old one, at once
+    for _ in range(50):   # the rebuild runs in the background
+        if web._MAP_LAST["overlay??"][1] != out:
+            break
+        time.sleep(0.02)
+    assert client.get("/api/map.json?part=overlay", headers=H).json() == {"n": 2}
+    # a restart: the answer comes back from disk, no build needed
+    web._MAP_LAST.clear()
+    wc._DISK_TRIED.clear()
+    assert client.get("/api/map.json?part=overlay", headers=H).json() == {"n": 2}
+    assert len(calls) == 2

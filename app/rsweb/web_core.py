@@ -1460,6 +1460,78 @@ async def shared_build(key: str, make):
     return await asyncio.shield(task)
 
 
+# --- map answers kept across restarts, served stale while one rebuild runs ------------------------------------------
+# Live 2026-11-20 (1.517.0): after each deploy the first engine ticks ran 2-6 minutes, every map.json waited 30-45 s for
+# a cold build, and the wallpaper's first load ran past the proxy's 60 s and left it blank. An answer is now encoded
+# once, kept on disk beside the database, and an older one is answered at once while a single rebuild runs.
+STALE_MAX = 6 * 3600   # s: an answer older than this is rebuilt before it's served
+
+
+def serve_stale(age: float) -> bool:
+    return age < STALE_MAX
+
+
+_DISK_TRIED: set[str] = set()
+
+
+def _answer_file(request: Request, key: str) -> Path | None:
+    p = str(getattr(request.app.state.db, "path", "") or "")
+    if not p or p == ":memory:":
+        return None
+    return Path(p).resolve().parent / "answer-cache" / (hashlib.blake2b(key.encode(), digest_size=10).hexdigest() + ".json")
+
+
+def _read_answer(f: Path) -> tuple | None:
+    try:
+        head, _, body = f.read_bytes().partition(b"\n")
+        meta = json.loads(head)
+        return float(meta["t"]), body, float(meta.get("b") or 0)
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def _write_answer(f: Path, ent: tuple) -> None:
+    f.parent.mkdir(parents=True, exist_ok=True)
+    tmp = f.with_suffix(".tmp")
+    tmp.write_bytes(json.dumps({"t": ent[0], "b": ent[2]}).encode() + b"\n" + ent[1])
+    os.replace(tmp, f)
+
+
+async def cached_answer(request: Request, store: dict, key: str, fresh_for, make) -> bytes:
+    """JSON bytes for `key`: reused while younger than fresh_for(build seconds), else answered stale (up to STALE_MAX)
+    while one rebuild runs in the background; only a missing answer is waited for. Entries are (time, bytes, build s)."""
+    import time as _t
+    hit = store.get(key)
+    disk = _answer_file(request, key)
+    if hit is None and disk is not None and str(disk) not in _DISK_TRIED:
+        _DISK_TRIED.add(str(disk))
+        hit = await asyncio.to_thread(_read_answer, disk)
+        if hit:
+            store[key] = hit
+    age = _t.time() - hit[0] if hit else 0.0
+    if hit and age < fresh_for(hit[2]):
+        return hit[1]
+
+    async def build() -> bytes:
+        t0 = _t.time()
+        body = json.dumps(await make(), default=str, separators=(",", ":")).encode()
+        ent = (_t.time(), body, _t.time() - t0)
+        store[key] = ent
+        if disk is not None:
+            try:
+                await asyncio.to_thread(_write_answer, disk, ent)
+            except OSError as e:
+                log.info("keeping the %s answer on disk failed: %s", key, e)
+        return body
+    if hit and serve_stale(age):
+        if ("ans:" + key) not in _INFLIGHT:
+            bg = asyncio.get_running_loop().create_task(shared_build("ans:" + key, build))
+            bg.add_done_callback(lambda t: t.cancelled() or (t.exception() and log.warning(
+                "rebuilding the %s answer failed: %s", key, t.exception())))
+        return hit[1]
+    return await shared_build("ans:" + key, build)
+
+
 def mining_now(devices: list[dict]) -> dict[str, int]:
     """What a system is producing right now: drones mining each resource ("mining (carbon)" → carbon)."""
     out: Counter = Counter()
@@ -2377,17 +2449,11 @@ WALLPAPER_TTL = 1800   # s; the wallpaper is the lowest priority (owner 2026-10-
 
 async def _wp_cached(request: Request, kind: str, make) -> Response:
     """A wallpaper answer, kept WALLPAPER_TTL per URL: each map refresh cost seconds of server time (sampled live
-    2026-10-27) that pages and the engine waited for."""
-    import time as _t
+    2026-10-27) that pages and the engine waited for. Older ones are answered while a rebuild runs (cached_answer)."""
     store = request.app.state.__dict__.setdefault("wp_cache", {})
-    key = f"{kind}?{request.url.query}"
-    hit = store.get(key)
-    if hit and (_t.time() - hit[0] < WALLPAPER_TTL or request.app.state.worker.automations.focused()):
-        return Response(hit[1], media_type="application/json")
-    async def build() -> bytes:
-        return json.dumps(await make(), default=str).encode()
-    body = await shared_build("wp:" + key, build)
-    store[key] = (_t.time(), body)
+    focused = request.app.state.worker.automations.focused()
+    body = await cached_answer(request, store, f"wp:{kind}?{request.url.query}",
+                               lambda b: float("inf") if focused else WALLPAPER_TTL, make)
     return Response(body, media_type="application/json")
 
 

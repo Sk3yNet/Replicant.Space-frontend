@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.517.0"
+VERSION = "1.518.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.518.0", "2026-11-20", "The galaxy map and the desktop wallpaper load fast after a deploy (Joe): each map answer is kept on disk beside the database and encoded once, and an older answer is shown at once while a single rebuild runs in the background (before, every map request after a restart waited 30-45 s for a fresh build, and the wallpaper's first load could run past the proxy's 60 s). The map's first load now tries again (15 s, doubling to 5 min) instead of leaving the wallpaper blank for good."),
     ("1.517.0", "2026-11-20", "One app print queue per spot for every general factory (Joe): autofactories, orbital foundries and structural fabricators at the same location now share it (before, only printers of the same type did), and the epitaxy printers there share their own. Blueprints › Print queues shows each shared queue as one card. When a kind of printer refuses a print, you get a notification naming the printer, the print and the game's answer; that kind isn't offered that print type again, and its kept prints of that type go to another kind of printer at the spot (or stay in the app queue if there's none). Busy, queue-full, locked and missing-resource answers don't count as refusals."),
     ("1.516.0", "2026-11-20", "Dashboard › Print queues shows a line per shared queue (Joe): all the factories at a location together and all the epitaxy printers there together, each the total of prints queued (the app's queue plus the game queues, quantities counted). Vessels aren't counted. The history of the new lines starts now; the old per-printer lines are gone."),
     ("1.515.0", "2026-11-20", "Rock chaser propulsors slow a launched rock until every priority material (the nearest hub's three lowest resources) is mined and picked up from the rock, or until 1.5 h before the impact, when the evacuation takes over, whichever comes first (Joe). Then they switch off and fly to the drop, and the rigs use whatever time is left for the rest."),

@@ -265,24 +265,15 @@ async def galaxy_map(request: Request, user: str = Depends(current_user)):
 
 @router.get("/api/map.json")
 async def map_data(request: Request, user: str = Depends(current_user)):
-    import time as _t
     part = request.query_params.get("part") or "all"
     # scope is part of the key: before, a swoop run could answer scope=rest with the scope=mine stars
     key = f"{part}?{request.query_params.get('scope') or ''}?{sim_view(request) or ''}"
-    hit = _MAP_LAST.get(key)
-    if hit and request.app.state.worker.automations.focused():
-        return JSONResponse(hit[1])   # a swoop run is on: a map redraw took up to 21 s of the event loop
-    if hit and _t.time() - hit[0] < map_fresh_for(part, hit[2] if len(hit) > 2 else 0):
-        return JSONResponse(hit[1])
-    if hit and ("map:" + key) in _INFLIGHT:
-        return JSONResponse(hit[1])   # a rebuild is under way: the last answer now, not a wait behind it
-
-    async def build():
-        t0 = _t.time()
-        out = await map_payload(request, part)
-        _MAP_LAST[key] = (_t.time(), out, _t.time() - t0)
-        return out
-    return JSONResponse(await shared_build("map:" + key, build))
+    # a swoop run is on: a map redraw took up to 21 s of the event loop, so any answer we have is reused
+    focused = request.app.state.worker.automations.focused()
+    body = await cached_answer(request, _MAP_LAST, key,
+                               lambda b: float("inf") if focused else map_fresh_for(part, b),
+                               lambda: map_payload(request, part))
+    return Response(body, media_type="application/json")
 
 
 MAP_FRESH = {"overlay": 20.0, "core": 120.0, "all": 60.0}   # seconds a map answer is served again before a rebuild

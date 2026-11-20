@@ -1181,7 +1181,7 @@ function load(first) {
         infoText(data, true);
         const s = startStar(); if (s) { focus(s); focused = true; }
       }
-      animate();
+      if (!animating) { animating = true; animate(); }   // once: a retried first load must not start a second loop
     }
     const overlay = fetchPart("overlay").then(o => applyOverlay(o, first));
     if (!first) return overlay;
@@ -1189,8 +1189,21 @@ function load(first) {
     return Promise.all([overlay, rest]);
   });
 }
-load(true).catch(e => { info.innerHTML = `<p class="muted">Could not load the map: ${esc(e.message)}</p>`; OPTS.onError?.(e); });
-if (OPTS.refreshMinutes) setInterval(() => load(false).catch(e => OPTS.onError?.(e)), OPTS.refreshMinutes * 60000);
+// the first load tries again until it works (15 s, doubling to 5 min): a server busy after a restart, or a proxy
+// timeout, left the wallpaper blank for good (live 2026-11-20); refreshes start once it has drawn
+let started = false, animating = false;
+function firstLoad(wait = 15000) {
+  load(true).then(() => {
+    if (started || !OPTS.refreshMinutes) return;
+    started = true;
+    setInterval(() => load(false).catch(e => OPTS.onError?.(e)), OPTS.refreshMinutes * 60000);
+  }).catch(e => {
+    info.innerHTML = `<p class="muted">Could not load the map: ${esc(e.message)}. Trying again in ${Math.round(wait / 1000)} s.</p>`;
+    OPTS.onError?.(e);
+    setTimeout(() => firstLoad(Math.min(wait * 2, 300000)), wait);
+  });
+}
+firstLoad();
 
 // Live: the page's event stream (base.html, sse "state") says when something departed, arrived or changed — redraw
 // what's on the stars (ships in transit, fleets, supply lines, mining), at most every few seconds.
