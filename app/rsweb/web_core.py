@@ -1904,12 +1904,16 @@ async def _bobnet_events(db, my, codes: set, limit: int, before: int | None = No
 
 
 _BN_NAME = re.compile(r"\b(?=[A-Z0-9-]*[A-Z])[A-Z0-9][A-Z0-9-]{2,}\b")   # star / location / code: SOL, NOSOXA-OORT, A8F48B26
+# Planets and stations are kept: a settlement or milestone line about another world is news, not a repeat
+# (Joe 2026-11-20: Riker's ALPHERAG-3 / SPACE-STATION-007 settlement line was grayed as a copy of ALKALAROPS-3's).
+_BN_KEEP = re.compile(r"[A-Z]+-\d+|SPACE-STATION-\d+")
+BOBNET_KEY_VERSION = 2   # bump when bobnet_key changes: kv bobnet_first is rebuilt
 
 
 def bobnet_key(text) -> str:
     """What a BobNet message says with its particulars left out (place names, codes and numbers), so that the same
     line about another star or with another count reads as a repeat (Joe 2026-11-04: novel ones on top, repeats grayed)."""
-    t = _BN_NAME.sub("*", str(text or ""))
+    t = _BN_NAME.sub(lambda m: m.group(0) if _BN_KEEP.fullmatch(m.group(0)) else "*", str(text or ""))
     t = re.sub(r"\d+(?:[.,]\d+)*", "#", t.lower())
     return " ".join(re.sub(r"[^\w#*]+", " ", t).split())
 
@@ -1918,6 +1922,8 @@ async def _bobnet_first_seen(db) -> dict:
     """{key: seq of the first saved message saying it}, kept in kv bobnet_first and brought up to date from the
     events saved since the last call (the history is never pruned, so it is read once, then only the new rows)."""
     cur = await db.kv_get("bobnet_first", {}) or {}
+    if cur.get("v") != BOBNET_KEY_VERSION:
+        cur = {}
     keys, last = cur.get("keys") or {}, int(cur.get("seq") or 0)
     rows = await db.fetchall("SELECT seq, json_extract(payload, '$.message') AS m FROM events "
                              "WHERE event='bobnet.new' AND seq > ? ORDER BY seq", (last,))
@@ -1927,7 +1933,7 @@ async def _bobnet_first_seen(db) -> dict:
             if k and k not in keys:
                 keys[k] = r["seq"]
         last = rows[-1]["seq"]
-        await db.kv_set("bobnet_first", {"seq": last, "keys": keys})
+        await db.kv_set("bobnet_first", {"seq": last, "keys": keys, "v": BOBNET_KEY_VERSION})
     return keys
 
 

@@ -265,6 +265,10 @@ def test_bobnet_novel_messages_first_and_repeats_grayed(client):
     from rsweb.web import bobnet_key
     assert bobnet_key("NOSOXA is in the rear-view mirror") == bobnet_key("ALGENIBUS-OORT is in the rear-view mirror!")
     assert bobnet_key("3 drones at SOL") == bobnet_key("12 drones at TWAFFY") != bobnet_key("hello there")
+    a = "The atmosphere readings at ALKALAROPS-3 are within human tolerance. The colonists from SPACE-STATION-001 can begin"
+    b = "The atmosphere readings at ALPHERAG-3 are within human tolerance. The colonists from SPACE-STATION-007 can begin"
+    assert bobnet_key(a) != bobnet_key(b) and bobnet_key(a) == bobnet_key(a + "!")
+    assert bobnet_key("Parked at KELMORNEA-4-L4") == bobnet_key("Parked at SOL-3-L5")
     w = client.app.state.worker
     for i, msg in enumerate(["NOSOXA is in the rear-view mirror", "fresh line one", "SOL is in the rear-view mirror"]):
         client.portal.call(w.handle_event, _ev(9950 + i, "bobnet.new", replicant_name="Bill", replicant_code="B1",
