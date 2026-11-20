@@ -87,6 +87,12 @@ megastructures, scan tags (hazardous, resource rich, anomaly and any other tag s
 beacons or devices, fleet homes and trade posts. Any one feature is enough unless *match all* is ticked; the choice is
 remembered in the browser.
 
+*markers* takes a pasted list of systems (designations, names, or body and spot codes; one per line or separated by
+commas). *mark for now* rings each in bright green until the page reloads; *save markers* keeps a chosen shape (circle,
+ring, square, diamond, triangle, star, cross, flag, pin), color and note on each, on the server, until removed (the
+desktop wallpaper shows them too). Both keep their size at any distance, draw over everything else, and hovering one
+names its system before any star nearby.
+
 **Star markers**
 
 | | Marker | Means |

@@ -66,7 +66,28 @@
         <label title="Space stations, a kind of megastructure (a silver wheel, lower right of the star): from system scans and the colony worlds the game&#39;s story overview names"><input type="checkbox" id="opt-mark-station" checked> space stations</label>
         <label title="Systems whose scan tags them resource rich (an orange gem, lower left of the star)"><input type="checkbox" id="opt-mark-rich" checked> resource rich</label>
         <label title="Systems whose scan tags an anomaly (a magenta spiral, upper right of the star)"><input type="checkbox" id="opt-mark-anomaly" checked> anomalies</label>
+        <label title="Your saved markers (the markers panel): the same size at any distance"><input type="checkbox" id="opt-mark-pins" checked> saved markers</label>
       </div>
+      </div>
+    </details>
+    <details id="map-marks" class="map-fold">
+      <summary>markers</summary>
+      <div class="marks">
+        <label class="small muted" for="mark-list">Systems, one per line or separated by commas (designations, names, or a body or spot code)</label>
+        <textarea id="mark-list" placeholder="SOL&#10;FALQUORYX, OTHILETH"></textarea>
+        <div class="row" style="gap:6px;flex-wrap:wrap">
+          <button class="small" id="mark-temp" type="button" title="A bright circle on each, at any distance; gone when the page reloads">mark for now</button>
+          <button class="small ghost" id="mark-temp-clear" type="button">clear</button>
+        </div>
+        <div id="mark-temp-list" class="mark-list"></div>
+        <div class="row" style="gap:6px;flex-wrap:wrap;align-items:center;margin-top:4px">
+          <select id="mark-shape" title="Marker shape"></select>
+          <input type="color" id="mark-color" value="#ffeb3b" title="Marker color">
+          <input id="mark-note" placeholder="note (optional)" size="14" maxlength="120">
+          <button class="small" id="mark-save" type="button" title="Kept on the server until you remove it">save markers</button>
+        </div>
+        <div id="mark-out" class="small muted"></div>
+        <div id="mark-saved-list" class="mark-list"></div>
       </div>
     </details>
   </div>
@@ -75,6 +96,7 @@
   <details id="map-legend" class="legend map-fold"><summary>legend</summary>
     <span style="color:#6cb6ff">■</span> your devices <span style="color:#ff5fa2">◆</span> replicant <span style="color:#4fd18b">◌</span> scanned
     <span style="color:#f0b64f">⚹</span> your hub <span style="color:#ff7a6b">⚹</span> another player's hub <span style="color:#fff27a">✸</span> prospected, not scanned yet <span style="color:#ffa726">◆</span> resource rich (lower left) <span style="color:#e040fb">@</span> anomaly (upper right) <i style="background:#3fd0c9"></i>fleet (dashes run toward its target) <i style="background:#b48cff"></i>in transit (arrow points where it's going, dashes run toward the destination) <i style="background:#7fe3ff"></i>observatory prospecting (a wave running out to its reach); <span style="color:#7fe3ff">⌜⌟</span> prospected from (each star only once) <i style="background:linear-gradient(90deg,#4fc3f7 50%,#0b7fb0 50%)"></i>relay network, one color each (a hub's link: a darker shade; relays both linked to the same hub: their own link isn't drawn) <i style="background:#ff7a6b"></i>other players (ring: fixed devices, shield: their ward or hub, arrow: arrived / left in the last hour; fades with distance) <i style="background:#ffd54f"></i>trail <i style="background:#c792ff"></i>megastructure (hexagon below the star) <span style="color:#dfe7ff">⊕</span> space station (lower right) <i style="background:#ff3b30"></i>hazard (red haze: the scan tags the system hazardous, or an incoming object threatens it)
+    <br>markers panel: <span style="color:#39ff6a">◯</span> systems marked for now (gone on reload) and your saved markers keep their size at any distance; hovering one names its system first
     <br>background tint: one color per galactic region; the region at the view's center has none, the others come in with distance
     <br>markers, mining and names shrink and fade with distance from the view's center; where names crowd, replicants, hubs and your systems keep theirs
     <br>sparkles = drones mining now: <i style="background:#b0bec5"></i>structural <i style="background:#ffa726"></i>conductive

@@ -1377,6 +1377,8 @@ def test_desktop_wallpaper_routes_need_a_key_and_stay_read_only(client, monkeypa
     data = client.get("/wallpaper/me/api/map.json", headers=good).json()
     assert "stars" in data and "replicants" in data
     systems = client.get("/wallpaper/me/api/systems.json", headers=good).json()["systems"]
+    assert client.get("/wallpaper/me/api/markers.json", headers=good).json() == {"markers": []}   # saved map markers
+    assert client.get("/wallpaper/me/api/markers.json").status_code == 401
     if systems:
         svg = client.get(f"/wallpaper/me/api/system/{systems[0]['star']}", headers=good).text
         assert '<svg class="system"' in svg

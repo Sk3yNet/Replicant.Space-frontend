@@ -276,6 +276,28 @@ async def map_data(request: Request, user: str = Depends(current_user)):
     return Response(body, media_type="application/json")
 
 
+@router.get("/api/markers.json")
+async def map_markers(request: Request, user: str = Depends(current_user)):
+    from . import mapmarks
+    return JSONResponse({"shapes": list(mapmarks.SHAPES), "markers": mapmarks.normalize(await request.app.state.db.kv_get(mapmarks.KV))})
+
+
+@router.post("/api/markers")
+async def map_markers_save(request: Request, user: str = Depends(current_user)):
+    """The galaxy map's saved markers: {"add": [{star, shape, color, note}]}, {"remove": [star]} or {"clear": true}."""
+    from . import mapmarks
+    try:
+        body = await request.json()
+    except ValueError:
+        body = None
+    if not isinstance(body, dict):
+        return JSONResponse({"error": "expected a JSON object"}, status_code=400)
+    db = request.app.state.db
+    markers, msg = mapmarks.apply(mapmarks.normalize(await db.kv_get(mapmarks.KV)), body)
+    await db.kv_set(mapmarks.KV, {"markers": markers})
+    return JSONResponse({"shapes": list(mapmarks.SHAPES), "markers": markers, "msg": msg})
+
+
 MAP_FRESH = {"overlay": 20.0, "core": 120.0, "all": 60.0}   # seconds a map answer is served again before a rebuild
 
 

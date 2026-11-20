@@ -530,6 +530,7 @@ function build() {
   coverGroup.visible = checked("opt-cover", OPTS.cover !== false);
   buildRegions();
   placeMarks(); placeRegions();
+  buildPins();
 }
 
 // a dashed line whose dashes march from its first point to its last, so the direction of travel shows at a glance
@@ -908,10 +909,146 @@ function show(s) {
   if (window.htmx) htmx.process(info);
 }
 
+// Markers (Joe 2026-11-20): systems marked for now (pasted on the markers panel, gone on reload) and saved markers
+// (kept on the server, /api/markers.json). Both keep the same size on screen at any distance, draw over everything,
+// and win the hover and the click over any other star.
+const PIN_PX = { temp: 28, saved: 20 };   // on-screen size
+const TEMP_COLOR = 0x39ff6a;
+const PIN_DRAW = {
+  circle:   g => { g.beginPath(); g.arc(32, 32, 20, 0, Math.PI * 2); },
+  ring:     g => { g.beginPath(); g.arc(32, 32, 22, 0, Math.PI * 2); },
+  square:   g => { g.beginPath(); g.rect(13, 13, 38, 38); },
+  diamond:  g => { g.beginPath(); g.moveTo(32, 8); g.lineTo(56, 32); g.lineTo(32, 56); g.lineTo(8, 32); g.closePath(); },
+  triangle: g => { g.beginPath(); g.moveTo(32, 8); g.lineTo(56, 52); g.lineTo(8, 52); g.closePath(); },
+  star:     g => { g.beginPath(); for (let i = 0; i < 10; i++) { const r = i % 2 ? 10 : 24, a = -Math.PI / 2 + i * Math.PI / 5;
+                   g[i ? "lineTo" : "moveTo"](32 + r * Math.cos(a), 34 + r * Math.sin(a)); } g.closePath(); },
+  cross:    g => { g.beginPath(); [[26, 8, 12, 48], [8, 26, 48, 12]].forEach(([x, y, w, h]) => g.rect(x, y, w, h)); },
+  flag:     g => { g.beginPath(); g.moveTo(16, 58); g.lineTo(16, 8); g.lineTo(52, 18); g.lineTo(16, 30); },
+  pin:      g => { g.beginPath(); g.arc(32, 24, 15, Math.PI * 0.8, Math.PI * 2.2); g.lineTo(32, 58); g.closePath(); },
+};
+const PIN_GLYPH = { circle: "●", ring: "○", square: "■", diamond: "◆", triangle: "▲", star: "★", cross: "✚", flag: "⚑", pin: "📍" };
+const PIN_OPEN = new Set(["ring", "flag"]);   // drawn as lines, not filled
+const pinTexCache = {};
+function pinTex(shape, temp) {
+  const key = temp ? "temp" : shape;
+  if (pinTexCache[key]) return pinTexCache[key];
+  const c = document.createElement("canvas"); c.width = c.height = 64;
+  const g = c.getContext("2d"); g.lineJoin = g.lineCap = "round";
+  if (temp) {   // a bold ring with a dark edge: shows on any background
+    g.beginPath(); g.arc(32, 32, 25, 0, Math.PI * 2);
+    g.strokeStyle = "rgba(0,0,0,.85)"; g.lineWidth = 9; g.stroke();
+    g.strokeStyle = "#fff"; g.lineWidth = 5; g.stroke();
+  } else {
+    const draw = PIN_DRAW[shape] || PIN_DRAW.circle, open = PIN_OPEN.has(shape);
+    draw(g); g.strokeStyle = "rgba(0,0,0,.85)"; g.lineWidth = open ? 10 : 6; g.stroke();
+    draw(g); g.strokeStyle = g.fillStyle = "#fff"; g.lineWidth = 5; if (open) g.stroke(); else g.fill();
+  }
+  return (pinTexCache[key] = new THREE.CanvasTexture(c));
+}
+const pinGroup = new THREE.Group(); scene.add(pinGroup);
+const pins = [];          // {sp, s, px, kind: "temp"|"saved", m: saved marker}
+let tempText = "";        // what was pasted for "mark for now" (resolved again as more of the catalog arrives)
+let savedPins = [];       // [{star, shape, color, note}]
+let catalogDone = false;  // the rest of the catalog has arrived: a name not found now isn't in it
+function findStar(q) {
+  const up = String(q || "").trim().toUpperCase();
+  if (!up) return null;
+  return byName[up] || data.stars.find(s => (s.name || "").toUpperCase() === up) || byName[homeStar(up)] || null;
+}
+function resolveList(text) {
+  const found = [], missing = [], seen = new Set();
+  for (const tok of String(text || "").split(/[\n,;\t]+/).map(t => t.trim()).filter(Boolean)) {
+    let hits = [findStar(tok)];
+    if (!hits[0] && /\s/.test(tok)) hits = tok.split(/\s+/).map(findStar);   // "SOL FALQUORYX" on one line
+    if (!hits.some(Boolean)) { missing.push(tok); continue; }
+    hits.forEach((s, i) => { if (!s) missing.push(tok.split(/\s+/)[i]); else if (!seen.has(s.designation)) { seen.add(s.designation); found.push(s); } });
+  }
+  return { found, missing };
+}
+function pinSprite(s, kind, m) {
+  const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: pinTex(m?.shape, kind === "temp"), color: kind === "temp" ? TEMP_COLOR : new THREE.Color(m.color || "#ffeb3b"),
+                                                          sizeAttenuation: false, depthTest: false, depthWrite: false, transparent: true }));
+  sp.renderOrder = kind === "temp" ? 21 : 20;
+  sp.position.copy(pos(s)); sp.raycast = () => {};
+  pinGroup.add(sp); pins.push({ sp, s, px: PIN_PX[kind], kind, m });
+}
+const pinList = id => $(id) || document.createElement("div");
+function buildPins() {
+  pinGroup.clear(); pins.length = 0;
+  const savedOn = checked("opt-mark-pins", true);
+  if (savedOn) for (const m of savedPins) { const s = byName[m.star]; if (s) pinSprite(s, "saved", m); }
+  const { found, missing } = resolveList(tempText);
+  found.forEach(s => pinSprite(s, "temp"));
+  pinList("mark-temp-list").innerHTML = (found.length ? `<div>Marked for now (${found.length}): ${found.map(s => `<span class="go" data-star="${esc(s.designation)}">${esc(s.designation)}</span>`).join(", ")}</div>` : "") +
+    (missing.length ? `<div style="color:#ff9f8f">${catalogDone ? "Not in the catalog" : "Not found yet (the catalog is still loading)"}: ${missing.map(esc).join(", ")}</div>` : "");
+  pinList("mark-saved-list").innerHTML = savedPins.length ? `<div class="row between"><b>Saved markers (${savedPins.length})</b> <button class="small ghost" type="button" data-clear="1">remove all</button></div>` +
+    savedPins.map(m => `<div><span style="color:${esc(m.color)}">${PIN_GLYPH[m.shape] || "●"}</span> <span class="go" data-star="${esc(m.star)}">${esc(m.star)}</span>${byName[m.star] ? "" : ' <span class="muted">(not on the map yet)</span>'}${m.note ? ` <span class="muted">${esc(m.note)}</span>` : ""}<button class="small ghost" type="button" data-remove="${esc(m.star)}" title="Remove this marker">×</button></div>`).join("") : "";
+  placePins();
+}
+function placePins() {
+  const h = el.clientHeight || 1;
+  for (const p of pins) { const k = 2 * p.px * HALF_FOV / h; p.sp.scale.set(k, k, 1); }
+}
+function pickPin(ev) {   // the marker nearest the pointer, within its drawn size (temporary ones first)
+  if (!pins.length) return null;
+  const r = renderer.domElement.getBoundingClientRect(), x = ev.clientX - r.left, y = ev.clientY - r.top;
+  let best = null, bd = Infinity;
+  for (const p of pins) {
+    tmp.copy(p.sp.position).project(camera);
+    if (tmp.z > 1) continue;
+    const d = Math.hypot((tmp.x + 1) / 2 * r.width - x, (1 - tmp.y) / 2 * r.height - y) - (p.kind === "temp" ? 2 : 0);
+    if (d <= p.px / 2 + 3 && d < bd) { best = p; bd = d; }
+  }
+  return best;
+}
+const pinTip = p => {
+  const saved = savedPins.find(m => m.star === p.s.designation);
+  return `${p.s.designation}${p.s.name && p.s.name !== p.s.designation ? " · " + p.s.name : ""}${saved?.note ? " — " + saved.note : ""}`;
+};
+const MARKERS_URL = new URL("markers.json", new URL(OPTS.dataUrl || "/api/map.json", location.href)).href;
+function fetchPins() {
+  if (OPTS.sim) return Promise.resolve();
+  return fetch(MARKERS_URL, { credentials: "same-origin", headers: OPTS.headers || {} })
+    .then(r => r.ok ? r.json() : null).then(d => { if (d) { savedPins = d.markers || []; buildPins(); } }).catch(() => {});
+}
+function savePins(body) {
+  const out = pinList("mark-out");
+  return fetch("/api/markers", { method: "POST", credentials: "same-origin", body: JSON.stringify(body),
+                                 headers: { "Content-Type": "application/json", "HX-Request": "true" } })
+    .then(r => r.json().then(d => ({ ok: r.ok, d })))
+    .then(({ ok, d }) => { if (ok) { savedPins = d.markers || []; buildPins(); } out.textContent = d.msg || d.error || ""; })
+    .catch(e => { out.textContent = "Not saved: " + e.message; });
+}
+if ($("mark-shape")) $("mark-shape").innerHTML = Object.keys(PIN_DRAW).map(k => `<option value="${k}">${PIN_GLYPH[k]} ${k}</option>`).join("");
+if (OPTS.sim && $("mark-save")) { ["mark-save", "mark-shape", "mark-color", "mark-note"].forEach(id => { $(id).style.display = "none"; }); }
+$("mark-temp")?.addEventListener("click", () => {
+  tempText = $("mark-list").value; buildPins();
+  const { found } = resolveList(tempText);
+  if (found.length === 1) focus(found[0]);
+});
+$("mark-temp-clear")?.addEventListener("click", () => { tempText = ""; buildPins(); });
+$("mark-save")?.addEventListener("click", () => {
+  const { found, missing } = resolveList($("mark-list").value);
+  if (!found.length) { pinList("mark-out").textContent = missing.length ? `Not found: ${missing.join(", ")}` : "Paste some systems first."; return; }
+  savePins({ add: found.map(s => ({ star: s.designation, shape: $("mark-shape").value, color: $("mark-color").value, note: $("mark-note").value })) })
+    .then(() => { if (missing.length) pinList("mark-out").textContent += ` · not found: ${missing.join(", ")}`; });
+});
+$("map-marks")?.addEventListener("click", ev => {
+  const t = ev.target;
+  if (t.dataset?.star) { const s = byName[t.dataset.star]; if (s) { focus(s); show(s); } }
+  else if (t.dataset?.remove) savePins({ remove: [t.dataset.remove] });
+  else if (t.dataset?.clear) {   // two clicks: the first asks
+    if (t.dataset.armed) savePins({ clear: true });
+    else { t.dataset.armed = "1"; t.textContent = "remove all: sure?"; setTimeout(() => { delete t.dataset.armed; t.textContent = "remove all"; }, 4000); }
+  }
+});
+$("opt-mark-pins")?.addEventListener("change", buildPins);
+
 // picking
 const ray = new THREE.Raycaster(); ray.params.Points.threshold = 1.2;
 const mouse = new THREE.Vector2();
 function pick(ev) {
+  const pin = pickPin(ev); if (pin) return pin.s;   // a marker wins over any star around it
   const r = renderer.domElement.getBoundingClientRect();
   mouse.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
   ray.setFromCamera(mouse, camera);
@@ -920,6 +1057,8 @@ function pick(ev) {
   return hit ? visible[hit.index] : null;
 }
 renderer.domElement.addEventListener("pointermove", ev => {
+  const pin = pickPin(ev);
+  if (pin) { tip.style.display = "block"; tip.style.left = ev.offsetX + 12 + "px"; tip.style.top = ev.offsetY + 12 + "px"; tip.textContent = pinTip(pin); return; }
   const s = pick(ev);
   if (s) { tip.style.display = "block"; tip.style.left = ev.offsetX + 12 + "px"; tip.style.top = ev.offsetY + 12 + "px"; tip.textContent = `${esc(s.designation)} ${s.spectral_type || ""}`; }
   else tip.style.display = "none";
@@ -1058,7 +1197,7 @@ function animate(t = 0) {
   const camKey = camera.matrixWorld.elements.join(",") + w + "x" + h + showLabels + labels.length;
   if (camKey !== lastCamKey) {
     lastCamKey = camKey;
-    placeMarks(); placeRegions();
+    placeMarks(); placeRegions(); placePins();
     placeStarLabels(showLabels, w, h);
   }
   stacked = placedStars.slice();   // other labels stack below the star names rather than on top of them
@@ -1153,6 +1292,7 @@ function applyOverlay(o, first) {
 }
 let focused = false;
 function addRest(r) {
+  catalogDone = true;
   const fresh = (r.stars || []).filter(s => !byName[s.designation]);
   fresh.forEach(s => { byName[s.designation] = s; data.stars.push(s); });
   if (!data.stars.length) {
@@ -1171,6 +1311,7 @@ function load(first) {
     const keep = { moving: data.moving, fleets: data.fleets, supply: data.supply, prospects: data.prospects,
                    others: data.others, traffic: data.traffic, trail: data.trail };   // until the new overlay lands
     data = { ...keep, ...d };
+    if (!first) catalogDone = true;   // a refresh brings the whole catalog
     d.stars.forEach(s => byName[s.designation] = s);
     if ($("star-list")) $("star-list").innerHTML = d.stars.map(s => `<option value="${esc(s.designation)}">`).join("");
     build();
@@ -1183,6 +1324,7 @@ function load(first) {
       }
       if (!animating) { animating = true; animate(); }   // once: a retried first load must not start a second loop
     }
+    fetchPins();
     const overlay = fetchPart("overlay").then(o => applyOverlay(o, first));
     if (!first) return overlay;
     const rest = fetchPart("core", "rest").then(addRest);

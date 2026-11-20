@@ -125,6 +125,14 @@ svg.system .marker:hover circle { stroke: #fff; }
 #map-layers .layer-head { flex-basis: 100%; font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: #8aa0c0; }
 .map-fold > summary { user-select: none; }
 #map-layers > summary { display: inline-block; background: rgba(11,15,23,.8); padding: 4px 8px; border-radius: 6px; }
+#map-marks { flex-basis: 100%; }
+#map-marks:not([open]) { flex-basis: auto; }
+#map-marks > summary { display: inline-block; background: rgba(11,15,23,.8); padding: 4px 8px; border-radius: 6px; }
+#map-marks .marks { display: flex; flex-direction: column; gap: 5px; margin-top: 4px; background: rgba(11,15,23,.8); padding: 6px 8px; border-radius: 6px; max-width: 420px; }
+#map-marks textarea { width: 100%; min-height: 4.5em; font-family: monospace; font-size: 12px; }
+#map-marks .mark-list { max-height: 9em; overflow-y: auto; font-size: 12px; }
+#map-marks .mark-list span.go { cursor: pointer; text-decoration: underline dotted; }
+#map-marks .mark-list button { padding: 0 5px; margin-left: 4px; }
 #map-tools { position: absolute; top: 10px; left: 10px; display: flex; gap: 6px; flex-wrap: wrap; max-width: 60%; }
 #map-tip { position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line); padding: 3px 8px; border-radius: 6px; font-size: 12px; display: none; }
 .legend { position: absolute; bottom: 10px; left: 10px; font-size: 12px; color: var(--muted); background: rgba(11,15,23,.8); padding: 6px 10px; border-radius: 6px; }

@@ -170,6 +170,8 @@ A live 3D map of the star catalog, plus stars from censuses and your observatori
 of the catalog after). What each marker and line means is in the [map legend](../README.md#map-legend).
 *Only systems with* filters the map down to systems with chosen features (stations, megastructures, scan tags, hubs,
 your relays / wards / beacons / devices, fleet homes, trade posts); the rest drop off.
+*markers* marks a pasted list of systems: for now (green rings, gone on reload) or saved on the server with a shape,
+color and note; either kind shows at any distance and wins the hover.
 
 - **Live**: ships in transit, fleets (dashed routes run toward the destination, still under reduced motion), supply
   lines, mining sparkles and prospecting cones (each observatory scan: a wave running out to its reach) redraw as

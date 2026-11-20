@@ -346,6 +346,14 @@ async def wallpaper_map(request: Request, slug: str):
     return bad or await _wp_cached(request, "map", lambda: map_payload(request, request.query_params.get("part") or "all"))
 
 
+@router.get("/wallpaper/{slug}/api/markers.json")
+async def wallpaper_markers(request: Request, slug: str):
+    """The galaxy map's saved markers (Map › markers), read-only."""
+    from . import mapmarks
+    _, bad = await _wp_auth(request, slug)
+    return bad or JSONResponse({"markers": mapmarks.normalize(await request.app.state.db.kv_get(mapmarks.KV))})
+
+
 @router.get("/wallpaper/{slug}/api/hud.json")
 async def wallpaper_hud(request: Request, slug: str):
     """The wallpaper's dashboard panel: stockpiles with their 48-hour trend, what your devices are doing, your fleets'
