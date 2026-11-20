@@ -1966,8 +1966,12 @@ class AutomationEngine(JobsMixin, LoadoutMixin, FleetsMixin, MiningRulesMixin, O
         """The game refused to attach `code` as a large device: no carrier is offered attach points for its type again
         (fleets.NO_ATTACH_TYPES; kv no_attach_types {type: first seen})."""
         from . import fleets as fl
-        t = next((d.get("device_type") for d in await self.db.kv_get("devices", []) or [] if d.get("device_code") == code), None)
-        if not t or t in fl.NO_ATTACH_TYPES:
+        from .modular import is_modular
+        d = next((d for d in await self.db.kv_get("devices", []) or [] if d.get("device_code") == code), None) or {}
+        t = d.get("device_type")
+        if not t or t in fl.NO_ATTACH_TYPES or is_modular(d):
+            # a modular device is refused only until it's compacted (live 2026-11-18: regulator D1E96D13 asked to attach
+            # while still compacting taught "atmospheric_regulator", so Terraformer 1 left it behind on 11-19)
             return
         known = await self.db.kv_get("no_attach_types", {}) or {}
         known.setdefault(t, now_iso())
@@ -1985,6 +1989,15 @@ class AutomationEngine(JobsMixin, LoadoutMixin, FleetsMixin, MiningRulesMixin, O
                 known.pop("vector_charge")
                 await self.db.kv_set("no_attach_types", known)
                 await self.db.kv_set("no_attach_retry_1428", True)
+            from .modular import modular_type
+            bps = {b["device_type"]: b for b in shapes.normalize_blueprints(await self.db.kv_get("blueprints", []))}
+            mods = {d.get("device_type") for d in await self.db.kv_get("devices", []) or [] if "modular" in (d.get("features") or [])}
+            wrong = [t for t in known if t in mods or modular_type(t, bps)]   # learned from a device not yet compacted
+            if wrong:
+                for t in wrong:
+                    known.pop(t)
+                    fl.NO_ATTACH_TYPES.discard(t)
+                await self.db.kv_set("no_attach_types", known)
             fl.NO_ATTACH_TYPES.update(known)
             fl.learn_stowable(shapes.normalize_blueprints(await self.db.kv_get("blueprints", [])))
             self._no_attach_loaded = True

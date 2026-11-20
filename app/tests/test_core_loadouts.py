@@ -1480,3 +1480,24 @@ def test_vector_charge_attach_refusal_forgotten_once(client):
     client.portal.call(eng.devices)
     assert "vector_charge" in fl.NO_ATTACH_TYPES
     fl.NO_ATTACH_TYPES.discard("vector_charge"), fl.NO_ATTACH_TYPES.discard("big_thing")
+
+
+def test_a_modular_device_refused_before_compacting_teaches_nothing(client):
+    # live 2026-11-18: regulator D1E96D13 was asked to attach while still compacting; "atmospheric_regulator" was learned
+    # as never attaching, so Terraformer 1 left it at ALKALAROPS-3 on 11-19
+    from rsweb import fleets as fl
+    eng, db = client.app.state.worker.automations, client.app.state.db
+    reg = {"device_code": "D1E96D13", "device_type": "atmospheric_regulator", "location": "ALKALAROPS-3",
+           "status": "compacting", "features": ["cruise", "modular", "terraform"], "available_commands": ["travel"]}
+    client.portal.call(db.kv_set, "devices", [reg])
+    client.portal.call(eng.learn_no_attach, "D1E96D13")
+    assert "atmospheric_regulator" not in fl.NO_ATTACH_TYPES
+    assert "atmospheric_regulator" not in (client.portal.call(db.kv_get, "no_attach_types", {}) or {})
+    # one learned before is forgotten on the next start
+    client.portal.call(db.kv_set, "no_attach_types", {"atmospheric_regulator": "2026-11-18T03:59:07+00:00", "big_thing": "x"})
+    eng._no_attach_loaded = False
+    client.portal.call(eng.devices)
+    assert "atmospheric_regulator" not in fl.NO_ATTACH_TYPES and "big_thing" in fl.NO_ATTACH_TYPES
+    assert client.portal.call(db.kv_get, "no_attach_types") == {"big_thing": "x"}
+    assert fl.take_seat({"hold": 0, "attach": 1}, reg) == "attach"
+    fl.NO_ATTACH_TYPES.discard("big_thing")
