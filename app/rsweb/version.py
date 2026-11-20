@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.515.0"
+VERSION = "1.516.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.516.0", "2026-11-20", "Dashboard › Print queues shows a line per shared queue (Joe): all the factories at a location together and all the epitaxy printers there together, each the total of prints queued (the app's queue plus the game queues, quantities counted). Vessels aren't counted. The history of the new lines starts now; the old per-printer lines are gone."),
     ("1.515.0", "2026-11-20", "Rock chaser propulsors slow a launched rock until every priority material (the nearest hub's three lowest resources) is mined and picked up from the rock, or until 1.5 h before the impact, when the evacuation takes over, whichever comes first (Joe). Then they switch off and fly to the drop, and the rigs use whatever time is left for the rest."),
     ("1.514.0", "2026-11-20", "Rock chaser propulsors stop pushing a rock once the fleet is done with it (live: Chaser_1's four propulsors kept pushing RENGRELOR-OBJ-2 after it was mined out). They switch off and fly to the drop like any other member left at a rock. Confirmed live that the decrease direction lengthens a launched rock's flight: four propulsors moved RENGRELOR-OBJ-2's ETA about 4 h later."),
     ("1.513.0", "2026-11-20", "Dashboard › Hub stockpiles (Joe): a chart per printing hub (each receiving hub fleet's home, SOLARES, FALQUORYX …) with a line per resource, counting only the stockpiles where its autofactories work (spare printers left out; a hub with none counts its drop point). The title names the hub fleet and those locations. Saved with each inventory poll from this version on, so no extra game reads; the history starts now. 2d / 7d / 30d like the other charts."),

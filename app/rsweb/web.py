@@ -91,7 +91,8 @@ async def p_backlog(request: Request, hours: int = 168, card: str = "backlog", u
                   ("Systems you can command", {"commandable": g("cmd_systems"), "relay network": g("relay_systems")})]
         title = "Trends"
     elif card == "queues":
-        charts = [("Prints waiting per printer", {k[6:]: v for k, v in sorted(s.items()) if k.startswith("queue:") and v})]
+        charts = [("Prints queued per shared queue (app + game)",
+                   {k[7:]: v for k, v in sorted(s.items()) if k.startswith("pqueue:") and v})]
         title = "Print queues"
     else:
         charts = [("Resources not in a receiving stockpile", {"in other stockpiles": g("res_away"),

@@ -243,10 +243,18 @@ def chart(lines: dict[str, list[tuple[str, float]]], hours: float, w: int = 300,
 
 
 def print_queues(devices: list[dict]) -> dict[str, float]:
-    """Dashboard › Print queues: the prints waiting in each printer's queue (quantities counted), the one printing now
-    left out, as `queue:<code> <location>`."""
+    """Dashboard › Print queues: the prints queued per shared queue (quantities counted, the app's queue and the game
+    queues together), as `pqueue:<location> printers` for the general factories at a spot and `pqueue:<location> epitaxy`
+    for the epitaxy printers there (Joe 2026-11-20). Vessels aren't counted."""
     from . import printqueue as pq
-    from .loadouts import is_factory
-    return {f"queue:{d['device_code']} {d.get('location') or '?'}": float(sum(max(1, int(x.get("quantity") or 1))
-                                                                         for x in pq.items(d)))
-            for d in devices if is_factory(d) and d.get("device_code") and pq.has_queue(d)}
+    from .loadouts import is_factory, is_printer, print_class
+    out: dict[str, float] = {}
+    for d in devices:
+        if not d.get("device_code") or not pq.has_queue(d):
+            continue
+        cls = print_class(d) if is_printer(d) else None
+        if not (is_factory(d) or cls):
+            continue
+        k = f"pqueue:{d.get('location') or '?'} {cls or 'printers'}"
+        out[k] = out.get(k, 0.0) + float(sum(max(1, int(x.get("quantity") or 1)) for x in pq.items(d)))
+    return out

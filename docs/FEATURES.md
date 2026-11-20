@@ -29,7 +29,7 @@ Cards can be dragged (⠿) or moved (▲ ▼) and folded (▾); the layout is re
 | Story | `/overview`, every 30 minutes (see below) |
 | Logistics backlog | is logistics keeping up? (see below) |
 | Trends | devices by fleet role, mining output per hour, systems you can command and those your relay network covers |
-| Print queues | prints waiting in each printer's queue over time (sampled every 10 minutes) |
+| Print queues | prints queued over time per shared queue: a location's factories together, its epitaxy printers together (app queue + game queues, sampled every 10 minutes) |
 | Stockpiles | every resource on one chart with a shared scale (2d / 7d / 30d, each its own color), with "+ N in transit" |
 | Stations & megastructures | links to every system with a colony station (named from the game's station list) or another megastructure (type from system scans), like the MIRFAKA datacenter, each with its nearest printing hub and the light years to it; *Travel order* lists the stations in the shortest path through all of them, from the end nearer SOLARES, with light years per leg |
 | Hub stockpiles | a chart per printing hub: each resource in the stockpiles where its autofactories work, over time (2d / 7d / 30d) |
