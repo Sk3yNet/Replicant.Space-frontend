@@ -282,6 +282,7 @@ class LoadoutMixin:
         lom.CLASS_PRINTERS.update(await self.db.kv_get("class_printers", {}) or {})
         lom.EXOTIC_CLASS_ONLY[0] = bool(await self.db.kv_get("exotic_class_only", False))
         bpd = {b.get("device_type"): b for b in await self.db.kv_get("blueprints", []) or [] if isinstance(b, dict)}
+        refusals = await self.db.kv_get(vqm.REFUSE_KV, {}) or {}
         # the app's own prints kept for a printer that can't make them (an epitaxy printer: exotic blueprints only) are
         # dropped: the ward / relay / beacon orders then find them lost and print elsewhere; prints queued by hand stay
         printers = {d["device_code"] for d in devs if d.get("device_code") and lom.is_printer(d)}
@@ -313,15 +314,18 @@ class LoadoutMixin:
             from collections import Counter
             off = {c for c, d in by_code.items() if not lom.in_service(d)}
             handed: dict[tuple, int] = {}
-            if off:
+            # and prints kept for a kind of printer that refused that print type go to another kind at the spot
+            # (the factories at a spot share one queue, Joe 2026-11-20)
+            no = lambda o, d: vqm.refused(refusals, d.get("device_type"), (o.get("body") or {}).get("device_type"))  # noqa: E731
+            if off or refusals:
                 load = Counter(o.get("factory") for o in st["orders"])
                 for o in st["orders"]:
                     src = by_code.get(o.get("factory"))
-                    if o.get("factory") not in off or not src:
+                    if not src or (o.get("factory") not in off and not no(o, src)):
                         continue
                     bp = bpd.get((o.get("body") or {}).get("device_type"))
-                    alt = [d for c, d in by_code.items() if c not in off and d.get("location") == src.get("location")
-                           and d.get("device_type") == src.get("device_type") and lom.can_make(d, bp)]
+                    alt = [d for c, d in by_code.items() if c not in off and lom.queue_pool(d) == lom.queue_pool(src)
+                           and lom.can_make(d, bp) and not no(o, d)]
                     if not alt:
                         continue
                     to = min(alt, key=lambda d: (load[d["device_code"]], d["device_code"]))["device_code"]
@@ -332,7 +336,9 @@ class LoadoutMixin:
                 if handed:
                     await self.db.kv_set(vqm.KV, st)
         for (src, to), n in sorted(handed.items()):
-            line = f"{src} can't print now ({by_code[src].get('status') or 'out of service'}): {n} kept print(s) handed to {to}"
+            why = (f"can't print now ({by_code[src].get('status') or 'out of service'})" if src in off
+                   else "refused that print type before")
+            line = f"{src} {why}: {n} kept print(s) handed to {to}"
             out.append(line)
             await self.log("print queue", line)
         for code in sorted({o["factory"] for o in drop}):
@@ -346,7 +352,7 @@ class LoadoutMixin:
         group: dict[tuple, list[str]] = {}
         for d in devs:
             if d.get("device_code") in printers and d.get("location"):
-                group.setdefault((d["location"], d.get("device_type")), []).append(d["device_code"])
+                group.setdefault(lom.queue_pool(d), []).append(d["device_code"])
         # prints behind the current one: a print waiting for resources is the game queue's first item (the current one)
         in_game = {d["device_code"]: max(0, sum(1 for x in pq.items(d) if not x["extra"].get("virtual")) - vqm.head_waits(d))
                    for d in devs if d.get("device_code") in printers}
@@ -355,16 +361,18 @@ class LoadoutMixin:
             if not code or code not in printers or code in off or not d.get("location") or now - fed.get(code, -1e9) < 150:
                 continue
             if vqm.queueless(d):
-                kept = vqm.shared(await vq.orders(codes=group.get((d["location"], d.get("device_type"))) or [code]),
-                                  code, in_game, keep=1)
-                line = await self.vq_feed_one(vq, code, d, kept) if kept else None
+                kept = vqm.shared(vqm.takeable(await vq.orders(codes=group.get(lom.queue_pool(d)) or [code]),
+                                               refusals, d.get("device_type")), code, in_game, keep=1)
+                line = await self.vq_feed_one(vq, code, d, kept, refusals, [by_code[c] for c in group.get(lom.queue_pool(d)) or []]) \
+                    if kept else None
                 fed[code] = now
                 if line:
                     in_game[code] = 1
                     out.append(line)
                     await self.log("print queue", line, "info")
                 continue
-            kept = vqm.shared(await vq.orders(codes=group.get((d["location"], d.get("device_type"))) or [code]), code, in_game)
+            kept = vqm.shared(vqm.takeable(await vq.orders(codes=group.get(lom.queue_pool(d)) or [code]),
+                                           refusals, d.get("device_type")), code, in_game)
             real = [x for x in pq.items(d) if not x["extra"].get("virtual")]
             k, back, send = vqm.plan(real, kept, keep=vqm.KEEP + vqm.head_waits(d),
                                      prios=vqm.real_prios(await vq.state(), code, real))
@@ -434,6 +442,10 @@ class LoadoutMixin:
                             st["orders"] = vqm.take(st["orders"], x["factory"], x, 10 ** 9)
                             await self.log("print queue", f"{code}: dropped the {body.get('device_type')} print: {err}", "warning")
                             continue
+                    if not ok and kind == "kept" and not vqm.TRANSIENT_RE.search(str(err)) \
+                            and await self.vq_refused(code, d, x, st["orders"], err, refusals,
+                                                      [by_code[c] for c in group.get(lom.queue_pool(d)) or []]):
+                        continue   # this kind of printer won't make it: handed to another kind at the spot, or kept
                     if ok:
                         final.append((body, pr.get(id(x), vqm.priority(x)) if kind == "real" else x["prio"]))
                     if ok or (kind == "kept" and "not yet unlocked" in str(err).lower()):
@@ -455,7 +467,32 @@ class LoadoutMixin:
             await self.log("print queue", line, "info")
         return out
 
-    async def vq_feed_one(self, vq: Any, code: str, d: dict, kept: list[dict]) -> str | None:
+    async def vq_refused(self, code: str, d: dict, o: dict, orders: list[dict], err: Any, refusals: dict,
+                         pool: list[dict]) -> bool:
+        """Printer `code` refused kept order `o` (Joe 2026-11-20: the factories at a spot share one app queue, so a
+        refusal by one kind is noted): its type is never offered that print type again, and the orders of that type
+        kept for printers of its kind at the spot (in `orders`, the queue's live state, changed in place: the caller
+        saves it) go to another kind there that hasn't refused it, or stay where they are if there's none."""
+        from . import vqueue as vqm
+        ptype, t = str(d.get("device_type") or "?"), str((o.get("body") or {}).get("device_type") or "?")
+        if vqm.refused(refusals, ptype, t):
+            return True
+        refusals.setdefault(ptype, {})[t] = {"err": str(err)[:200], "at": now_iso(), "code": code}
+        await self.db.kv_set(vqm.REFUSE_KV, refusals)
+        to = vqm.hand_to([p for p in pool if p.get("device_code") != code], refusals, t)
+        same = {p.get("device_code") for p in pool if p.get("device_type") == ptype} | {code}
+        if to:
+            for y in orders:
+                if y.get("factory") in same and (y.get("body") or {}).get("device_type") == t:
+                    y["factory"] = to
+        where = f"handed to {to}" if to else "no other kind of printer at the spot takes it; it stays in the app's queue"
+        await self.log("print queue", f"{code} ({ptype.replace('_', ' ')}) refused a {t.replace('_', ' ')} print: {err}. "
+                       f"{ptype.replace('_', ' ').capitalize()}s won't be offered {t.replace('_', ' ')} again; {where}",
+                       "warning", notify=True)
+        return True
+
+    async def vq_feed_one(self, vq: Any, code: str, d: dict, kept: list[dict], refusals: dict | None = None,
+                          pool: list[dict] | None = None) -> str | None:
         """A printer without a queue (device row queue_size 0: the crystal synthesis lab) holds only the print it is
         making, and the game answers "Printer is busy" to anything more (live 2026-11-18: 1476F94F, 16BAE50B and
         22A8CE35 at FALQUORYX-BELT-1, idle, refused crystal_seed x3 every pass). It gets one print at a time, the best
@@ -479,6 +516,9 @@ class LoadoutMixin:
             if ok:
                 st["orders"] = vqm.take(st["orders"], o["factory"], o, 1)
                 await self.db.kv_set(vqm.KV, st)
+            elif refusals is not None and not vqm.TRANSIENT_RE.search(str(err)):
+                if await self.vq_refused(code, d, o, st["orders"], err, refusals, pool or []):
+                    await self.db.kv_set(vqm.KV, st)
         if not ok:
             return None
         return f"{code}: 1 {body.get('device_type')} into the game (no queue: one at a time)"
@@ -1111,8 +1151,9 @@ class LoadoutMixin:
         devs = {d.get("device_code"): d for d in await self.devices()}
         f = devs.get(c["factory"]) or {}
         tag = c.get("tag") or fl.fleet_tag(c["fleet"])   # a contract's or trade post's print carries contract:<des>
+        from .loadouts import queue_pool
         group = [c["factory"]] + sorted(k for k, d in devs.items() if k != c["factory"] and f.get("location")
-                                        and d.get("location") == f.get("location") and d.get("device_type") == f.get("device_type"))
+                                        and d.get("device_code") and queue_pool(d) == queue_pool(f))
         mine = lambda t, tags: t == c["device_type"] and tag in (tags or [])   # noqa: E731
         label = c.get("label") or (f"loadouts: spare {c['spare']} replaces the {c['device_type']} queued for {c['star']}" if c.get("spare")
                  else f"loadouts: the {c['device_type']} queued for {c['star']} isn't needed any more (the fleet has its count)")

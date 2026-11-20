@@ -213,6 +213,36 @@ def test_factories_at_one_spot_share_their_kept_prints(client):  # noqa: F811
     assert client.portal.call(VirtualQueue(db).orders, "AF00BEEF") == []
 
 
+def test_every_general_factory_at_a_spot_shares_one_queue_and_refusals_are_noted(client):  # noqa: F811
+    """Joe 2026-11-20: autofactories, orbital foundries and structural fabricators at one spot share the app queue; a
+    print one kind refuses is noted and handed to another kind, and that kind isn't offered it again."""
+    db, e, world = setup(client)
+    af = next(d for d in world.devices if d["device_code"] == "AF00BEEF")
+    world.devices.append({**af, "device_code": "F0F0F0F0", "device_type": "orbital_foundry",
+                          "available_commands": ["enqueue_print", "dequeue_print"], "status": "idle"})
+    world.queues["F0F0F0F0"] = []
+    world.print_refuse["autofactory"] = {"orbital_farm"}
+    for _ in range(3):
+        ok, _, _ = client.portal.call(e.send, "POST", "/devices/AF00BEEF",
+                                      {"command": "enqueue_print", "device_type": "orbital_farm", "quantity": 1}, "t")
+        assert ok
+    feed(client)
+    ref = client.portal.call(db.kv_get, vqueue.REFUSE_KV)
+    assert "orbital_farm" in ref["autofactory"], ref
+    log = client.portal.call(db.kv_get, "automation_log")
+    assert any("refused a orbital farm print" in x["text"] for x in log)
+    left = client.portal.call(VirtualQueue(db).orders)
+    assert left and all(o["factory"] == "F0F0F0F0" for o in left), left
+    feed(client)   # the foundry takes them; the autofactory isn't offered them again
+    assert [x["device_type"] for x in world.queues["F0F0F0F0"]] == ["orbital_farm"], world.queues
+    assert not world.queues["AF00BEEF"]
+    assert [o["factory"] for o in client.portal.call(VirtualQueue(db).orders)] == ["F0F0F0F0"]
+    from rsweb.loadouts import queue_pool
+    fab = {"device_code": "C4522788", "device_type": "structural_fabricator", "location": "X-1", "features": ["cruise", "print"],
+           "available_commands": ["enqueue_print"], "queue_size": 0}
+    assert queue_pool(fab) == queue_pool({**af, "location": "X-1"}) == ("X-1", "general")
+
+
 def test_prints_split_by_hand_stay_on_their_factories(client):  # noqa: F811
     """Live 2026-11-17: 10 matrices planned 2 each on 5 autofactories went 4/4/2/0/0, the first factories fed taking
     their idle neighbors' orders. A neighbor's order is taken only once that neighbor's game queue is full."""

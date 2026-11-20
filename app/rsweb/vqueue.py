@@ -30,6 +30,13 @@ import re
 from typing import Any
 
 KV = "vqueue"
+# printer types that refused a print type (Joe 2026-11-20: the factories at a spot share one app queue, so note when
+# one kind won't take a print): {printer_type: {print_type: {"err", "at", "code"}}}; that kind is never offered it again
+REFUSE_KV = "printer_refusals"
+# answers that say nothing about what the printer can make: no lesson learned from them
+TRANSIENT_RE = re.compile(r"queue space|busy|not yet unlocked|resource|component|service unavailable|bad gateway|"
+                          r"gateway time-?out|timed? ?out|network|rate|too many|out of range|offline|not found|"
+                          r"compact|stowed|attached|travel", re.I)
 KEEP = 1   # prints each factory holds in the game's queue behind its current one (1.499.0; 2 before)
 CHUNK = 3  # the most of one order sent at a time (live 2026-11-02: "Not enough queue space (10 available, 28
            # requested)": a print's quantity takes that many of the queue's slots)
@@ -291,6 +298,23 @@ def shared(kept: list[dict], code: str, waiting: dict[str, int], keep: int | Non
     autofactories by hand went 4/4/2/0/0."""
     keep = KEEP if keep is None else keep
     return [o for o in kept if o.get("factory") == code or waiting.get(o.get("factory"), keep) >= keep]
+
+
+def refused(refusals: dict, printer_type: str | None, print_type: str | None) -> bool:
+    return bool(print_type) and print_type in ((refusals or {}).get(printer_type or "") or {})
+
+
+def takeable(orders: list[dict], refusals: dict, printer_type: str | None) -> list[dict]:
+    """The pooled orders a printer of this type may be given: none of a print type its kind has refused."""
+    return [o for o in orders if not refused(refusals, printer_type, (o.get("body") or {}).get("device_type"))]
+
+
+def hand_to(pool: list[dict], refusals: dict, print_type: str | None, load: dict[str, int] | None = None) -> str | None:
+    """Another printer of the shared queue whose kind hasn't refused this print type, the least loaded first."""
+    ok = [d for d in pool if d.get("device_code") and not refused(refusals, d.get("device_type"), print_type)]
+    if not ok:
+        return None
+    return min(ok, key=lambda d: ((load or {}).get(d["device_code"], 0), d["device_code"]))["device_code"]
 
 
 def cost(t: str | None, bps: dict[str, dict]) -> dict[str, float]:

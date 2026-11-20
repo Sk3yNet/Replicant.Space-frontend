@@ -803,7 +803,8 @@ async def render_print_queue_group(request: Request, codes: str, error: str | No
     remaining, exact = printqueue.group_seconds(own, shared, bps)
     first = (facs[0]["dev"] if facs else {})
     return partial(request, "partials/print_queue_group.html", facs=facs, shared=shared, remaining=remaining, exact=exact,
-                   codes=",".join(f["code"] for f in facs), location=first.get("location"), dtype=first.get("device_type"),
+                   codes=",".join(f["code"] for f in facs), location=first.get("location"),
+                   dtype=(first.get("device_type") if len({f["dev"].get("device_type") for f in facs}) == 1 else "factory"),
                    waiting=sum(len(f["queue"]) for f in facs) + len(shared), printing=sum(1 for f in facs if f["cur"]),
                    error=error)
 
@@ -1685,7 +1686,7 @@ def printers(state: dict) -> list[dict]:
             out.append({"kind": "device", "code": d["device_code"], "device": d["device_code"],
                         "name": f"{f_human(d.get('device_type'))} {d['device_code']}", "location": d.get("location"),
                         "autofactory": lo.is_factory(d),   # any general factory (autofactory, orbital foundry)
-                        "group": f"{d.get('location')}|{d.get('device_type')}",
+                        "group": "|".join(map(str, lo.queue_pool(d))),   # one shared app queue
                         # an epitaxy printer: exotic blueprints only (its own card on the Blueprints page)
                         "pclass": lo.print_class(d) if "enqueue_print" in (d.get("available_commands") or []) else None,
                         "vessel": (d.get("device_type") or "").endswith("vessel")})

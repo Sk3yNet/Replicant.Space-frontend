@@ -424,6 +424,14 @@ def is_factory(d: dict) -> bool:
     return "enqueue_print" in (d.get("available_commands") or [])
 
 
+def queue_pool(d: dict) -> tuple:
+    """The shared app queue a printer feeds from (Joe 2026-11-20): every general factory at one spot (autofactories,
+    orbital foundries, structural fabricators) shares one, and the epitaxy printers there another."""
+    if not d.get("location"):
+        return (d.get("device_code"),)
+    return (d.get("location"), print_class(d) or "general")
+
+
 def is_printer(d: dict) -> bool:
     """Any printer working a queue, class-limited ones included (is_factory leaves those out)."""
     t = d.get("device_type") or ""
@@ -2412,8 +2420,7 @@ def reconcile_orders(orders: list[dict], devices: list[dict], now_ts: float) -> 
     # placed on one may print on a neighbor, so it counts against what the whole group holds (live 2026-11-09: each
     # system hub ordered on E76D3831 was fed to DA0371E9 or 9D363A2F, its order dropped, and 5 got queued for one)
     def spot(code: str) -> tuple:
-        d = by[code]
-        return (d.get("location"), d.get("device_type")) if d.get("location") else (code,)
+        return queue_pool(by[code])
     pooled: dict[tuple, tuple[Counter, list[int]]] = {}
     for code, d in by.items():
         if code and (code in groups or any(spot(f) == spot(code) for f in groups)):

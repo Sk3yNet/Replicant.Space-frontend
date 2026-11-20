@@ -152,6 +152,7 @@ class World:
         self.profile_patches: list[dict] = []         # PATCH /replicants/{code} bodies
         self.bobnet_posts: list[dict] = []            # POST /replicants/{code}/message bodies
         self.bobnet_refuse: set[str] = set()          # replicants whose BobNet posts are refused
+        self.print_refuse: dict[str, set] = {}        # printer device_type -> print types it refuses
         self.evict_next: list = []                    # what the next ward activate reports as evicted_miners
         self.xp = 87340
         self.replicants: list[dict] = []             # the demo galaxy's replicants (load_demo)
@@ -838,6 +839,8 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
             n = int(body.get("quantity") or 1)
             if d.get("queue_size") == 0 and (q or n > 1 or str(d.get("status") or "").startswith("printing")):
                 return ok({"error": "Printer is busy"}, 400)   # no queue (crystal synthesis lab, live 2026-11-18)
+            if body.get("device_type") in world.print_refuse.get(d.get("device_type") or "", set()):
+                return ok({"error": f"This printer cannot fabricate {body.get('device_type')}"}, 400)
             if len(q) + n > 10:   # live 2026-11-02: a quantity takes that many of the queue's 10 slots
                 return ok({"error": f"Not enough queue space ({10 - len(q)} available, {n} requested)"}, 400)
             q.extend({"device_type": body.get("device_type"), "notify": {"device": None}, "tags": list(body.get("tags") or []),

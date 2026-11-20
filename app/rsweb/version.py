@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.516.0"
+VERSION = "1.517.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.517.0", "2026-11-20", "One app print queue per spot for every general factory (Joe): autofactories, orbital foundries and structural fabricators at the same location now share it (before, only printers of the same type did), and the epitaxy printers there share their own. Blueprints › Print queues shows each shared queue as one card. When a kind of printer refuses a print, you get a notification naming the printer, the print and the game's answer; that kind isn't offered that print type again, and its kept prints of that type go to another kind of printer at the spot (or stay in the app queue if there's none). Busy, queue-full, locked and missing-resource answers don't count as refusals."),
     ("1.516.0", "2026-11-20", "Dashboard › Print queues shows a line per shared queue (Joe): all the factories at a location together and all the epitaxy printers there together, each the total of prints queued (the app's queue plus the game queues, quantities counted). Vessels aren't counted. The history of the new lines starts now; the old per-printer lines are gone."),
     ("1.515.0", "2026-11-20", "Rock chaser propulsors slow a launched rock until every priority material (the nearest hub's three lowest resources) is mined and picked up from the rock, or until 1.5 h before the impact, when the evacuation takes over, whichever comes first (Joe). Then they switch off and fly to the drop, and the rigs use whatever time is left for the rest."),
     ("1.514.0", "2026-11-20", "Rock chaser propulsors stop pushing a rock once the fleet is done with it (live: Chaser_1's four propulsors kept pushing RENGRELOR-OBJ-2 after it was mined out). They switch off and fly to the drop like any other member left at a rock. Confirmed live that the decrease direction lengthens a launched rock's flight: four propulsors moved RENGRELOR-OBJ-2's ETA about 4 h later."),
