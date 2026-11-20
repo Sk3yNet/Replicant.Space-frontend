@@ -11,6 +11,7 @@ from .db import now_iso
 
 log = logging.getLogger("rsweb.terraformer")
 RECENT_S = 300   # an order sent this recently isn't sent again while the device list catches up
+LIST_SETTLE_S = 30   # after a trip ends, the next one waits for a device list read this long after (it shows the end)
 
 
 def _ts(v: Any) -> float | None:
@@ -35,7 +36,7 @@ class TerraformerMixin:
             return []
         jobs = await self.jobs()
         objs, _w, _s = await self.evacuation_inputs()
-        ctx = {"devices": await self.devices(), "jobs": {j["id"]: j for j in jobs}, "busy": self.busy_devices(jobs),
+        ctx = {"devices": await self.devices(), "synced": ((await self.db.kv_get("sync:devices")) or {}).get("at"), "jobs": {j["id"]: j for j in jobs}, "busy": self.busy_devices(jobs),
                "objs": objs, "species": ((await self.db.kv_get("species", {}) or {}).get("species") or [])}
         out: list[str] = []
         changed = False
@@ -91,7 +92,7 @@ class TerraformerMixin:
             return []
         run.pop("home_trip", None)   # a planet assigned again overrides an earlier Return home
         if run.get("planet") != planet:   # a new assignment starts over
-            for k in ("departed", "in_range_since", "push", "alerts", "recent", "go", "left"):
+            for k in ("departed", "in_range_since", "push", "alerts", "recent", "go", "left", "job_end"):
                 run.pop(k, None)
             run["planet"] = planet
         ms = fl.members(f, devices)
@@ -112,6 +113,8 @@ class TerraformerMixin:
                 continue
             if j and j["status"] in ("running", "waiting", "pending"):
                 continue
+            if j and key == "job":   # ended: the next trip waits for a device list read after it (see below)
+                run["job_end"] = j.get("finished_at") or now_iso()
             if j and j["status"] == "failed":
                 err = next((s.get("error") for s in j["steps"] if s.get("status") == "failed"), "") or "?"
                 run["note"] = f"last {'trip' if key == 'job' else 'steering'} failed: {err}"
@@ -127,6 +130,19 @@ class TerraformerMixin:
         here = [d for d in tfd if d.get("location") == planet and not d.get("stowed_in_device_code")
                 and not d.get("attached_to_device_code")]
         away = [d for d in tfd if d not in here]
+        if run.get("left"):   # left behind earlier: off the list once at work on the planet
+            gone = {d["device_code"] for d in here} | ({c for c in run["left"]} - {d["device_code"] for d in ms})
+            run["left"] = [c for c in run["left"] if c not in gone]
+            if not run["left"]:
+                run.pop("left")
+        if run.get("job_end") and not run.get("job") and ctx.get("synced"):
+            # the trip just ended: the device list read before its last steps still shows the members aboard (live
+            # 2026-11-20: 16 devices on 583EBC0D detached at ALPHERAG-3 at 00:40:16, the pass at 00:40:20 read them
+            # aboard and listed them all as left behind, for good)
+            if (_ts(ctx.get("synced")) or 0) < (_ts(run["job_end"]) or 0) + LIST_SETTLE_S:
+                away = []
+            else:
+                run.pop("job_end")
         if away and not run.get("job"):
             out += await self._tf_move(f, cfg, run, ctx, ms, away)
         if run.get("job"):
@@ -238,6 +254,7 @@ class TerraformerMixin:
         car = cars[0] if cars else None
         steps: list[dict] = []
         moved: list[str] = []
+        left: list[str] = []   # kept on the card once a trip is on its way without them
         if departed:   # stragglers: fetched only inside the planet's system (the replicant stays with the world)
             away = [d for d in away if fl.star_of(fl.tug(d, devices).get("location")) == star or fl.flies_itself(d)]
             if not away:
@@ -251,7 +268,6 @@ class TerraformerMixin:
             free = fl.seats(car, devices)
             stops: dict[str, list[tuple[str, str]]] = {}
             aboard: list[tuple[str, str]] = []
-            left: list[str] = []
             # every member rides, its own matrix container too (Joe 2026-11-15: Terraformer 1 left SOLARES without
             # 4B6AA959 and Sk3y-34): the replicant is what commands the devices at the planet. It stays aboard there.
             riders = [d for d in ms if d is not car and not fl.flies_itself(d) and not fl.is_carrier(d)]
@@ -295,7 +311,24 @@ class TerraformerMixin:
             extra_end: list[dict] = []
             for oc in cars[1:]:
                 oco = oc["device_code"]
-                if oco in busy or oc.get("location") == planet or (departed and fl.star_of(oc.get("location")) != star):
+                if oco in busy or (oc.get("location") == planet and not departed) \
+                        or (departed and fl.star_of(oc.get("location")) != star):
+                    continue
+                if oc.get("location") == planet:   # already there with the fleet at work: what it still holds comes off
+                    for d in riders:
+                        if home or oco not in (d.get("attached_to_device_code"), d.get("stowed_in_device_code")) \
+                                or ((d.get("device_type") or "") not in tf.DEVICES and not up.is_maint(d)):
+                            continue
+                        code = d["device_code"]
+                        left = [c for c in left if c != code]
+                        moved.append(code)
+                        if d.get("attached_to_device_code") == oco:
+                            extra_go.append(step(f"{oco}: detach {code}", f"/devices/{oco}", {"command": "detach", "device": code}))
+                        else:
+                            st = step(f"deploy {code} from {oco}", f"/devices/{code}", {"command": "deploy"},
+                                      wait=["device.deployed"], timeout=SHORT_TIMEOUT)
+                            st["wait_device"] = code
+                            extra_go.append(st)
                     continue
                 # what didn't fit the first carrier boards this one where it stands (live 2026-11-18: Terraformer 1 left
                 # ADHARA-2 for ALKALAROPS-3 on 20EF9B48 alone, 11 members and the empty 583EBC0D stayed behind, dark
@@ -353,10 +386,6 @@ class TerraformerMixin:
                     steps.append(st)
             steps += extra_end
             moved = [cc] + [c for c, _ in aboard] + moved
-            if left:
-                run["left"] = left
-            else:
-                run.pop("left", None)
         else:   # no carrier: only devices already in the planet's system can go, each on its own
             fly = [d for d in away if d["device_code"] not in busy and fl.tug(d, devices) is d
                    and (fl.flies_itself(d) or fl.star_of(d.get("location")) == star)]
@@ -375,6 +404,10 @@ class TerraformerMixin:
         if not job:
             return []
         run["job"] = job["id"]
+        if left:
+            run["left"] = left
+        else:
+            run.pop("left", None)
         if home:
             run["phase"] = "returning"
         elif not departed:

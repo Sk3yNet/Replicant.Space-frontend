@@ -620,3 +620,31 @@ def test_command_stays_pending_until_the_game_agrees(client):  # noqa: F811
     client.portal.call(db.kv_set, "devices", devs)
     client.get(f"/terraforming/world/{PLANET}", headers=H)
     assert "SEP" not in client.portal.call(db.kv_get, wt.PENDING_KV)   # agreed: settled
+
+
+def test_a_finished_trip_waits_for_a_fresh_list_and_clears_left_behind(client):  # noqa: F811
+    # live 2026-11-20: 16 devices on 583EBC0D were detached at ALPHERAG-3 at 00:40:16; the pass at 00:40:20 read the
+    # device list from before, saw them aboard, and listed them as left behind for good
+    from datetime import timedelta
+    def car(code):
+        return {"device_code": code, "device_type": "mobile_fleet", "location": PLANET, "status": "idle", "tags": ["fleet:tf"],
+                "features": ["surge", "cruise", "attach"], "attach_capacity": 36, "available_commands": ["travel", "attach"],
+                **({"hosting_replicant": {"name": "Sk3y-34"}} if code == "MOB" else {})}
+    devs = [car("MOB"), car("MOB2"), dev("MON", "terraform_monitor", status="monitoring"), dev("MIR", "orbital_mirror"),
+            dev("SH", "orbital_shade", attached_to_device_code="MOB2")]
+    db, e = _at_work(client, devs, wants={"terraform_monitor": 1, "orbital_mirror": 1, "orbital_shade": 1})
+    now = datetime.now(timezone.utc)
+    f = client.portal.call(e.fleets)
+    f[0]["tf_run"].update({"left": ["MIR", "SH"], "job_end": now.isoformat(timespec="seconds")})
+    client.portal.call(e.save_fleets, f)
+    client.portal.call(db.kv_set, "sync:devices", {"ok": True, "at": (now - timedelta(seconds=5)).isoformat(timespec="seconds")})
+    client.portal.call(e.terraformer_pass)
+    run = client.portal.call(e.fleets)[0]["tf_run"]
+    assert run["left"] == ["SH"] and run.get("job_end")   # MIR is at work: off the list
+    assert not _jobs(client, e, "devices to")             # the list predates the trip's end: nothing moves yet
+    client.portal.call(db.kv_set, "sync:devices", {"ok": True, "at": (now + timedelta(seconds=60)).isoformat(timespec="seconds")})
+    client.portal.call(e.terraformer_pass)
+    run = client.portal.call(e.fleets)[0]["tf_run"]
+    assert not run.get("job_end") and not run.get("left")
+    job = _jobs(client, e, "devices to")[0]
+    assert ("/devices/MOB2", {"command": "detach", "device": "SH"}) in [(s["path"], s.get("body")) for s in job["steps"]]
