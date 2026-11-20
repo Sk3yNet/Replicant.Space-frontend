@@ -1317,6 +1317,8 @@ class FleetsMixin:
         if not dest:
             return "nowhere to go: no station, receiving point or home"
         role = fleet.get("role")
+        if role == "terraformer":
+            return await self._tf_recall(fleet, mode, dest, devices, user)
         hold = role in fl.HOLD_ROLES
         m = fleet.get("mission") or {}
         live = m.get("status") in ("running", "stalled")
@@ -1357,6 +1359,25 @@ class FleetsMixin:
             return f"already at {dest} ({why}): nothing to recall"
         self._start_homing(fleet, m, rec, live)
         return f"returning to {dest} ({why})" + (" — held there until Resume" if hold else "")
+
+    async def _tf_recall(self, fleet: dict, mode: str, dest: str, devices: list[dict], user: str) -> str:
+        """A terraformer's recall is its own Return home (tf_engine._tf_home): terraform devices switch off, modular ones
+        compact, everyone boards every carrier and they fly home. The generic recall held the fleet (so the terraformer
+        pass, which knows how to pack it, never ran) and only asked one carrier to attach everything as it stood (Joe
+        2026-11-20: Terraformer 1 recalled at ALPHERAG-3, nothing compacted or moved). "now" cancels the fleet's jobs;
+        "after" lets a running trip or repair finish first (_tf_home waits for the trip job)."""
+        fleet.pop("recall_hold", None)
+        run = fleet.setdefault("tf_run", {})
+        fleet.setdefault("terraform", {})["planet"] = ""
+        if mode == "now":
+            for j in self.fleet_jobs(fleet, devices, await self.jobs()):
+                await self.cancel(j["id"])
+            run.pop("job", None)
+        if run.get("steer_job"):
+            await self.cancel(run.pop("steer_job"))
+        run.update({"home_trip": True, "phase": "returning", "note": f"recalled{' by ' + user if user else ''}: "
+                    f"switching off, packing up and returning to {dest}"})
+        return f"returning to {dest}: devices switch off and board, then the carriers fly home (assign a planet to send it out again)"
 
     def _start_homing(self, fleet: dict, m: dict, rec: dict, live: bool) -> None:
         """Turn the fleet's mission (or none) into a recall: recall → return → unload (fleets.HOMING_PHASES)."""

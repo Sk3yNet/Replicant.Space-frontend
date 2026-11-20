@@ -648,3 +648,33 @@ def test_a_finished_trip_waits_for_a_fresh_list_and_clears_left_behind(client): 
     assert not run.get("job_end") and not run.get("left")
     job = _jobs(client, e, "devices to")[0]
     assert ("/devices/MOB2", {"command": "detach", "device": "SH"}) in [(s["path"], s.get("body")) for s in job["steps"]]
+
+
+def test_recall_is_the_terraformers_own_return_home(client):  # noqa: F811
+    # live 2026-11-20: Joe recalled Terraformer 1 at ALPHERAG-3 and nothing compacted or moved. The generic recall held
+    # the fleet (the terraformer pass never ran) and asked one carrier to attach everything as it stood.
+    def d(code, t, **kw):
+        return {"device_code": code, "device_type": t, "location": PLANET, "status": "idle", "tags": ["fleet:tf"],
+                "features": ["cruise", "terraform"], "available_commands": ["activate", "deactivate", "travel"], **kw}
+    car = d("CAR", "mobile_fleet", features=["surge", "cruise", "attach"], attach_capacity=36, replicant_code="ED399202",
+            available_commands=["attach", "detach", "travel"])
+    devs = [car, d("MON", "terraform_monitor", status="monitoring"), d("MIR", "orbital_mirror"),
+            d("REG", "atmospheric_regulator", features=["cruise", "modular", "terraform"],
+              available_commands=["activate", "compact", "deactivate", "travel", "unfurl"])]
+    db, e = _at_work(client, devs)
+    f = client.portal.call(e.fleets)
+    f[0]["mission"] = {"status": "ended", "targets": [], "log": [], "job": None, "phase": "recall"}   # an old one, as live
+    client.portal.call(e.save_fleets, f)
+    r = client.post("/fleets/tf/control", data={"action": "recall_now"}, headers=HX)
+    assert r.status_code == 200
+    f = client.portal.call(e.fleets)[0]
+    assert not f.get("recall_hold") and f["terraform"]["planet"] == "" and f["tf_run"]["home_trip"]
+    assert (f.get("mission") or {}).get("status") == "ended"   # no generic homing mission
+    client.portal.call(db.kv_set, "sync:devices", {"ok": True, "at": "2099-01-01T00:00:00+00:00"})
+    client.portal.call(e.terraformer_pass)
+    job = _jobs(client, e, "to SOL")[0]
+    descs = [s["desc"] for s in job["steps"]]
+    assert "deactivate MON" in descs and any("compact" in x and "REG" in x for x in descs), descs
+    assert any("attach MIR" in x for x in descs) and any("CAR →" in x for x in descs)
+    html = client.get("/fleets/details?fleet=tf", headers=H).text
+    assert "recalling" in html

@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.509.0"
+VERSION = "1.510.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.510.0", "2026-11-20", "Recalling a terraformer fleet works (Joe: Terraformer 1 at ALPHERAG-3, nothing compacted or moved). Recall now and Recall after task now run the fleet's own Return home: the planet is unassigned, the terraform devices switch off, modular ones compact, everyone boards the carriers and they fly to the home system. The general recall used to hold the fleet, which stopped the terraformer pass that knows how to pack it, and asked one carrier to attach everything as it stood. Recall after task lets a running trip finish first. The card shows recalling until it is home; assign a planet to send it out again."),
     ("1.509.0", "2026-11-20", "BobNet: news about another planet or station is no longer grayed as a repeat (Joe: Riker's ALPHERAG-3 / SPACE-STATION-007 settlement line matched the ALKALAROPS-3 / SPACE-STATION-001 one from 11-18). The repeat check keeps planet codes (STAR-n) and SPACE-STATION-n names; stars, other locations, device codes and numbers still count as the same line. The first-seen list is rebuilt once."),
     ("1.508.0", "2026-11-20", "Departures wait for devices still compacting (Joe): any trip that moves a modular device mid-compaction first waits for it to finish (device.compacted) before anything leaves, so a fleet no longer sets off without it or asks to attach it too early. Evacuations never wait: a modular device that can fly cruises to safety as it is, without compacting first or unfurling after."),
     ("1.507.0", "2026-11-20", "Atmospheric regulators attach again (Joe: Terraformer 1 left regulator D1E96D13 at ALKALAROPS-3). On 11-18 it was asked to attach while still compacting; the game refused (\"Cannot attach a large device\") and the app learned that regulators never attach, so the trip to ALPHERAG-3 found no seat for it. A refusal for a modular device no longer teaches anything (it attaches once compacted), and modular types learned that way are forgotten at start; the regulator now waits at ALKALAROPS-3 for logistics."),

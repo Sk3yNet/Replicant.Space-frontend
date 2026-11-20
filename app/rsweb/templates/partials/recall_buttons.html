@@ -3,7 +3,9 @@
 {% set m = f.mission or {} %}{% set rh = f.recall_hold or {} %}{% set rd = f.recall_dest or [None, ''] %}
 {% set rec = m.recall if m.status in ('running', 'stalled') and m.recall else None %}
 <div class="row small recall-bar" style="margin:6px 0;gap:6px;align-items:center">
-  {% if rh.state == 'home' %}
+  {% if f.role == 'terraformer' and (f.tf_run or {}).home_trip %}
+    <span class="pill lv-alert">recalling</span> <span>switching off, packing up and returning to <b>{{ f.home }}</b>; assign a planet to send it out again.</span>
+  {% elif rh.state == 'home' %}
     <span class="pill lv-done">recalled</span> <span>at <b>{{ rh.dest }}</b>, held: it takes no new work until you resume it.</span>
     <button class="small" hx-post="/fleets/{{ f.id }}/control" hx-vals='{"action": "resume_recall"}' hx-swap="none"
             title="Back to its own work">Resume</button>
