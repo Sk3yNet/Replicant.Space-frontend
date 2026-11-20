@@ -929,7 +929,7 @@ async def planned_device_trip(request: Request, user: str, code: str, body: dict
     own route takes none of them). A preview says what the plan saves; a refused plan goes the game's way, except a
     surge spot refused as a loop, which the device hops to first."""
     path, label = f"/devices/{code}", f"travel on {code}"
-    via, ramp = await request.app.state.worker.automations.trip_plan(code, str(body["destination"]).upper())
+    via, ramp = await request.app.state.worker.automations.trip_plan(code, str(body["destination"]).upper(), hand=True)
     if ramp and not body.get("dry_run"):
         dest = str(body["destination"]).upper()
         return await start_chain(request, user, f"{code} → {dest} (hops to {ramp} at arrival)", ramp_step(path, body, code),

@@ -23,7 +23,7 @@ def test_old_sector_refusals_on_gate_legs_are_stale():
     assert not wh.stale_far("SOLARES>ISOLITHOR", {"at": "2026-11-16T10:00:00+00:00", "h": 400}, POS)
 
 
-def _run(client, gate_works=True, start="ISOLITHOR-4-L4", dest="SOLARES-2-L4"):
+def _run(client, gate_works=True, start="ISOLITHOR-4-L4", dest="SOLARES-2-L4", hand=True):
     from rsweb import automations as au
     e = eng(client)
     db = client.app.state.db
@@ -54,7 +54,7 @@ def _run(client, gate_works=True, start="ISOLITHOR-4-L4", dest="SOLARES-2-L4"):
     e.api.request, e.send = fake_request, fake_send
     job = client.portal.call(e.create_job, "fleets", "trip", "V1",
                              [au.step("V1 → SOLARES", "/devices/V1", {"command": "travel", "destination": dest})],
-                             {}, True)
+                             {"by": "you"} if hand else {}, hand)
     return sent, next(j for j in client.portal.call(e.jobs) if j["id"] == job["id"])
 
 
@@ -62,6 +62,13 @@ def test_a_trip_out_of_delta_goes_through_the_gate(client):
     sent, job = _run(client)
     assert sent == [{"command": "travel", "destination": "SOLARES-2-L4", "via": ["DELTA", "DELTA-OBJ-2", "SOLARES"]}]
     assert "DELTA gate" in job["steps"][0]["desc"] and job["steps"][0]["status"] != "failed"
+
+
+def test_automated_trips_never_take_the_one_way_gate(client):
+    """Owner 2026-11-19: a new season rescan sent Delta Logistics' 6AA05D44 through the gate to CENIX, ~10 days from
+    home. Only a trip a person orders takes it; the long way round is beyond the sector range and isn't sent."""
+    sent, job = _run(client, hand=False)
+    assert not sent and job["status"] == "failed" and "sector range" in job["steps"][0]["error"]
 
 
 def test_no_gate_when_the_game_does_not_take_it(client):

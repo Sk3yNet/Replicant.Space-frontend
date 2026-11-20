@@ -154,6 +154,14 @@ def test_season_reset_makes_old_scans_stale_and_rescans_fleet_homes(client):  # 
     client.portal.call(e.season_rescan_pass)
     assert made[0][0] == "new season rescan: HV → BBB → AAA"   # hub systems first
     assert [s.get("scan_star") for s in made[0][1] if s.get("scan_star")] == ["BBB", "AAA"]
+    # a fleet home beyond the sector range (there and back) is never scouted (6AA05D44 ARADRAXIS → CENIX, 2026-11-19)
+    client.portal.call(db.kv_set, "stars", {"stars": [{"designation": s, "position": {"x": x, "y": 0, "z": 0}}
+                                                     for s, x in (("HUB", 0), ("AAA", 5), ("BBB", 30000))]})
+    made.clear()
+    client.portal.call(e.season_rescan_pass)
+    assert made[0][0] == "new season rescan: HV → AAA"
+    client.portal.call(db.kv_set, "stars", {"stars": [{"designation": s, "position": {"x": x, "y": 0, "z": 0}}
+                                                     for s, x in (("HUB", 0), ("AAA", 5), ("BBB", 9))]})
 
     # a replicant in a matrix container can't scan (live 2026-11-10): its system gets the scout, it isn't scanned in place
     sent = []

@@ -688,7 +688,7 @@ async def replicant_travel(request: Request, code: str, destination: str = Form(
         return HTMLResponse('<div class="result err">Pick a system (and a spot in it), or type a destination.</div>')
     host = ((await load_state(request))["replicants"].get(code) or {}).get("hosted_device_code")
     # the job runner's route planning (surge hops, a hub, the off-ramp): the game's own route takes none of them
-    via, ramp = (await request.app.state.worker.automations.trip_plan(host, destination)) if host else ([], None)
+    via, ramp = (await request.app.state.worker.automations.trip_plan(host, destination, hand=True)) if host else ([], None)
     if "via" in form0:
         via = [x for x in str(form0.get("via") or "").upper().split(",") if x.strip()]
     if dry_run:

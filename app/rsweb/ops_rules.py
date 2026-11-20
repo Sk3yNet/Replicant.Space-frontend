@@ -521,11 +521,25 @@ class OpsRules:
         cands = [c for c in devices if (c.get("hosting_replicant") or {}).get("replicant_code") and lo.can_surge(c)
                  and can_scan(c) and c.get("location") and set(c.get("tags") or []) & ltags and c["device_code"] not in busy
                  and lo._idle(c) and not c.get("stowed_in_device_code") and not c.get("attached_to_device_code")]
+        # only fleet homes within the sector range of the carrier, there and back by the straight line (owner 2026-11-19:
+        # Delta Logistics' 6AA05D44 was sent from ARADRAXIS through the one-way Delta gate to CENIX, ~10 days from home)
+        from .fleets import beyond_reach
+        from .logistics import SECTOR_RANGE_LY
+        from .engine_base import KV_SECTOR_FAR
+        far = await self.db.kv_get(KV_SECTOR_FAR, {}) or {}
+
+        def near(c: dict) -> list[str]:
+            s = lo.star_of(c.get("location"))
+            return [h for h in todo if not beyond_reach(s, h, pos, SECTOR_RANGE_LY) and f"{s}>{h}" not in far
+                    and lo._dist(s, h, pos) < 1e9]
+        cands = [(c, near(c)) for c in cands]
+        cands = [x for x in cands if x[1]]
         if not cands:
             return out
-        c = min(cands, key=lambda x: (min(lo._dist(lo.star_of(x.get("location")), h, pos) for h in todo), x["device_code"]))
+        c, reach = min(cands, key=lambda x: (min(lo._dist(lo.star_of(x[0].get("location")), h, pos) for h in x[1]),
+                                               x[0]["device_code"]))
         carrier, rep, home = c["device_code"], c["hosting_replicant"]["replicant_code"], c["location"]
-        route, cur, left = [], lo.star_of(home), set(todo)
+        route, cur, left = [], lo.star_of(home), set(reach)
         while left and len(route) < WAKE_STOPS:
             nxt = min(left, key=lambda x: (x not in hubs, lo._dist(cur, x, pos), x))
             if lo._dist(cur, nxt, pos) >= 1e9:

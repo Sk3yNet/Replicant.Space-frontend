@@ -2,9 +2,10 @@
 (the aperture at DELTA-OBJ-2, where the crystal seeds went) emerges at TWAFFY with no transit time. One way only: DELTA to
 TWAFFY. The game takes the gate when the trip's `via` names the gate location (owner 2026-11-17).
 
-A trip leaving the Delta sector (DELTA is ~28,900 ly from the home sector, TWAFFY ~270 ly from Sol) is offered the gate
-when the catalog says the route through it is much shorter than the straight line; the game's previews then decide
-(Engine._gate_via), like hub routes (hubroute.py)."""
+A trip you send yourself (the travel form, a command chain) leaving the Delta sector (DELTA is ~28,900 ly from the home
+sector, TWAFFY ~270 ly from Sol) is offered the gate when the catalog says the route through it is much shorter than the
+straight line; the game's previews then decide (Engine._gate_via), like hub routes (hubroute.py). Automated trips never
+take it (owner 2026-11-19: there is no way back, so the sector range measures them the long way)."""
 from __future__ import annotations
 
 import math

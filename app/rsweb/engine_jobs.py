@@ -650,18 +650,18 @@ class JobsMixin:
                 str(st["body"].get("destination") or "").upper())
         return exit_via
 
-    async def trip_via(self, device: str, dest: str) -> list[str]:
-        """The waypoints the job runner would give `device`'s trip to `dest` (surge hops, a hub, the off-ramp), for a
-        trip sent by hand (a replicant's travel form). Nothing is logged."""
-        return (await self.trip_plan(device, dest))[0]
+    async def trip_via(self, device: str, dest: str, hand: bool = False) -> list[str]:
+        """The waypoints the job runner would give `device`'s trip to `dest` (surge hops, a hub, the off-ramp). Nothing
+        is logged. Only a trip sent by hand (hand=True: a replicant's travel form) may take a wormhole gate."""
+        return (await self.trip_plan(device, dest, hand))[0]
 
-    async def trip_plan(self, device: str, dest: str) -> tuple[list[str], str | None]:
+    async def trip_plan(self, device: str, dest: str, hand: bool = False) -> tuple[list[str], str | None]:
         """trip_via's waypoints, and the off-ramp one trip can't take: in a system whose surges land at its entry point
         the job runner splits the trip there (_ramp_legs: to the entry point, then on via the off-ramp). A hand-sent
         trip with such an off-ramp goes as a job too (live 2026-11-03: 5DF3161B and 2D6BFDF1, sent from DELTA to
         ISOLITHOR-BELT-1 by their travel forms, landed at ISOLITHOR-1-L4 and cruised 499 AU, 57 min)."""
         st = {"path": f"/devices/{device}", "body": {"command": "travel", "destination": dest}, "desc": ""}
-        await self.plan_via(st, {"rule": None, "title": ""})
+        await self.plan_via(st, {"rule": None, "title": "", "hand": hand})
         via = list(st["body"].get("via") or [])
         ramp = st.get("arrive_via")
         split = None
@@ -921,6 +921,11 @@ class JobsMixin:
         from . import wormhole
         body = st.get("body") or {}
         path = str(st.get("path") or "")
+        # one way: only a trip a person orders takes the gate (owner 2026-11-19: a new season rescan sent Delta
+        # Logistics' 6AA05D44 through it to CENIX, about 10 days from home). Automated trips go the long way, which the
+        # sector range then refuses.
+        if not (job.get("hand") or st.get("allow_gate") or (job.get("meta") or {}).get("by")):
+            return
         if (st.get("gate_checked") or "via" in body or body.get("dry_run") or (job.get("meta") or {}).get("sim")):
             return
         code = await self._trip_device(st)
@@ -1177,8 +1182,6 @@ class JobsMixin:
         if not far:
             return None
         reps = await self.db.kv_get("replicants", {}) or {}
-        from . import wormhole
-        pos = await self.star_lookup("pos")
         week = _now() - timedelta(days=7)
         seen: dict[str, str] = {}
         for st in trips:
@@ -1194,8 +1197,8 @@ class JobsMixin:
             if not here or not there or here == there:
                 continue
             e = far.get(f"{here}>{there}")
-            if e is None or wormhole.stale_far(f"{here}>{there}", e, pos):
-                continue   # measured before the wormhole opened, and the gate shortens it now
+            if e is None:
+                continue
             e = e if isinstance(e, dict) else {"at": e, "h": 0}
             at = _ts(e.get("at"))
             if at and at > (week if e.get("h") is not None else _now() - timedelta(hours=6)):

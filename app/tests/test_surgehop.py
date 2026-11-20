@@ -121,7 +121,7 @@ def test_replicant_route_preview_takes_the_planned_waypoints_and_shows_the_savin
     e, api = eng(client), client.app.state.api
     sent = []
 
-    async def fake_via(device, dest):
+    async def fake_via(device, dest, hand=False):
         return ["Z-KUIPER"], None
 
     async def fake_request(method, path, json_body=None, **kw):
@@ -154,7 +154,7 @@ def test_device_travel_form_takes_the_planned_route_and_shows_the_saving(client)
     e, api = eng(client), client.app.state.api
     sent = []
 
-    async def fake_via(device, dest):
+    async def fake_via(device, dest, hand=False):
         return ["Z", "Z-KUIPER"], None
 
     async def fake_request(method, path, json_body=None, **kw):
