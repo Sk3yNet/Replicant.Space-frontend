@@ -5,7 +5,7 @@
 <div class="bl-chart">
   <div class="small">{{ t }}</div>
   <div class="small">{% for name, l in c.lines.items() %}<span class="bl-key {{ col(c, name, loop.index0 + off) }}">{{ name }}</span> <b class="mono">{{ l.last | num if l.last is not none else '—' }}</b>{% if l.first is not none and l.last is not none and l.last != l.first %} <span class="muted mono" title="change over the period">({{ '+' if l.last > l.first else '' }}{{ (l.last - l.first) | num }})</span>{% endif %}{% if not loop.last %} · {% endif %}{% endfor %}</div>
-  {% if c.empty %}<p class="muted small">No samples yet: one is taken every 10 minutes.</p>{% else %}
+  {% if c.empty %}<p class="muted small">{% if card in ('stock', 'hubstock') %}No samples yet: one is taken with each stockpile poll.{% else %}No samples yet: one is taken every 10 minutes.{% endif %}</p>{% else %}
   <svg class="bl-svg{{ ' bl-tall' if c.h > 100 }}" viewBox="0 0 {{ c.w }} {{ c.h }}" preserveAspectRatio="none" role="img" aria-label="{{ t }}">
     <line class="bl-base" x1="0" y1="{{ c.h - 1 }}" x2="{{ c.w }}" y2="{{ c.h - 1 }}"/>
     {% for name, l in c.lines.items() %}{% if l.points %}<polyline class="{{ col(c, name, loop.index0 + off) }}" points="{{ l.points }}"><title>{{ name }}</title></polyline>{% endif %}{% endfor %}
@@ -15,5 +15,6 @@
 {% endfor %}
 {% if card == 'backlog' %}<p class="muted small">Rising lines mean logistics is falling behind. <a href="/fleets/logistics">Fleets › Logistics</a></p>
 {% elif card == 'stock' %}<p class="muted small">Totals across all locations{% if synced %}, synced {{ synced | ago }}{% endif %}; holds on the way are shown as in transit. <a href="#stock-locations">By location</a></p>
+{% elif card == 'hubstock' %}<p class="muted small">{% if not charts %}No printing hub yet: a stationed hub fleet's home counts. {% endif %}Each printing hub's stockpile at its printing locations (where its autofactories work), each on its own scale{% if synced %}, synced {{ synced | ago }}{% endif %}.</p>
 {% elif card == 'queues' %}<p class="muted small">Prints waiting in each printer's queue, the one printing now not counted.</p>
 {% else %}<p class="muted small">Mining output is what piles where something mines gained between stockpile polls: a delivery there adds to it, a pick-up there hides that poll's gain.</p>{% endif %}

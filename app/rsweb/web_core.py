@@ -634,6 +634,37 @@ async def _stock_card(request: Request, hours: int) -> HTMLResponse:
                    synced=(await db.kv_get("sync:inventory") or {}).get("at"))
 
 
+async def _hub_stock_card(request: Request, hours: int) -> HTMLResponse:
+    """Dashboard › Hub stockpiles (Joe 2026-11-20): a chart per printing hub, a line per resource on the hub's own scale,
+    summed over its printing locations (hubstock.py), colors as on the Stockpiles card."""
+    from . import hubstock, metrics
+    db = request.app.state.db
+    since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat(timespec="seconds")
+    raw = await hubstock.history(db, since)
+    where = await db.kv_get("hub_inventory_spots", {}) or {}
+    now = await db.kv_get(hubstock.KV, {}) or {}
+    names = {(f.get("home")): f.get("name") or f.get("id") for f in await db.kv_get("fleets", []) or []
+             if isinstance(f, dict) and f.get("home") in where and f.get("materials") == "self"}
+    charts = []
+    for hub in sorted(where, key=lambda h: (-sum((now.get(h) or {}).values()), h)):
+        res = raw.get(hub) or {}
+        cur = now.get(hub) or {}
+        keys = [r for r in RESOURCES if r in cur or r in res] + sorted((set(cur) | set(res)) - set(RESOURCES))
+        lines, colors = {}, {}
+        for i, r in enumerate(keys):
+            pts = res.get(r) or []
+            step = max(1, len(pts) // 300)
+            lines[r] = pts[::step] + ([pts[-1]] if pts and (len(pts) - 1) % step else [])
+            colors[r] = RESOURCES.index(r) if r in RESOURCES else len(RESOURCES) + i
+        c = metrics.chart(lines, hours, h=120)
+        c["colors"] = colors
+        c["total"] = sum(cur.values())
+        label = f"{hub}" + (f" ({names[hub]})" if names.get(hub) else "") + " at " + ", ".join(where[hub])
+        charts.append((label, c, 0))
+    return partial(request, "partials/backlog.html", hours=hours, card="hubstock", title="Hub stockpiles", charts=charts,
+                   synced=(await db.kv_get("sync:inventory") or {}).get("at"))
+
+
 # --- fleet ------------------------------------------------------------------------------
 # Tag kinds the Device list's tag filter folds into one "any" entry each (one tag per pinned place, contract or trip:
 # 31 civ-beacon pins alone on 2026-10-28). A single one is still found by typing it in the search box.

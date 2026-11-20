@@ -80,6 +80,8 @@ async def p_backlog(request: Request, hours: int = 168, card: str = "backlog", u
     hours = hours if hours in (48, 168, 720) else 168
     if card == "stock":
         return await _stock_card(request, hours)
+    if card == "hubstock":
+        return await _hub_stock_card(request, hours)
     s = await metrics.series(request.app.state.db, hours)
     g = lambda k: s.get(k) or []  # noqa: E731
     if card == "trends":

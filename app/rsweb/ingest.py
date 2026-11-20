@@ -1102,6 +1102,11 @@ class Worker:
             for k, v in totals.items():
                 await self.db.execute("INSERT OR REPLACE INTO inventory_history(ts, resource, qty) VALUES(?,?,?)", (ts, k, v))
             await self.db.kv_set("inventory_totals", totals)
+        try:   # Dashboard › Hub stockpiles
+            from . import hubstock
+            await hubstock.record(self.db, locs, now_iso())
+        except Exception as e:
+            log.warning("hub stockpiles failed: %s", e)
         try:
             await self.db.kv_set("locations", (await self.api.get("/locations", background=True) or {}).get("locations") or {})
         except ApiError as e:

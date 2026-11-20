@@ -32,6 +32,7 @@ Cards can be dragged (⠿) or moved (▲ ▼) and folded (▾); the layout is re
 | Print queues | prints waiting in each printer's queue over time (sampled every 10 minutes) |
 | Stockpiles | every resource on one chart with a shared scale (2d / 7d / 30d, each its own color), with "+ N in transit" |
 | Stations & megastructures | links to every system with a colony station (named from the game's station list) or another megastructure (type from system scans), like the MIRFAKA datacenter, each with its nearest printing hub and the light years to it; *Travel order* lists the stations in the shortest path through all of them, from the end nearer SOLARES, with light years per leg |
+| Hub stockpiles | a chart per printing hub: each resource in the stockpiles where its autofactories work, over time (2d / 7d / 30d) |
 | Stockpiles by location | what each stockpile holds now, per location and resource, with its sector and total; sorted by sector, then largest total |
 | Game API health | API, database, Redis, checked every 5 minutes |
 | Live events | the event feed |

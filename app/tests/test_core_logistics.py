@@ -571,3 +571,31 @@ def test_dashboard_stockpiles_by_location(client):
     assert r.status_code == 200 and "Stockpiles by location" in r.text and 'data-card="stock-locations"' in r.text
     for p in piles:
         assert f'href="/locations/{p["location"]}"' in r.text
+
+
+def test_dashboard_hub_stockpiles_card(client):
+    """1.513.0 (Joe 2026-11-20): Hub stockpiles charts each printing hub's stockpile at its printing locations only."""
+    from rsweb import hubstock
+    db = client.app.state.db
+    client.portal.call(db.kv_set, "fleets", [
+        {"id": "h", "name": "Hub A", "role": "mining", "home": "HUBA", "station": True, "materials": "self"},
+        {"id": "m", "name": "Miner", "role": "mining", "home": "MINEB", "station": True, "materials": ""}])
+    client.portal.call(db.kv_set, "devices", [
+        {"device_code": "AF1", "device_type": "autofactory", "location": "HUBA-BELT-1", "status": "idle", "tags": []},
+        {"device_code": "AF2", "device_type": "autofactory", "location": "HUBA-4-L4", "status": "idle", "tags": ["spare"]},
+        {"device_code": "AF3", "device_type": "autofactory", "location": "MINEB-BELT-1", "status": "idle", "tags": []}])
+    locs = [{"location": "HUBA-BELT-1", "items": {"carbon": 100, "rares": 5}},
+            {"location": "HUBA-4-L4", "items": {"carbon": 900}},
+            {"location": "MINEB-BELT-1", "items": {"carbon": 50}}]
+    client.portal.call(hubstock.record, db, locs, "2026-11-20T10:00:00+00:00")
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    locs[0]["items"] = {"carbon": 140}
+    client.portal.call(hubstock.record, db, locs, now)
+    assert client.portal.call(db.kv_get, hubstock.KV) == {"HUBA": {"carbon": 140.0}}
+    rows = client.portal.call(db.fetchall, "SELECT resource, qty FROM hub_inventory_history WHERE ts=?", (now,))
+    assert {r["resource"]: r["qty"] for r in rows} == {"carbon": 140.0, "rares": 0.0}
+    assert 'card=hubstock' in client.get("/", headers=H).text
+    page = client.get("/partials/backlog?card=hubstock&hours=48", headers=HX).text
+    assert "<h2>Hub stockpiles</h2>" in page and "HUBA (Hub A) at HUBA-BELT-1" in page and "MINEB" not in page
+    assert page.count("<svg") == 1 and "HUBA-4-L4" not in page

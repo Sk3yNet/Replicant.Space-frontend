@@ -106,6 +106,9 @@ async def thin_history(db, now: datetime | None = None) -> None:
     cut = _iso(day)
     await db.execute("DELETE FROM inventory_history WHERE ts < ? AND ts NOT IN "
                      "(SELECT MAX(ts) FROM inventory_history WHERE ts < ? GROUP BY substr(ts, 1, 10), resource)", (cut, cut))
+    await db.execute("DELETE FROM hub_inventory_history WHERE ts < ? AND ts NOT IN "
+                     "(SELECT MAX(ts) FROM hub_inventory_history WHERE ts < ? GROUP BY substr(ts, 1, 10), hub, resource)",
+                     (cut, cut))
     noon = "T12:00:00+00:00"
     await db.execute("INSERT OR REPLACE INTO metric_history(ts, metric, value) "
                      "SELECT substr(ts, 1, 10) || ?, metric, AVG(value) FROM metric_history WHERE ts < ? "

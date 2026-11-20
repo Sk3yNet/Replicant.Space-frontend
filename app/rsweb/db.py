@@ -88,6 +88,15 @@ CREATE TABLE IF NOT EXISTS inventory_history (
     PRIMARY KEY (ts, resource)
 );
 
+-- Each printing hub's stockpile at its printing locations over time (hubstock.py, Dashboard › Hub stockpiles).
+CREATE TABLE IF NOT EXISTS hub_inventory_history (
+    ts TEXT NOT NULL,
+    hub TEXT NOT NULL,
+    resource TEXT NOT NULL,
+    qty REAL NOT NULL,
+    PRIMARY KEY (ts, hub, resource)
+);
+
 -- Mining output per fleet (fleetyield.py, Fleets › Production): stockpile gains at the places a fleet's devices mine,
 -- per UTC hour.
 CREATE TABLE IF NOT EXISTS fleet_yield (
