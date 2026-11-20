@@ -236,7 +236,7 @@ def test_bobnet_feed_pages_back(client, monkeypatch):
 def test_asteroid_impacts_are_warnings_and_unread_messages_stand_out(client):
     from rsweb import notify
     for e in ("system.object_impacted",):
-        assert notify.notification_for({"event": e, "payload": {}})["level"] == "warning"
+        assert notify.notification_for({"event": e, "payload": {}}) is None   # 1.520.0: feed and Defence page only
     assert notify.notification_for({"event": "system.impact_warning", "payload": {}})["level"] == "error"
     db = client.app.state.db
     client.portal.call(client.app.state.worker.sync_messages)
@@ -301,3 +301,15 @@ def test_automation_notifications_link_to_the_fixing_page(tmp_path):
                          "/automations#job-j7", "/fleets/logistics", "/automations"]
         await db.close()
     asyncio.run(go())
+
+
+def test_a_switch_off_answered_before_its_action_row_raises_no_error(client):
+    """Live 2026-11-20: BA8DF4F3 switched off on the Terraforming console raised a 'needs you' error, because the game's
+    terraform.device_deactivated arrived before the actions row was written."""
+    from rsweb import notify
+    db = client.app.state.db
+    ev = {"id": "x1", "event": "terraform.device_deactivated", "device_code": "RACE0001", "payload": {}}
+    notify.note_command("/devices/RACE0001", {"command": "deactivate"})
+    assert client.portal.call(notify.add_notification, db, ev) is None
+    notify.SENT_OFF.pop("RACE0001", None)
+    assert client.portal.call(notify.add_notification, db, {**ev, "id": "x2"})["level"] == "error"

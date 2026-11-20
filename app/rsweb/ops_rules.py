@@ -381,20 +381,36 @@ class OpsRules:
         pos = await relaynet.star_pos(self.db)
         bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
         ltags = {fl.fleet_tag(f["id"]) for f in await self.fleets() if f.get("role") == "logistics" and not f.get("recall_hold")}
-        cands = [c for c in devices if c.get("hosting_replicant") and lo.can_surge(c) and c.get("location")
+        by = {d.get("device_code"): d for d in devices}
+        ridden = {d.get("attached_to_device_code") or d.get("stowed_in_device_code")
+                  for d in devices if d.get("hosting_replicant")}   # a matrix container riding a carrier brings its replicant
+
+        def boards(c: dict, code: str, free: dict) -> str | None:   # stow or attach, by what the relay and carrier allow
+            return fl.take_seat(free, by.get(code) or {"device_code": code})
+        cands = [c for c in devices if (c.get("hosting_replicant") or c.get("device_code") in ridden)
+                 and lo.can_surge(c) and c.get("location")
                  and set(c.get("tags") or []) & ltags and c["device_code"] not in busy
                  and lo._idle(c) and not c.get("stowed_in_device_code") and not c.get("attached_to_device_code")
-                 and lo._free(c, bps, {}) >= 1]
+                 and any(boards(c, x, fl.seats(c, devices)) for xs in dark.values() for x in xs)]
         if not cands:
             return []
         c = min(cands, key=lambda x: (min(lo._dist(lo.star_of(x.get("location")), s_, pos) for s_ in dark), x["device_code"]))
         carrier, rep, home = c["device_code"], (c.get("hosting_replicant") or {}).get("replicant_code"), c["location"]
         path = f"/replicants/{rep}/travel" if rep else f"/devices/{carrier}"
         body = (lambda to: {"destination": to}) if rep else (lambda to: {"command": "travel", "destination": to})
-        route, cur, left = [], lo.star_of(home), dict(dark)
+        # live 2026-11-20: deep space relay stations can't stow ("Cannot stow a deep space relay station"); a heaven
+        # vessel was sent to stow three at DALLORAL. Each relay boards the way it can, or waits for another carrier.
+        free, mode = fl.seats(c, devices), {}
+        for xs in dark.values():
+            for x in xs:
+                m = boards(c, x, free)
+                if m:
+                    mode[x] = m
+        route, cur, left = [], lo.star_of(home), {s_: [x for x in xs if x in mode] for s_, xs in dark.items()}
+        left = {s_: xs for s_, xs in left.items() if xs}
         while left and len(route) < WAKE_STOPS:
             nxt = min(left, key=lambda x: (lo._dist(cur, x, pos), x))
-            route.append((nxt, left.pop(nxt)[:max(1, int(lo._free(c, bps, {})))]))
+            route.append((nxt, left.pop(nxt)))
             cur = nxt
         steps: list[dict] = []
 
@@ -412,12 +428,16 @@ class OpsRules:
                          match={"destination": star}, timeout=STEP_TIMEOUT)
                 st["meet"] = w["meet"] = code
                 w["wait_device"], w["seq0_from"] = carrier, len(steps)
-                steps += [st, w, fl.board_step(carrier, code, "stow")]
+                steps += [st, w, fl.board_step(carrier, code, mode[code])]
             steps.append(trip(star, "to an L4/L5 point: relays switch on only there", to_entry=star))
             for code in codes:
-                st = step(f"deploy {code} in {star}", f"/devices/{code}", {"command": "deploy"}, wait=["device.deployed"],
-                          timeout=lo.SHORT_TIMEOUT, critical=True)
-                st["wait_device"] = code
+                if mode[code] == "attach":
+                    st = step(f"{carrier}: detach {code} in {star}", f"/devices/{carrier}",
+                              {"command": "detach", "device": code}, critical=True)
+                else:
+                    st = step(f"deploy {code} in {star}", f"/devices/{code}", {"command": "deploy"},
+                              wait=["device.deployed"], timeout=lo.SHORT_TIMEOUT, critical=True)
+                    st["wait_device"] = code
                 steps += [st, lo.activate_step(code, critical=True)]
         steps.append(trip(home, "back"))
         title = f"wake dark relays: {carrier} → {' → '.join(s for s, _ in route)}"

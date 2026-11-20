@@ -821,12 +821,18 @@ class JobsMixin:
             scan = None
             if not is_lagrange(entry):
                 path = str(st.get("path") or "")
+                # the carrier's own replicant, or one riding it in a matrix container (live 2026-11-20: mobile fleet
+                # 07B7A647 with SK3Y-Ottoline_Bulkferry's container attached never scanned FALSRAL, and a 17-relay
+                # run stopped there)
                 rep = path.split("/")[2] if path.startswith("/replicants/") else next(
                     ((x.get("hosting_replicant") or {}).get("replicant_code") for x in devices
-                     if x.get("device_code") == code and x.get("hosting_replicant")), None)
+                     if x.get("hosting_replicant") and code in (x.get("device_code"), x.get("attached_to_device_code"),
+                                                                x.get("stowed_in_device_code"))), None)
                 if rep:
                     ok, resp, _err = await self.send("POST", f"/replicants/{rep}/scan", {}, f"auto: scan {star} for an L4/L5 point")
                     scan = resp if ok and isinstance(resp, dict) else None
+                if not scan:
+                    scan = await self.system_scan(star)   # a scan kept from an earlier visit
             lp = geography(star, devices, scan, entry if is_lagrange(entry) else None)["lagrange"]
             target = lp[0] if lp else ""
         if not target:

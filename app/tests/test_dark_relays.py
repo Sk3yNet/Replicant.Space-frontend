@@ -101,6 +101,50 @@ def test_dark_relays_get_a_wake_trip(client):  # noqa: F811
     assert [s["meet"] for s in steps if s.get("meet")] == ["DR1", "DR1", "DR2", "DR2"]
 
 
+
+def test_dark_relay_stations_ride_attached_never_stowed(client):  # noqa: F811
+    """Live 2026-11-20: "Cannot stow a deep space relay station"; a heaven vessel was sent to stow three at DALLORAL. A
+    station waits for a carrier that attaches; a matrix container riding that carrier brings the replicant."""
+    e = _eng(client)
+    st = {"device_code": "ST1", "device_type": "deep_space_relay_station", "location": "AAA", "status": "out_of_range",
+          "features": ["cruise", "relay", "modular"], "available_commands": ["compact", "travel", "unfurl"], "tags": []}
+    hv = {"device_code": "HV", "device_type": "heaven_vessel", "location": "HUB-1", "status": "idle",
+          "features": ["surge"], "available_commands": ["travel"], "stow_capacity": 10, "stow_used": 0,
+          "hosting_replicant": {"replicant_code": "REP"}, "tags": ["fleet:logistics"]}
+    devices = [st, hv]
+    made = []
+
+    async def devs():
+        return devices
+
+    async def jobs():
+        return []
+
+    async def fleets():
+        return [{"id": "logistics", "role": "logistics"}]
+
+    async def create_job(rule, title, device, steps, meta=None, force=False):
+        made.append((title, steps, meta))
+        return {"id": "j"}
+    e.devices, e.jobs, e.fleets, e.create_job, e.log = devs, jobs, fleets, create_job, _noop
+    client.portal.call(e.db.kv_set, "stars", {"stars": [{"designation": s, "position": {"x": x, "y": 0, "z": 0}}
+                                                        for s, x in (("HUB", 0), ("AAA", 5))]})
+    client.portal.call(e.dark_relay_pass)
+    assert made == []   # the heaven vessel can't take it
+    mf = {"device_code": "MF", "device_type": "mobile_fleet", "location": "HUB-1", "status": "idle",
+          "features": ["surge", "cruise", "attach"], "available_commands": ["travel", "attach"], "attach_capacity": 4,
+          "attach_used": 1, "tags": ["fleet:logistics"]}
+    mc = {"device_code": "MC", "device_type": "matrix_container", "location": "HUB-1", "attached_to_device_code": "MF",
+          "hosting_replicant": {"replicant_code": "REP2"}, "tags": []}
+    devices += [mf, mc]
+    client.portal.call(e.dark_relay_pass)
+    title, steps, _meta = made[0]
+    assert title == "wake dark relays: MF → AAA"
+    descs = [s["desc"] for s in steps]
+    assert "MF: attach ST1" in descs and "MF: detach ST1 in AAA" in descs and not any("stow" in d for d in descs)
+    assert steps[0]["path"] == "/devices/MF"
+
+
 def test_mining_rigs_away_from_their_controller_belt_are_brought_back():
     """Live 2026-11-10: Miner_4's 8 rigs idle at MURKEB-4-L4, its controller at MURKEB-BELT-1; only drones counted."""
     from rsweb import salvage as sv

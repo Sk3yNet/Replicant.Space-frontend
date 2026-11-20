@@ -20,10 +20,12 @@ ALERT_EVENTS = {
 IMPACTED_EVENTS = {"system.object_impacted"}
 # A newly detected asteroid is a day or more out and Asteroid defense takes it from there (propulsors, rescues): a warning
 # (Joe 2026-11-15, errors only when you must act); the hour-ahead impact warning stays an error.
-WARNING_EVENTS = {"hub.warning", "system.object_detected"} | IMPACTED_EVENTS
-ERROR_EVENTS = ALERT_EVENTS - WARNING_EVENTS
+WARNING_EVENTS = {"hub.warning", "system.object_detected"}
+ERROR_EVENTS = ALERT_EVENTS - WARNING_EVENTS - IMPACTED_EVENTS
 # Expected and frequent (a belt's sites close, salvage runs out): the feed and the digest have them, no notification.
-QUIET = {"site.depleted", "salvage.depleted"}
+# An impact is past acting on and, with rock chasers launching rocks, comes every few minutes (2026-11-20 review: most of
+# 1,700 unread notifications); lost devices still raise device.destroyed. The feed and Defence page keep them.
+QUIET = {"site.depleted", "salvage.depleted"} | IMPACTED_EVENTS
 DONE_EVENTS = {
     "print.completed", "travel.arrived", "scan.completed", "search.completed", "directive.completed",
     "event.completed", "trade.completed", "prospect.completed", "teleport.completed",
@@ -283,12 +285,29 @@ SWITCHED_OFF = {"terraform.device_deactivated", "terraform.deactivated"}
 OWN_COMMAND_MINUTES = 20
 
 
+SENT_OFF: dict[str, float] = {}   # device code -> when a deactivate went out (monotonic), noted before it is sent
+
+
+def note_command(path: str, body) -> None:
+    """Remember a deactivate as it goes out: the game's terraform.device_deactivated can arrive before the actions row
+    is written (live 2026-11-20: BA8DF4F3, switched off on the console at 03:56:22, still raised a 'needs you' error)."""
+    if isinstance(body, dict) and body.get("command") == "deactivate" and str(path).startswith("/devices/"):
+        import time
+        now = time.monotonic()
+        for k in [k for k, t in SENT_OFF.items() if now - t > OWN_COMMAND_MINUTES * 60]:
+            SENT_OFF.pop(k, None)
+        SENT_OFF[str(path).rstrip("/").split("/")[2]] = now
+
+
 async def commanded_off(db: DB, code: str | None) -> bool:
     """Did you (a console, a device page) or an automation send this device a deactivate lately? Its
     terraform.device_deactivated is then the answer to that, not news (2026-11-16: ~45 'needs you' errors in a night were
     Joe's own switch-offs on the Terraforming console)."""
     if not code:
         return False
+    import time
+    if code in SENT_OFF and time.monotonic() - SENT_OFF[code] <= OWN_COMMAND_MINUTES * 60:
+        return True
     since = (datetime.now(timezone.utc) - timedelta(minutes=OWN_COMMAND_MINUTES)).isoformat(timespec="seconds")
     row = await db.fetchone("SELECT 1 FROM actions WHERE path=? AND at>=? AND body LIKE ? AND (status IS NULL OR status<400) "
                             "LIMIT 1", (f"/devices/{code}", since, '%"deactivate"%'))

@@ -234,6 +234,8 @@ class AutomationEngine(JobsMixin, LoadoutMixin, FleetsMixin, MiningRulesMixin, O
         status, resp, err = 200, None, None
         try:
             kw = {**({"components_done": True} if components_done else {}), **({"raw": True} if raw else {})}
+            from .notify import note_command
+            note_command(path, body)
             resp = await self.api.request(method, path, json_body=body, background=True, **kw)
             if self.worker:
                 await self.worker.timers_from_response(path, resp, label)

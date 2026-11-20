@@ -471,6 +471,8 @@ async def call_action(request: Request, user: str, method: str, path: str, body:
     status, resp, err = 200, None, None
     from .vqueue import HAND
     hand = HAND.set(isinstance(body, dict) and body.get("command") == "enqueue_print")   # your prints go first
+    from .notify import note_command
+    note_command(path, body)
     try:
         resp = await st.api.request(method, path, json_body=body if method != "GET" else None)
         await st.worker.timers_from_response(path, resp, label)

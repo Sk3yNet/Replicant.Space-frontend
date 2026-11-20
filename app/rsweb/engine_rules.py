@@ -327,10 +327,16 @@ class MiningRulesMixin:
         cfg = await self.rule_cfg("belt_viability")
         if cfg:
             sent = state.setdefault("alerted", {})
+            # a belt with no miners left, or worked by a stationed mining fleet that moves on by itself (auto_relocate:
+            # "X is dry, moving to Y"), needs nobody: logged only (2026-11-20 review: "keeping 0 miner(s) busy needs
+            # ~None survey drones" alerts for belts the fleets had already left)
+            moving = {star_of(f.get("home")) for f in await self.fleets()
+                      if f.get("role") == "mining" and f.get("station") and f.get("auto_relocate") and f.get("home")}
             for r in await self._viability_rows(state):
                 if r["verdict"] == "consider moving" and sent.get(r["belt"]) != "consider moving":
                     text = via.alert_text(r)
-                    await self.log("belt_viability", text, "alert", notify=True)
+                    quiet = not r.get("miners") or star_of(r["belt"]) in moving
+                    await self.log("belt_viability", text, "info" if quiet else "alert", notify=not quiet)
                     alerts.append(text)
                 sent[r["belt"]] = r["verdict"]
         await self.db.kv_set("viability", state)
