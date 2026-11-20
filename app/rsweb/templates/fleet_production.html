@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Fleet production{% endblock %}
+{% block live %} data-live-cards{% endblock %}
+{% block content %}
+{% set label = dict(rep.windows) %}
+<div class="row between"><h1>Fleet production <span class="muted small">mining and rock chaser fleets</span></h1>
+  <span class="small">{% for d, l in rep.windows %}{% if d == rep.days %}<b>{{ l }}</b>{% else %}<a href="/fleets/production?days={{ d }}">{{ l }}</a>{% endif %}{% if not loop.last %} · {% endif %}{% endfor %}</span></div>
+<p class="muted small">Units mined, measured as what the piles gain where a fleet's drones and rigs are mining (checked about every
+  2 minutes; devices an AMI controller runs send no amounts of their own). Several fleets at one pile share its gain by how many
+  devices each has mining there (a rig counts 1.5). A carrier unloading into such a pile counts too.
+  {% if rep.since %}Measured since {{ rep.since | local }}.{% endif %} <b>Reported</b> is the game's own <code>mining.stopped</code>
+  total of the last 30 days (sessions of devices no controller runs, counted when they end). <a href="/fleets">Fleets</a></p>
+
+<div class="card" id="prod-summary" style="overflow-x:auto">
+  <h2>Summary <span class="muted small">{{ rep.grand[1] | round | int }} in 24 h · {{ rep.grand[7] | round | int }} in 7 days · {{ rep.grand[30] | round | int }} in 30 days</span></h2>
+  <table class="small">
+    <tr><th>Fleet</th><th>Role</th><th>Home</th><th class="num">24 h</th><th class="num">per h</th><th class="num">7 days</th><th class="num">30 days</th>
+      <th class="num" title="The game's mining.stopped reports, last 30 days (sessions)">Reported</th><th class="num" title="Drones and rigs in the fleet, mining now / all">Mining now</th><th>Last gain</th></tr>
+    {% for f in rep.fleets %}
+    <tr{% if not f.totals[30] and not f.reported %} class="muted"{% endif %}>
+      <td>{% if f.id != no_fleet %}<a href="/fleets/details?fleet={{ f.id }}">{{ f.name }}</a>{% else %}{{ f.name }}{% endif %}</td>
+      <td>{{ f.role | replace("_", " ") }}</td><td>{{ f.home }}</td>
+      <td class="num">{{ f.totals[1] | round | int }}</td><td class="num">{{ f.per_hour | round | int }}</td>
+      <td class="num">{{ f.totals[7] | round | int }}</td><td class="num">{{ f.totals[30] | round | int }}</td>
+      <td class="num">{% if f.sessions %}{{ f.reported | round | int }} <span class="muted">({{ f.sessions }})</span>{% endif %}</td>
+      <td class="num">{% if f.id != no_fleet %}{{ f.mining_now }} / {{ f.miners }}{% endif %}</td>
+      <td>{% if f.last %}{{ f.last[11:13] }}:00 UTC {{ f.last[5:10] }}{% endif %}</td></tr>
+    {% endfor %}
+  </table></div>
+
+{% if rep.resources %}
+<div class="card" id="prod-resources" style="overflow-x:auto;margin-top:14px">
+  <h2>By resource <span class="muted small">{{ label[rep.days] }}</span></h2>
+  <table class="small">
+    <tr><th>Fleet</th>{% for r in rep.resources %}<th class="num">{{ r }}</th>{% endfor %}<th class="num">Total</th></tr>
+    {% for f in rep.fleets if f.res %}
+    <tr><td>{{ f.name }}</td>{% for r in rep.resources %}<td class="num">{% if f.res.get(r) %}{{ f.res[r] | round | int }}{% endif %}</td>{% endfor %}
+      <td class="num"><b>{{ f.totals[rep.days] | round | int }}</b></td></tr>
+    {% endfor %}
+    <tr><td><b>All</b></td>{% for r in rep.resources %}<td class="num"><b>{{ rep.by_res[r] | round | int }}</b></td>{% endfor %}
+      <td class="num"><b>{{ rep.grand[rep.days] | round | int }}</b></td></tr>
+  </table></div>
+
+<div class="card" id="prod-detail" style="margin-top:14px">
+  <h2>Where and when <span class="muted small">{{ label[rep.days] }}, per fleet</span></h2>
+  {% for f in rep.fleets if f.res %}
+  <details><summary><b>{{ f.name }}</b> <span class="muted small">{{ f.totals[rep.days] | round | int }} units · {{ f.locs | length }} location(s)</span></summary>
+    <div class="row" style="gap:24px;align-items:flex-start;flex-wrap:wrap">
+      <table class="small"><tr><th>Location</th><th class="num">Units</th></tr>
+        {% for loc, q in f.locs.items() %}<tr><td><a href="/locations/{{ loc }}">{{ loc }}</a></td><td class="num">{{ q | round | int }}</td></tr>{% endfor %}</table>
+      <table class="small"><tr><th>Day (UTC)</th><th class="num">Units</th></tr>
+        {% for day, q in f.daily.items() %}<tr><td>{{ day }}</td><td class="num">{{ q | round | int }}</td></tr>{% endfor %}</table>
+    </div></details>
+  {% endfor %}</div>
+{% else %}
+<div class="card" id="prod-resources" style="margin-top:14px"><p class="muted">Nothing mined in the last {{ label[rep.days] }}.</p></div>
+{% endif %}
+{% endblock %}

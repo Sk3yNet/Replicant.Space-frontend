@@ -450,6 +450,9 @@ rock chaser / trade post / terraformer / bootstrap), a home and a loadout (its o
 ### Pages
 - **Fleets** (the landing page): each fleet's status against its loadout (loaded just after the page), the templates and
   loadout settings, and the **Strays** card.
+- **Production** (`/fleets/production`, 1.512.0): units mined per mining and rock chaser fleet over 24 h / 7 / 30 days,
+  per hour, drones and rigs mining now, and per resource, location and day. Measured as the pile gains where each fleet's
+  devices mine (AMI-run devices report no amounts), split by devices mining there; the game's `mining.stopped` totals beside it.
 - **Fleet details** (the slower parts): an index of the fleets, each fleet's card (members, loadout, missions), what the
   next loadout pass would do, the tags & controllers check (kept an hour, Refresh rechecks), and what's spare or on the
   way. Each card loads as it scrolls into view; a name in the index (`?fleet=<id>`) opens that fleet alone, `?all=1`

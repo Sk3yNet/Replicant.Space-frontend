@@ -1085,6 +1085,13 @@ class Worker:
                                       {i.get("location"): i.get("items") or {} for i in locs}, mining)
         except Exception as e:   # a chart never stops the inventory sync
             log.warning("mining gain failed: %s", e)
+        try:   # Fleets › Production: the same gains per fleet (fleetyield.accrue)
+            from . import fleetyield
+            await fleetyield.accrue(self.db, {i.get("location"): i.get("items") or {} for i in before},
+                                    {i.get("location"): i.get("items") or {} for i in locs},
+                                    await self.db.kv_derived("devices", "fleet_yield_shares", fleetyield.shares, {}))
+        except Exception as e:
+            log.warning("fleet yield failed: %s", e)
         totals: dict[str, float] = defaultdict(float)
         for loc in locs:
             for k, v in loc["items"].items():

@@ -145,7 +145,7 @@ Rules run in the app container, so they keep going with the browser closed. The 
   SQLite and survive redeploys; a failing *critical* step stops the job with an alert.
 - **Safe defaults**: watch-and-alert rules start on, every other rule starts off. *Dry run* logs what rules would do.
   All commands share the rate limiter and show in the audit log as user `automation`.
-- **Fleets** keep their loadouts, run missions, recall home (now or after the current task), follow a path forward, chase asteroids, run a trade post that sells your devices and bootstrap new hubs
+- **Fleets** keep their loadouts, run missions, recall home (now or after the current task), follow a path forward, chase asteroids, run a trade post that sells your devices and bootstrap new hubs; **Production** shows what each mining and rock chaser fleet mined
   ([Fleets](docs/FEATURES.md#fleets)); **logistics** delivers materials and devices on demand
   ([Logistics](docs/FEATURES.md#logistics)); a print short of materials moves to a printing hub that has them when shipping the device is cheaper.
 - **Travel** waits on the game's ETA, routes via hubs and surge hops (the one-way DELTA → TWAFFY wormhole gate only on trips you send yourself),

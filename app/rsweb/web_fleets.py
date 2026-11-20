@@ -233,6 +233,21 @@ async def fleets_recompute(request: Request, user: str = Depends(current_user)):
     return HTMLResponse("", headers={"HX-Refresh": "true"})
 
 
+@router.get("/fleets/production", response_class=HTMLResponse)
+async def fleets_production(request: Request, days: int = 7, user: str = Depends(current_user)):
+    """What each mining and rock chaser fleet mined: totals for 24 h / 7 / 30 days, and for the chosen window the split
+    by resource, location and day (fleetyield.py: stockpile gains where each fleet mines, and the game's mining.stopped
+    reports)."""
+    from . import fleetyield
+    days = days if days in dict(fleetyield.WINDOWS) else 7
+    eng = request.app.state.worker.automations
+    st = await load_state(request)
+    db = request.app.state.db
+    rep = fleetyield.report(await eng.fleets(), st["devices"], await fleetyield.rows(db), await fleetyield.sessions(db),
+                            days, since=((await db.kv_get("fleet_yield_state")) or {}).get("since"))
+    return await page(request, user, "fleet_production.html", "fleets", rep=rep, no_fleet=fleetyield.NO_FLEET)
+
+
 @router.get("/fleets/details", response_class=HTMLResponse)
 async def fleets_details(request: Request, fleet: str = "", all: str = "", user: str = Depends(current_user)):
     """An index of the fleets, then their cards: ?fleet=<id> shows that one alone, ?all=1 every card at once, and by

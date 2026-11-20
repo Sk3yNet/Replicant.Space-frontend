@@ -88,6 +88,17 @@ CREATE TABLE IF NOT EXISTS inventory_history (
     PRIMARY KEY (ts, resource)
 );
 
+-- Mining output per fleet (fleetyield.py, Fleets › Production): stockpile gains at the places a fleet's devices mine,
+-- per UTC hour.
+CREATE TABLE IF NOT EXISTS fleet_yield (
+    hour TEXT NOT NULL,
+    fleet TEXT NOT NULL,
+    location TEXT NOT NULL,
+    resource TEXT NOT NULL,
+    qty REAL NOT NULL,
+    PRIMARY KEY (hour, fleet, location, resource)
+);
+
 -- Logistics backlog samples over time (metrics.py, Dashboard › Logistics backlog).
 CREATE TABLE IF NOT EXISTS metric_history (
     ts TEXT NOT NULL,

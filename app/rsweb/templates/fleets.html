@@ -28,7 +28,8 @@
   {% else %}<p><button class="small ghost" hx-post="/loadouts/apply" hx-target="#lo-result" hx-confirm="Run the loadout pass for every stationed fleet now?">Apply all now</button></p>{% endif %}</div>
 
 <p class="small">Fleet status and templates. Each fleet's members, loadout and missions, the next loadout pass, the tags check and
-  what's spare or on the way: <a href="/fleets/details"><b>Fleet details</b></a>.</p>
+  what's spare or on the way: <a href="/fleets/details"><b>Fleet details</b></a>. What the mining and rock chaser fleets
+  mined: <a href="/fleets/production"><b>Production</b></a>.</p>
 <div class="card" id="fleets-overview" data-live style="margin-bottom:14px;overflow-x:auto" hx-get="/fleets/overview" hx-trigger="load" hx-swap="innerHTML">
   <h2>Overview</h2><p class="muted small">Loading fleet status…</p></div>
 
