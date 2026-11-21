@@ -658,14 +658,18 @@ class LoadoutMixin:
                 pass
         return objs, warned, scans
 
-    async def evacuation_targets(self, devices: list[dict], stars: dict) -> dict[str, str]:
-        """{object location: where its stockpile goes} for every object due within the evacuation window."""
+    async def evacuation_targets(self, devices: list[dict], stars: dict, piles=()) -> dict[str, str]:
+        """{object location: where its stockpile goes} for every object due within the evacuation window, being mined,
+        or (`piles`: locations holding a stockpile) in flight with a pile left on it."""
         from . import evacuate as ev
         objs, warned, scans = await self.evacuation_inputs()
         hot = ev.due(objs, warned=warned, pct=await self.diverted_pct())
         obj_at = ev.at_location(objs)
         from .rockmining import open_rocks   # v3.6.0: a rock being mined has its pile hauled out while the rigs work
         worked = {s.get("rock") for s in (await self.db.kv_get("rock_mining", {}) or {}).values()} & set(open_rocks(objs))
+        # a pile left on a rock in flight once its rigs moved on is lost at the ETA all the same: it leaves now, not in the
+        # last hour (live 2026-11-21: 621 volatiles left at RENGRELOR-OBJ-4 when Chaser_1's rigs had gone, ETA 4 h off)
+        worked |= set(piles) & set(open_rocks(objs))
         hot = {**{r: 0.0 for r in worked}, **hot}
         for r in await self.overdue_rocks():   # it may strike any time: its pile is left there, no carrier goes in
             hot.pop(r, None)

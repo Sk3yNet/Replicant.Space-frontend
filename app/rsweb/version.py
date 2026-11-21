@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.520.0"
+VERSION = "1.521.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.521.0", "2026-11-21", "Asteroids: a stockpile left on a rock headed for impact is hauled out by logistics as soon as it's seen, not only while rigs mine it or in the last hour. Once Chaser_1's rigs left RENGRELOR-OBJ-4, the rest of its pile (621 volatiles, 360 silicates, 354 carbon not yet on a carrier) waited 4 hours for the evacuation hour."),
     ("1.520.0", "2026-11-20", "Alert review. Dark relay wake trips no longer try to stow deep space relay stations (the game refuses: a heaven vessel went to DALLORAL three times for nothing): a station rides attached on a carrier that can tow it, and a matrix container riding a carrier counts as its replicant. A relay run looking for an L4/L5 point now scans with the replicant riding the carrier, or uses a saved scan (07B7A647's 17-relay run stopped five times with \"no L4/L5 point known\"). A terraform device you switch off no longer raises a Needs you error when the game answers before the command is logged. Asteroid impacts no longer notify (feed and Defence keep them; lost devices still do), and a belt viability note for a belt with no miners, or one a relocating mining fleet works, is logged only."),
     ("1.519.0", "2026-11-20", "Galaxy map › markers (Joe): paste a list of systems (designations, names, or body and spot codes) and mark them for now (a bright green ring on each, gone on reload) or save markers on the server with a shape (circle, ring, square, diamond, triangle, star, cross, flag, pin), a color and a note. Markers keep their size at any distance, draw over everything, and hovering or clicking one picks its system before any star nearby. Saved markers are listed with a remove button each, have their own checkbox under layers, and show on the desktop wallpaper."),
     ("1.518.0", "2026-11-20", "The galaxy map and the desktop wallpaper load fast after a deploy (Joe): each map answer is kept on disk beside the database and encoded once, and an older answer is shown at once while a single rebuild runs in the background (before, every map request after a restart waited 30-45 s for a fresh build, and the wallpaper's first load could run past the proxy's 60 s). The map's first load now tries again (15 s, doubling to 5 min) instead of leaving the wallpaper blank for good."),

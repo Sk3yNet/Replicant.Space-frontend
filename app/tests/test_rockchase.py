@@ -579,3 +579,10 @@ def test_propulsors_stop_once_priority_materials_are_picked_up(client):  # noqa:
     client.portal.call(e.save_fleets, f)
     out = client.portal.call(e.rock_chase_pass)
     assert "Chaser: P1 stops slowing SOL-OBJ-1: priority materials all picked up" in out, out
+
+
+def test_pile_left_on_a_rock_in_flight_is_hauled_out_after_the_rigs_left(client):  # noqa: F811
+    db, e = _setup(client, [], {"SOL-OBJ-1": rock(minutes=240), "SOL-OBJ-2": rock("SOL-OBJ-2", 240)})
+    got = client.portal.call(e.evacuation_targets, [], {}, ["SOL-OBJ-1", "SOL-3"])
+    assert "SOL-OBJ-1" in got   # 4 h from its ETA, no rigs there: the pile still goes now
+    assert "SOL-OBJ-2" not in got and "SOL-3" not in got   # no pile there / not a rock
