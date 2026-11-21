@@ -147,7 +147,7 @@ class ChaseMixin:
                 out += await self._chase_gather(f, cfg, run, ctx, k, ms)
         mining = run.get("target") if run.get("phase") == "mining" and run.get("target") == target and rigs_at else None
         if not mining:   # Joe 2026-11-21: the fleet's freighters keep clearing a worked rock's pile after the rigs left,
-            mining = self._chase_leftover(run, ctx)   # until the evacuation hour hands it to logistics (RENGRELOR-OBJ-4)
+            mining = self._chase_leftover(run, ctx)   # until the evacuation hour; logistics never goes to a rock
         out += await self._chase_ami(f, cfg, run, ctx, k, ms, mining)
         if run.get("target"):
             out += await self._chase_ship(f, cfg, run, ctx, k, run["target"])

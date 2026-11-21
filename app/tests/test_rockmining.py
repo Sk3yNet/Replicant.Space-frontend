@@ -96,7 +96,7 @@ def test_engine_sends_a_rig_and_the_defense_page_shows_it(client):  # noqa: F811
     assert out == ["RIG1 → SOL-OBJ-1 to mine volatiles"]
     job = next(j for j in client.portal.call(e.jobs) if j["rule"] == "asteroid_mining")
     assert job["steps"][-1]["body"] == {"command": "start_mining", "resource_type": "volatiles"}
-    assert client.portal.call(e.evacuation_targets, [], {}).get("SOL-OBJ-1")   # its pile is hauled out while it's mined
+    assert "SOL-OBJ-1" not in client.portal.call(e.evacuation_targets, [], {})   # logistics never goes to a rock
     page = client.get("/defence", headers=H).text
     assert "Resources left" in page and "RIG1" in page
     panel = client.get("/automations/rules-panel?ids=asteroid_defence,asteroid_mining", headers=H).text

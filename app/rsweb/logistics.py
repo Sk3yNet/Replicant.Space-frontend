@@ -835,6 +835,8 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
     the task category each carrier worked last pass (device → CATEGORIES key). `rescue_pause`: rescue_pauses() (paused
     rescues are listed, not run).
     Returns {"requests", "runs", "unmet", "spare", "reserve", "fleet_devices", "lanes"}."""
+    from .rockchase import is_rock   # Joe 2026-11-21: never a pick-up at a rock (STAR-OBJ-n, -KUIPER-n, -OORT-n): it may
+    inventory = {l: i for l, i in inventory.items() if not is_rock(l)}   # be gone before a carrier from afar arrives
     from . import cargo as cg
     from .loadouts import _carrier_cap, can_surge
     gather = {f["home"]: drop(f["home"]) for f in fleets or [] if f.get("materials") == "self" and f.get("home")}

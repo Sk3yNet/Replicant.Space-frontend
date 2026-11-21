@@ -38,15 +38,19 @@ def test_the_propulsor_margin_is_a_setting():
     assert ev.plan(objs, devs, STARS, set(), diverter_minutes=60)["moves"][0]["deactivate"]
 
 
-def test_a_pile_at_a_due_object_is_evacuated_first():
+def test_a_pile_at_a_due_spot_is_evacuated_first_but_never_at_a_rock():
     devs = world()
     devs[2]["status"] = "waiting_for_resources"
-    p = lg.plan(fleets=FLEETS, devices=devs, bps=BPS, inventory={"A-OBJ-1": {"carbon": 70}, "A-1": {"carbon": 300}}, pos=POS,
+    p = lg.plan(fleets=FLEETS, devices=devs, bps=BPS, inventory={"A-OBJ-1": {"carbon": 70}, "A-3": {"carbon": 70},
+                                                                 "A-1": {"carbon": 300}}, pos=POS,
                 commandable={"A", "B"}, hosts={"HV": "R1"}, busy=set(), reach=100, contracts=[], trades=[], incoming={},
-                replicants={}, drop=lambda s: f"{s}-1", evacuate={"A-OBJ-1": "A-OORT"})
-    assert p["requests"][0]["id"] == "evacuate:A-OBJ-1" and p["requests"][0]["tier"] == 0
-    run = next(r for r in p["runs"] if r["req"] == "evacuate:A-OBJ-1")
+                replicants={}, drop=lambda s: f"{s}-1", evacuate={"A-OBJ-1": "A-OORT", "A-3": "A-OORT"})
+    assert p["requests"][0]["id"] == "evacuate:A-3" and p["requests"][0]["tier"] == 0
+    run = next(r for r in p["runs"] if r["req"] == "evacuate:A-3")
     assert run["to"] == "A-OORT" and run["carry"] == {"carbon": 70}
+    # Joe 2026-11-21: logistics never targets a rock, its carriers may arrive after the impact
+    assert not any("A-OBJ-1" in r["id"] for r in p["requests"])
+    assert not any(leg.get("pile") == "A-OBJ-1" for r in p["runs"] for leg in r.get("legs") or [])
 
 
 def test_new_object_events_close_tracked_objects():

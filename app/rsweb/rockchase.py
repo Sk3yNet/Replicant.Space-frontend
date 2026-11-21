@@ -8,7 +8,7 @@ of home (mode `roam`, never beyond the sector range). Each pass (engine stage ro
     system), are deployed at the rock and mine it with the rock mining rules (rockmining.plan: one resource at a time,
     rocks you launched keep `keep_pct`); the fleet's survey drone stays and scans it
   • shipping: the fleet's haulers / freighters take the rock's pile out as soon as it reaches `ship_min`, to `drop`
-    (else the system's safe spot, evacuate.safe_spot); logistics also hauls worked rocks' piles (evacuation request)
+    (else the system's safe spot, evacuate.safe_spot), also after the rigs left; logistics never goes to a rock
   • leaving: `leave_minutes` (80) before the ETA everything boards the carrier at once and flies to the next target (or
     the safe spot) with the last load shipped out beside it; the asteroid defense evacuation at the hour stays the backstop
   • search: a sensor array in the fleet sweeps the Kuiper belt of the system it is in every `search_hours`; objects of at

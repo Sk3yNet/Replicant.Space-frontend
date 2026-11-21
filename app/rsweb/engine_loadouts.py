@@ -669,6 +669,8 @@ class LoadoutMixin:
         hot = {**{r: 0.0 for r in worked}, **hot}
         for r in await self.overdue_rocks():   # it may strike any time: its pile is left there, no carrier goes in
             hot.pop(r, None)
+        from .rockchase import is_rock   # Joe 2026-11-21: logistics never targets a rock, its carriers' arrival is too
+        hot = {loc: v for loc, v in hot.items() if not is_rock(loc)}   # unpredictable (a chaser's own freighters ship it)
         return {loc: ev.safe_spot(star_of(loc), (obj_at.get(loc) or {}).get("impact_target"), stars, scans.get(star_of(loc)),
                                   here=loc, avoid=set(hot))
                 for loc in hot}

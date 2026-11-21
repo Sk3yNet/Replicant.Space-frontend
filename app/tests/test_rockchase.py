@@ -82,7 +82,7 @@ def test_engine_chases_a_rock_and_the_mining_rule_leaves_its_rigs_alone(client):
     bodies = [st.get("body") for st in job["steps"]]
     assert {"command": "attach", "device": "RIG1"} in bodies and {"command": "travel", "destination": "SOL-OBJ-1"} in bodies
     assert bodies[-1] == {"command": "start_mining", "resource_type": "rares"}
-    assert client.portal.call(e.evacuation_targets, [], {}).get("SOL-OBJ-1")   # logistics hauls its pile out
+    assert "SOL-OBJ-1" not in client.portal.call(e.evacuation_targets, [], {})   # logistics never goes to a rock
     f = client.portal.call(e.fleets)[0]
     assert f["chase_run"]["target"] == "SOL-OBJ-1" and f["station"] is False
     page = client.get("/fleets/details?all=1", headers=H).text

@@ -10,7 +10,7 @@ From the game docs (Asteroid Mining, Asteroids location page):
   • a fully mined rock has no terraform effect on impact: rocks you launched (Terraforming) keep `keep_pct` of every
     resource, and only the resources chosen for them are mined
   • everything left at the location is destroyed on impact or lost when it's flung out (off_target): evacuate.py pulls
-    the rigs out an hour before the ETA, and the stockpile mined there is hauled out by logistics while they work
+    the rigs out an hour before the ETA, and the stockpile mined there is not hauled by logistics, which never goes to a rock (Joe 2026-11-21)
 
 Each pass (engine stage rock_mining_pass): rigs at a minable rock start mining (or retarget) the top resource left;
 idle rigs that can fly elsewhere in the system go to a rock with a free slot and enough time left; an idle survey drone
