@@ -87,7 +87,14 @@ async def device_detail(request: Request, code: str, user: str = Depends(current
         else _dc.factories(st["devices"], {s.get("designation"): s for s in cat.get("stars") or [] if isinstance(s, dict)},
                            dev.get("location") or (next((x for x in st["devices"] if x.get("device_code") in
                                                          (dev.get("stowed_in_device_code"), dev.get("attached_to_device_code"))), {})).get("location"))
-    return await page(request, user, "device.html", "fleet", carrier=carrier, pq=pq, dev=dev, code=code, err=err, logs=logs, events=events,
+    from . import infobeacons as _ib
+    ibc = None
+    if _ib.is_beacon(dev):   # information beacon card: description, broadcast and comments (web_beacons.py)
+        from . import web_beacons as _wb
+        if not live and not err:
+            await _wb.remember(request.app.state.db, dev)
+        ibc = await _wb.card_ctx(request, code, dev)
+    return await page(request, user, "device.html", "fleet", carrier=carrier, pq=pq, dev=dev, code=code, err=err, logs=logs, events=events, ibc=bool(ibc), **(ibc or {}),
                       trip=trip, timers=timers, doing=doing, host_rep=host_rep, decom_queued=dq, decom_factories=dfac,
                       repeats=[r for r in await request.app.state.db.kv_get("console_repeats", []) or []
                                if r.get("path", "").rstrip("/").upper() == f"/DEVICES/{code.upper()}"],

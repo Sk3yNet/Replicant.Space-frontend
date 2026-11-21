@@ -1,0 +1,39 @@
+{# One information beacon: description and broadcast (owner), comments, comment form. Swapped in place by its actions. #}
+<div class="card info-beacon" id="ib-{{ ib_code }}">
+  <div class="row between"><h2>Information beacon <span class="mono muted small">{{ ib_code }}</span>
+    {% if ib_active %}<span class="pill ok">broadcasting</span>{% elif ib_mine %}<span class="pill">not broadcasting</span>{% endif %}</h2>
+    <button class="small ghost" hx-get="/info-beacons/{{ ib_code }}/card" hx-target="#ib-{{ ib_code }}" hx-swap="outerHTML">Refresh</button></div>
+  {% if err %}<div class="result err">{{ err }}</div>{% endif %}
+  {% if outcome %}{% with label=outcome.label, method=outcome.method, path=outcome.path, ok=outcome.ok, status=outcome.status, error=outcome.error, response=outcome.response, note=None %}{% include "partials/action_result.html" %}{% endwith %}{% endif %}
+  {% if read_err %}<p class="muted small">Couldn't read it live ({{ read_err }}){% if ib_dev %}; showing the last copy{% endif %}. Other players' beacons are readable only from their star.</p>{% endif %}
+  {% if ib_mine %}
+  <form hx-post="/info-beacons/{{ ib_code }}/settings" hx-target="#ib-{{ ib_code }}" hx-swap="outerHTML">
+    <label class="small" style="text-transform:none">Description <span class="muted">· shown in system scans of {{ (ib_loc or '?').split('-')[0] }}</span></label>
+    <textarea name="description" rows="6" maxlength="{{ ib_max }}" style="width:100%"
+      oninput="this.nextElementSibling.textContent=this.value.length+' / {{ ib_max }}'">{{ ib_desc }}</textarea><span class="muted small">{{ ib_desc | length }} / {{ ib_max }}</span>
+    <div class="row" style="margin-top:6px">
+      <label class="small" style="text-transform:none"><input type="checkbox" name="comments" value="1"{{ ' checked' if ib_comments_on }}> allow comments</label>
+      <button class="small">Save</button></div>
+  </form>
+  <div class="row small" style="margin-top:6px">
+    {% if not ib_active %}<button class="small" hx-post="/info-beacons/{{ ib_code }}/switch" hx-vals='{"command": "activate"}' hx-target="#ib-{{ ib_code }}" hx-swap="outerHTML">Start broadcasting</button>
+      {% if not ib_deployed %}<span class="muted">Deploy it first: it broadcasts only once deployed.</span>{% endif %}
+    {% elif 'deactivate' in ib_cmds %}<button class="small ghost" hx-post="/info-beacons/{{ ib_code }}/switch" hx-vals='{"command": "deactivate"}' hx-target="#ib-{{ ib_code }}" hx-swap="outerHTML">Stop broadcasting</button>{% endif %}
+  </div>
+  {% else %}
+  <p class="small">{% if ib_desc %}<span class="ib-text">{{ ib_desc }}</span>{% else %}<span class="muted">No description read yet.</span>{% endif %}</p>
+  {% endif %}
+  <h3>Comments <span class="muted small">{{ ib_comments | length }} / {{ ib_max_comments }}{% if not ib_comments_on %} · closed by the owner{% endif %}</span></h3>
+  {% for c in ib_comments %}<div class="small" style="margin:4px 0"><b>{{ c.name }}</b> <span class="muted">{{ c.at | local('%m-%d %H:%M') if c.at else '' }}</span>
+    {% if ib_mine %}<button class="small ghost" hx-post="/info-beacons/{{ ib_code }}/comments/{{ c.index }}/delete" hx-target="#ib-{{ ib_code }}" hx-swap="outerHTML"
+      hx-confirm="Delete {{ c.name }}'s comment? That can't be undone.">Delete</button>{% endif %}
+    <div class="ib-text">{{ c.text }}</div></div>
+  {% else %}<p class="muted small">No comments yet.</p>{% endfor %}
+  {% if ib_comments_on and ib_comments | length < ib_max_comments %}
+  <form hx-post="/info-beacons/{{ ib_code }}/comment" hx-target="#ib-{{ ib_code }}" hx-swap="outerHTML" style="margin-top:6px">
+    <textarea name="message" rows="3" maxlength="{{ ib_max }}" style="width:100%" placeholder="Leave a comment"
+      oninput="this.nextElementSibling.textContent=this.value.length+' / {{ ib_max }}'"></textarea><span class="muted small">0 / {{ ib_max }}</span>
+    <div class="row"><button class="small">Comment</button>
+      <span class="muted small">{% if ib_here %}From your replicant there ({{ ib_here | join(', ') }}).{% else %}Needs a replicant of yours at {{ ib_loc or 'the beacon' }}: none is there now.{% endif %}</span></div>
+  </form>{% endif %}
+</div>

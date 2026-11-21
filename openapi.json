@@ -233,10 +233,10 @@
             "items": {
               "type": "string",
               "enum": [
+                "alert",
                 "simulation",
-                "social",
                 "progression",
-                "alert"
+                "social"
               ]
             },
             "nullable": true
@@ -1845,6 +1845,20 @@
           "created_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "ami_directive": {
+            "type": "object",
+            "additionalProperties": {}
+          },
+          "ami_directive_status": {
+            "type": "string"
+          },
+          "controlled_devices": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": {}
+            }
           }
         },
         "additionalProperties": false
@@ -5916,6 +5930,23 @@
           "command"
         ],
         "additionalProperties": false
+      },
+      "app_schemas_device_commands_CommentSchema": {
+        "type": "object",
+        "properties": {
+          "command": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string",
+            "description": "Comment text (max 2000 characters)"
+          }
+        },
+        "required": [
+          "command",
+          "message"
+        ],
+        "additionalProperties": false
       }
     },
     "responses": {
@@ -7489,6 +7520,9 @@
                     "$ref": "#/components/schemas/app_schemas_device_commands_CollectResourcesSchema"
                   },
                   {
+                    "$ref": "#/components/schemas/app_schemas_device_commands_CommentSchema"
+                  },
+                  {
                     "$ref": "#/components/schemas/app_schemas_device_commands_DepositResourcesSchema"
                   },
                   {
@@ -7560,6 +7594,7 @@
                     "clear_directive": "#/components/schemas/app_schemas_device_commands_NoParamSchema",
                     "clear_queue": "#/components/schemas/app_schemas_device_commands_NoParamSchema",
                     "collect_resources": "#/components/schemas/app_schemas_device_commands_CollectResourcesSchema",
+                    "comment": "#/components/schemas/app_schemas_device_commands_CommentSchema",
                     "compact": "#/components/schemas/app_schemas_device_commands_NoParamSchema",
                     "deactivate": "#/components/schemas/app_schemas_device_commands_NoParamSchema",
                     "decommission": "#/components/schemas/app_schemas_device_commands_NoParamSchema",
@@ -8274,6 +8309,39 @@
           "devices"
         ]
       }
+    },
+    "/v1/devices/{device_code}/comments/{index}": {
+      "delete": {
+        "responses": {
+          "default": {
+            "$ref": "#/components/responses/DEFAULT_ERROR"
+          }
+        },
+        "summary": "Delete a comment on an information beacon by index (owner only).",
+        "tags": [
+          "devices"
+        ]
+      },
+      "parameters": [
+        {
+          "in": "path",
+          "name": "device_code",
+          "required": true,
+          "schema": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        {
+          "in": "path",
+          "name": "index",
+          "required": true,
+          "schema": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      ]
     },
     "/v1/devices/{device_code}/audit": {
       "get": {

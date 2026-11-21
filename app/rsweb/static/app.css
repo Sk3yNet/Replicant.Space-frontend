@@ -277,3 +277,4 @@ svg.system .scan-beam { fill: #8fd8ff; opacity: .35; animation: scan-pulse 1.6s 
 .snap-sections label { text-transform: none; font-weight: normal; }
 /* Fleet card: a loadout with no carrier has no seats to count (1.412.0) */
 .no-carrier .lp, .no-carrier .lp-h { display: none; }
+.ib-text { white-space: pre-wrap; overflow-wrap: anywhere; }

@@ -225,14 +225,19 @@ async def system_view(request: Request, star: str, refresh: int = 0, user: str =
     from .web_lockers import in_system as lockers_in
     region = next((x.get("region") for x in (await db.kv_get("stars", {}) or {}).get("stars") or []
                    if isinstance(x, dict) and x.get("designation") == star), None)
+    from . import infobeacons as ib
+    _onn = oth.normalize(await db.kv_get(oth.KV, {}))
+    ib_mine, ib_theirs = ib.rows(st["devices"], await db.kv_get(ib.KV, {}) or {}, _onn["info_beacons"])
+    ib_here = [b for b in ib_mine + ib_theirs if star_of(b.get("location")) == star]
     return await page(request, user, "system.html", "systems", star=star, scan=scan, view=view, err=err, region=region,
+                      scan_info=ib.scan_info(scan), info_beacons=ib_here,
                       others=oth.summary(osnap, await db.kv_get("replicant_profiles", {}) or {}), others_snap=osnap,
                       other_drones=oth.drone_totals(osnap, await db.kv_get("replicant_profiles", {}) or {}),
                       others_warded=star in oth.warded_by_others(await db.kv_get("stars", {}) or {}, st["devices"]),
                       surveyed=surveyed, fully_surveyed=full,
                       updated=row["updated_at"] if row else None, reps=reps, res=res, sys_t=sys_t, here=here,
                       CATEGORY_LABEL=CATEGORY_LABEL, game_locs=game_locs, qty=qty,
-                      belts=belts, resources=resources, bodies=bodies, lockers=lockers_in(star, (oth.normalize(await db.kv_get(oth.KV, {})) or {}).get("lockers")))
+                      belts=belts, resources=resources, bodies=bodies, lockers=lockers_in(star, _onn.get("lockers")))
 
 
 @router.post("/systems/{star}/scan-others", response_class=HTMLResponse)

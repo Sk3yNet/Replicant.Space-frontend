@@ -771,6 +771,23 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
         if cmd == "message" and d.get("device_type") in ("ftl_relay", "deep_space_relay_station", "system_hub"):
             world.bobnet_posts.append({"code": code, "channel": body.get("channel"), "text": body.get("text")})   # no star
             return ok({"status": "sent"})
+        if d.get("device_type") == "information_beacon" and cmd in ("comment", "activate", "deactivate"):   # docs v4.1.0
+            st = d.setdefault("settings", {"description": "", "active": False, "comments": True})
+            if cmd == "comment":
+                if not st.get("comments", True):
+                    return ok({"error": "Comments are disabled on this beacon"}, 400)
+                cs = d.setdefault("comments", [])
+                if len(cs) >= 20:
+                    return ok({"error": "This beacon has reached its comment limit"}, 400)
+                msg = str(body.get("message") or "")[:2000]
+                cs.append({"index": len(cs), "replicant_name": "Jim", "comment": msg, "created_at": iso()})
+                return ok({"status": "comment_added", "replicant_name": "Jim", "comment": msg})
+            if cmd == "activate" and not d.get("location"):
+                return ok({"error": "Device must be deployed"}, 400)
+            st["active"] = cmd == "activate"
+            d["status"] = "broadcasting" if st["active"] else "idle"
+            return ok({"device_code": code, "activated": "beacon", "description": st.get("description")} if st["active"]
+                      else {"device_code": code, "deactivated": "beacon"})
         if cmd not in d["available_commands"]:
             return ok({"error": f"Command '{cmd}' not available for this device"}, 400)
         if cmd == "stellar_census":   # synchronous: the stars around the vessel (live shape, 2026-10-06)
@@ -1043,6 +1060,17 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
         t["current_stock"] -= 1
         return ok({"status": "trade_completed", "trade_code": trade})
 
+    @app.delete("/v1/devices/{code}/comments/{index}")
+    async def delete_comment(code: str, index: int):
+        d = next((d for d in world.devices if d["device_code"] == code), None)
+        cs = (d or {}).get("comments") or []
+        if not d or index >= len(cs):
+            return ok({"error": "Comment not found"}, 404)
+        cs.pop(index)
+        for i, c in enumerate(cs):
+            c["index"] = i
+        return ok({"status": "comment_deleted"})
+
     @app.patch("/v1/devices/{code}")
     async def patch_device(code: str, request: Request):
         body = await request.json()
@@ -1050,6 +1078,12 @@ def create_mock(event_interval: float = 4.0) -> FastAPI:
         if d is None:
             return ok({"error": "Device not found"}, 404)
         cfg = body.get("configuration") or {}
+        if isinstance(cfg.get("settings"), dict) and d.get("device_type") == "information_beacon":
+            st = d.setdefault("settings", {"description": "", "active": False, "comments": True})
+            if len(str(cfg["settings"].get("description") or "")) > 2000:
+                return ok({"error": "Description must be at most 2000 characters"}, 400)
+            st.update({k: v for k, v in cfg["settings"].items() if k in ("description", "comments")})
+            return ok({"device_code": code, "settings": st})
         if "linked_device" in cfg:   # FTL slingshot
             d["linked_device"] = cfg["linked_device"]
             return ok({"device_code": code, "linked_device": d["linked_device"]})

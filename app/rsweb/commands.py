@@ -125,6 +125,8 @@ COMMANDS: dict[str, list[Field]] = {
     "change_owner": [F("target", "replicant", required=True, label="new owner",
                        help="The replicant that takes over this device")],
     "set_welcome_message": [F("message", "text", required=True)],
+    "comment": [F("message", "text", required=True, maxlen=2000,
+                  help="Your comment on this information beacon: at most 2,000 characters. A replicant of yours must be at the beacon.")],
     "message": [F("channel", "channel", required=True, default="#general"), F("text", "text", required=True)],
 }
 
@@ -180,6 +182,7 @@ DESCRIPTIONS: dict[str, str] = {
     "unfurl": "Unfold a compacted modular device so it works again (~30% of its print time).",
     "decommission": "Scrap the device for part of its materials. Can't be undone.",
     "change_owner": "Hand the device to another of your replicants. A replicant can only command devices it owns.",
+    "comment": "Leave a comment on an information beacon (yours or another player's), from a replicant at its location.",
     "set_welcome_message": "The message a system hub shows to visitors.",
     "message": "Post to a BobNet channel through this FTL relay.",
 }

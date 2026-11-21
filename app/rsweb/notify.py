@@ -41,7 +41,7 @@ NOTIFY_DONE = {
     "triangulation.complete", "simulation.completed", "system.object_off_target", "device.discovered",
 }
 # Info-level events that still raise a notification.
-NOTIFY_INFO = {"multiplayer.replicant_entered", "trade.created", "trade.deleted"}
+NOTIFY_INFO = {"multiplayer.replicant_entered", "trade.created", "trade.deleted", "device.commented"}
 NOISY = {"ami.mining.digest", "ami.survey.digest", "ami.transport.digest", "bobnet.new", "experience.gained"}
 
 
@@ -133,6 +133,9 @@ def describe(ev: dict) -> str:
             return f"{who} completed directive {p.get('directive')}"
         case "directive.paused":
             return f"{who} paused directive {p.get('directive')}"
+        case "device.commented":   # someone commented on your information beacon (v4.1.0)
+            from .infobeacons import commented_line
+            return commented_line({"device_code": dc, "location": loc, **p})
         case "trade.completed":
             return f"Trade {p.get('trade_name') or p.get('trade_code')} completed ({p.get('role', '')})"
         case "prospect.completed":
@@ -205,6 +208,8 @@ def notification_for(ev: dict) -> dict | None:
         link = "/defence"
     elif e.startswith("trade."):
         link = "/shop"
+    elif e == "device.commented":
+        link = f"/devices/{ev['device_code']}" if ev.get("device_code") else "/info-beacons"
     return {"level": level, "title": describe(ev), "link": link}
 
 

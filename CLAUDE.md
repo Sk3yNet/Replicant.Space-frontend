@@ -144,6 +144,8 @@ from before 1.69.0 has no `app.devices`: merge every `/devices` call yourself.
   drift away, AMI directives pause. Season 3 (from v3.5.3) is Alteration Protocol.
 - An FTL beacon has no off switch: deployed it is always `monitoring`, and `deactivate` answers "Nothing to deactivate"
   (live 2026-11-01). Only stow or decommission takes one out of service.
+- Information beacons (v4.1.0): bought at Bill's shop for an FTL beacon; broadcast a description (≤ 2,000 characters,
+  PATCH settings) in system scans once deployed and activated; anyone with a replicant there can comment (20 per beacon).
 - Replicant vessels accept print orders: never queue prints on a vessel unless asked.
 - Game messages announcing salvage say "Salvage discovered:"; their field names vary (`id`/`message_id`, `read`/`is_read`).
 - Owner's plan (2026-10-19): relays go first (Relay rollout; any logistics vessel with a replicant may escort relays

@@ -88,6 +88,8 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     app.include_router(web_terraform.router)
     from . import web_lockers
     app.include_router(web_lockers.router)
+    from . import web_beacons
+    app.include_router(web_beacons.router)
     from . import web_jobs
     app.include_router(web_jobs.router)
     from . import web_cockpit

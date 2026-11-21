@@ -341,6 +341,16 @@ read; *Update now* reads up to 20. Filters: search (names, profile text, notes, 
 Each contact keeps a note of your own (app only) and can be hidden. *Add by name* looks a name up in the game directory.
 Unverified live whether the game shows another player's profile text; an error it gives is shown on the card.
 
+### Info beacons
+Activity › Info beacons (game v4.1.0) covers information beacons: devices that broadcast up to 2,000 characters to anyone
+who scans their system. Get one at Bill's Skunkworks for an FTL beacon; decommission one at an autofactory to learn the
+blueprint. Each of yours has a card (also on its device page): the description with a character count, *allow comments*,
+*Start broadcasting* (it must be deployed), its comments with *Delete*, and a comment box. Other players' beacons come
+from device scans (*Scan for beacons* from any replicant, or any arrival or traffic scan) and can be read and commented on
+from a replicant at the beacon. *Comments on yours* lists `device.commented` events, which also raise an info
+notification. The System page shows a Broadcasts card with the scan's info section and the beacons known there.
+Unverified live: the scan's field name for broadcasts and the `device.commented` payload's field names (read loosely).
+
 ### Trail
 - Follows a replicant through the audit logs of public FTL beacons: candidate systems with travel time and a travel
   button.

@@ -23,7 +23,7 @@ MAX_BATCHES = 15          # per call
 STATE_KV = "history_pruned"
 RULES = 3                 # raise when the rules change, so the clean-up runs again without waiting a day
 
-KEEP_EVENTS = ("scan.completed", "prospect.completed", "bobnet.new", "mining.resource_depleted", "site.depleted",
+KEEP_EVENTS = ("device.commented", "scan.completed", "prospect.completed", "bobnet.new", "mining.resource_depleted", "site.depleted",
                "salvage.depleted", "salvage.discovered", "system.impact_warning", "device.decommissioned",
                "device.destroyed", "device.lost", "device.transferred", "device.owner_changed", "device.changed_owner",
                "device.discovered")

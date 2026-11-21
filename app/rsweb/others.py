@@ -60,6 +60,7 @@ def normalize(s: dict | None) -> dict:
     s.setdefault("rep_at", {})
     s.setdefault("lockers", {})   # {LOCATION: {code, type, owner, owner_name, seen_at}}: equipment lockers seen, kept
     s.setdefault("rep_scanned", {})
+    s.setdefault("info_beacons", {})   # {CODE: {location, owner, owner_name, seen_at}}: other players' information beacons
     return s
 
 
@@ -79,6 +80,12 @@ def record_scan(s: dict, star: str, scanned: list[dict], mine: set[str], by: str
         if isinstance(d, dict) and "locker" in str(d.get("device_type") or "") and d.get("location") and d.get("device_code"):
             s.setdefault("lockers", {})[str(d["location"]).upper()] = {
                 "code": d["device_code"], "type": d.get("device_type"), "owner": d.get("owner_replicant_code"),
+                "owner_name": d.get("owner_name"), "seen_at": now.isoformat(timespec="seconds")}
+    for d in scanned:   # other players' information beacons: the Info beacons page reads and comments on them by code
+        if isinstance(d, dict) and d.get("device_type") == "information_beacon" and d.get("device_code") \
+                and d.get("owner_replicant_code") not in mine:
+            s.setdefault("info_beacons", {})[str(d["device_code"])] = {
+                "location": d.get("location"), "owner": d.get("owner_replicant_code"),
                 "owner_name": d.get("owner_name"), "seen_at": now.isoformat(timespec="seconds")}
     s["stars"][star] = {"scanned_at": now.isoformat(timespec="seconds"), "by": by, "devices": devs, "drones": drones,
                         "raw": [d for d in scanned if isinstance(d, dict)][:RAW_MAX]}   # the scan as the game answered

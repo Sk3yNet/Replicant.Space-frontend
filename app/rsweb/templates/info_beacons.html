@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Info beacons{% endblock %}
+{% block content %}
+<h1>Information beacons</h1>
+<p class="muted small">An information beacon broadcasts up to {{ max_text | num }} characters to anyone who scans its system, at any
+  location. Get one at Bill's Skunkworks for an FTL beacon, and decommission one at an autofactory to learn the blueprint.
+  Deploy it, write the description, start broadcasting. Anyone with a replicant at a beacon can comment on it (20 at most).</p>
+<div class="card"><h2>Yours</h2>
+  {% for b in mine %}<details class="small" style="margin:6px 0"{{ ' open' if loop.length == 1 }}>
+    <summary><a class="mono" href="/devices/{{ b.code }}">{{ b.code }}</a> at {% if b.location %}<a href="/systems/{{ b.location.split('-')[0] }}">{{ b.location }}</a>{% else %}?{% endif %}
+      <span class="pill {{ b.status | status_class }}">{{ b.status }}</span> · {{ b.comments | length }} comment(s)
+      {% if b.description %}<span class="muted">· {{ b.description[:80] }}{{ '…' if b.description | length > 80 }}</span>{% elif not b.read_at %}<span class="muted">· not read yet</span>{% endif %}
+      {% if not b.deployed %}<span class="muted">· not deployed</span>{% endif %}</summary>
+    <div hx-get="/info-beacons/{{ b.code }}/card" hx-trigger="{{ 'load' if loop.length == 1 else 'toggle once from:closest details' }}"><p class="muted">Loading…</p></div>
+  </details>{% else %}<p class="muted">You have no information beacon yet.</p>{% endfor %}</div>
+<div class="card"><h2>Other players' beacons</h2>
+  {% if theirs %}<table class="small"><tr><th>Beacon</th><th>Where</th><th>Owner</th><th>Message</th><th class="num">Comments</th></tr>
+  {% for b in theirs %}<tr><td class="mono"><a href="/devices/{{ b.code }}">{{ b.code }}</a></td>
+    <td>{% if b.location %}<a href="/systems/{{ b.location.split('-')[0] }}">{{ b.location }}</a>{% endif %}</td>
+    <td>{{ b.owner or '' }}</td>
+    <td>{% if b.description %}<span class="ib-text">{{ b.description }}</span>{% else %}<span class="muted">not read{% if b.seen_at %} · seen {{ b.seen_at | ago }}{% endif %}</span>{% endif %}</td>
+    <td class="num">{{ b.comments | length if b.read_at else '' }}</td></tr>{% endfor %}</table>
+  <p class="muted small">Open a beacon to read it live and comment; that works only from its star.</p>
+  {% else %}<p class="muted">None seen yet: scan for them below.</p>{% endif %}</div>
+<div class="card"><h2>Comments on yours <span class="muted small">latest 30</span></h2>
+  <ul class="feed">{% for r in recent %}<li><span class="t">{{ r.at | local('%m-%d %H:%M') }}</span><span><a href="/devices/{{ r.code }}">{{ r.line }}</a></span></li>
+  {% else %}<li class="muted">No comments yet.</li>{% endfor %}</ul></div>
+<div class="card"><h2>Scan for beacons where a replicant is</h2>
+  {% for code, name, loc in reps %}<div class="small" style="margin:4px 0"><b>{{ name }}</b> at <span class="mono">{{ loc or '?' }}</span>
+    <button class="small ghost" hx-get="/info-beacons/scan/{{ code }}" hx-target="next .ib-scan">Scan for beacons</button>
+    <div class="ib-scan"></div></div>
+  {% else %}<p class="muted">No replicants.</p>{% endfor %}</div>
+{% endblock %}

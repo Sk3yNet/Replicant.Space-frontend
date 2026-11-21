@@ -1070,6 +1070,20 @@ this copy (`info.version` still v1). Docs: /docs/stations/, /factions/, /influen
   brake}) is now in the spec.
 - New admin-only `POST /v1/admin/storyline/advance`.
 
+## Game v4.0.0–v4.1.0, reviewed 2026-11-21
+Live spec against the 2026-11-16 copy: `openapi.json` is now the 2026-11-21 copy.
+- New `DELETE /v1/devices/{device_code}/comments/{index}` (owner deletes a comment on an information beacon).
+- New device command `comment` (`CommentSchema`: `message`, at most 2,000 characters), sent on another player's beacon
+  too, from a replicant at its location. Answer `{status: comment_added, replicant_name, comment}`.
+- Information beacon settings via PATCH `{"configuration": {"settings": {"description", "comments"}}}`; `activate`
+  answers `{device_code, activated: "beacon", description}`; `GET /devices/{code}` carries `settings` and `comments`
+  (`index, replicant_name, comment, created_at`). New event `device.commented` (commenter's name, text, location).
+- `DeviceListItemSchema` gains `controlled_devices`, `ami_directive` and `ami_directive_status` (the app already read
+  the directive status where the list had it).
+- `MessageSettingsSchema.subscribed`: the same four categories, reordered again.
+- v4.1.0 also fixed `/events?category=` (limits were applied before the filter): snapshots' AMI event read now returns
+  full pages. v4.0.2 is performance only. v4.0.0 and v4.0.1 were handled in 1.360.0–1.372.0 and 1.474.0.
+
 ## Live spec diff, 2026-10-20
 The live spec (https://api.replicant.space/swagger/openapi.json, still `info.version` v1) against the 2026-10-16 copy:
 one new endpoint, nothing removed, no existing endpoint changed. `openapi.json` in the repo root is now this copy.

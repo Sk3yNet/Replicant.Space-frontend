@@ -27,6 +27,13 @@
   </div>
   <div>
     <div class="card" id="loc-panel"><p class="muted">Click a planet or marker to load location detail.</p></div>
+    {% if scan_info or info_beacons %}<div class="card" style="margin-top:14px"><h2>Broadcasts <span class="muted small">information beacons</span></h2>
+      {% for x in scan_info %}<div class="small" style="margin:4px 0">{% if x.code %}<a class="mono" href="/devices/{{ x.code }}">{{ x.code }}</a> {% endif %}{% if x.location %}at {{ x.location }} {% endif %}{% if x.owner %}<span class="muted">· {{ x.owner }}</span>{% endif %}
+        <div class="ib-text">{{ x.text }}</div></div>{% endfor %}
+      {% set shown = scan_info | map(attribute='code') | select | list %}
+      {% for b in info_beacons if b.code not in shown %}<div class="small" style="margin:4px 0"><a class="mono" href="/devices/{{ b.code }}">{{ b.code }}</a> at {{ b.location }}{% if b.owner %} <span class="muted">· {{ b.owner }}</span>{% endif %} · {{ b.comments | length }} comment(s)
+        {% if b.description %}<div class="ib-text">{{ b.description }}</div>{% endif %}</div>{% endfor %}
+      <p class="muted small"><a href="/info-beacons">Info beacons</a>: read, comment, or set up your own.</p></div>{% endif %}
     {% if lockers %}<div class="card" style="margin-top:14px"><h2>Equipment lockers</h2>
       {% for k in lockers %}<div class="small"><a href="/lockers">{{ k.location }}</a>: {{ k.gives }} <span class="muted">({{ k.cost }})</span></div>{% endfor %}</div>{% endif %}
     {% if reps %}<div class="card" style="margin-top:14px"><h2>Your replicants here</h2>
