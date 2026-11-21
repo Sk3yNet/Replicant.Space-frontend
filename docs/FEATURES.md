@@ -501,6 +501,9 @@ rock chaser / trade post / terraformer / bootstrap), a home and a loadout (its o
   (never beyond the sector range), every 15 minutes with the loadouts rule. Only a matrix you tagged `spare` is taken (1.370.2), and only when it has no
   fleet tag, it and its host are not reserved / ignored / `contract:` / `to:` / `at:`, and neither is in a job or in motion. The matrix gets the fleet's tag, is deployed out of its host, stows into
   the vessel, and the vessel flies back. The card shows the latest result (e.g. "no spare replicant matrix available").
+  On the logistics fleet it works per carrier (1.495.0): each idle carrier with an empty cradle fetches one, and since
+  1.527.0 that's checked at the start of every carrier assignment (every 110 s), so an empty carrier picks up a matrix
+  before it gets other work and can't be stranded out of relay range without one.
 - **Keep in stock** (a *Stock* column beside *Want* in a fleet's loadout editor, and a second box (+) per type in the
   Templates grid, which the template's fleets follow): that many more of a type are kept as spares at the fleet's home.
   Spare gathering leaves those stock prints at the hub (1.284.1), so they aren't shipped away and printed again.

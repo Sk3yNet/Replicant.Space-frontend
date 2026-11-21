@@ -2349,10 +2349,11 @@ def matrix_vessel(fleet: dict, devices: list[dict], busy: set[str]) -> dict | No
     return None
 
 
-def empty_cradles(fleet: dict, devices: list[dict], busy: set[str]) -> list[tuple[dict, dict]]:
+def empty_cradles(fleet: dict, devices: list[dict], busy: set[str], any_status: bool = False) -> list[tuple[dict, dict]]:
     """[(carrier, cradle)]: the fleet's idle carriers with no replicant aboard and an empty cradle to fill (Joe
     2026-11-19, logistics fleets with "Needs an active replicant aboard"): the carrier's own (a heaven vessel), or a
-    matrix container riding on it (a mobile fleet or surge platform). The carrier is free, grounded, in comms range."""
+    matrix container riding on it (a mobile fleet or surge platform). The carrier is free, grounded, in comms range
+    (`any_status`: whatever it's doing, to say why none fetches one now)."""
     from .logistics import riding_hosts
     by = {d.get("device_code"): d for d in devices}
     hosts = riding_hosts(devices, {d["device_code"]: "?" for d in devices if d.get("hosting_replicant")})
@@ -2368,7 +2369,9 @@ def empty_cradles(fleet: dict, devices: list[dict], busy: set[str]) -> list[tupl
     out = []
     for d in sorted(members(fleet, devices), key=lambda d: d["device_code"]):
         code = d["device_code"]
-        if (code in busy or code in hosts or in_flight(d) or not d.get("location") or d.get("location_stale")
+        if code in hosts or "surge" not in (d.get("features") or []):
+            continue
+        if not any_status and (code in busy or in_flight(d) or not d.get("location") or d.get("location_stale")
                 or d.get("stowed_in_device_code") or d.get("attached_to_device_code") or d.get("in_control_range") is False
                 or d.get("controller_device_code") or "surge" not in (d.get("features") or [])
                 or not str(d.get("status") or "").lower().startswith(("idle", "inactive"))):

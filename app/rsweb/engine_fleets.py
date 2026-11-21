@@ -311,6 +311,8 @@ class FleetsMixin:
             if j["status"] in ("running", "waiting") and str(t.get("req") or "").startswith("repair:"):
                 repair_to[star_of(t.get("to"))] += 1
         out, listings = await self.listing_requests(reps)
+        if devices_on and await self.rule_cfg("loadouts"):   # an empty cradle is filled before its carrier gets work
+            result["loadouts"] += await self.dispatch_matrix_pickups(devices, busy, items)
         # relays go first: a vessel hosting a replicant near relays or beacons waiting for an escort is left to the loadouts
         ll = await self.db.kv_get("loadouts_last", {}) or {}
         escorts = {}
@@ -1135,34 +1137,7 @@ class FleetsMixin:
         out = []
         for f in items:
             if f.get("role") == "logistics":
-                # per carrier (Joe 2026-11-19): each idle carrier with an empty cradle fetches a spare filled matrix, so
-                # it can escort trips beyond the relay network instead of the fleet counting as covered by any one
-                if fl.held(f):
-                    continue
-                cradles = fl.empty_cradles(f, devices, busy)
-                if not cradles:
-                    notes[f["id"]] = {"at": now_iso(), "note": "every carrier with a cradle has a replicant aboard"}
-                    continue
-                said = []
-                for v, cr in cradles:
-                    if not spares:
-                        said.append("no spare replicant matrix left for the other empty cradles")
-                        break
-                    steps, m, v, note = fl.matrix_pickup(f, devices, spares, stars, busy, reach, vessel=v, cradle=cr)
-                    if not steps:
-                        continue
-                    job = await self.create_job("loadouts", f"{f['name']}: {v['device_code']} picks up spare replicant matrix "
-                                                f"{m['device_code']}", v["device_code"], steps,
-                                                {"devices": [m["device_code"], v["device_code"], cr["device_code"]],
-                                                 "fleet": f["id"]}, force=force)
-                    spares = [x for x in spares if x["device_code"] != m["device_code"]]
-                    busy |= {m["device_code"], v["device_code"], cr["device_code"]}
-                    said.append(note)
-                    out.append(f"{f['name']}: {note}" + ("" if job else " (dry run)"))
-                    if job:
-                        await self.log("loadouts", f"{f['name']}: {v['device_code']} has an empty cradle: {note}")
-                notes[f["id"]] = {"at": now_iso(), "note": "; ".join(said) or
-                                  f"{len(cradles)} empty cradle(s), no spare matrix within the supply range"}
+                spares = await self._logistics_pickups(f, devices, spares, stars, busy, reach, notes, out, force)
                 continue
             if (f.get("mission") or {}).get("status") in ("running", "stalled", "stopped") or f.get("role") == "bootstrap" \
                     or fl.held(f) or f["id"] in working \
@@ -1183,6 +1158,63 @@ class FleetsMixin:
             out.append(f"{f['name']}: {note}" + ("" if job else " (dry run)"))
             if job:
                 await self.log("loadouts", f"{f['name']} has no replicant: {note}")
+        await self.db.kv_set("matrix_pickups", notes)
+        return out
+
+    async def _logistics_pickups(self, f: dict, devices: list[dict], spares: list[dict], stars: dict, busy: set[str],
+                                 reach: float, notes: dict, out: list[str], force: bool = False) -> list[dict]:
+        """Logistics fleet with "Needs an active replicant aboard", per carrier (Joe 2026-11-19): each idle carrier with
+        an empty cradle fetches a spare filled matrix, so it can escort trips beyond the relay network. Also runs at the
+        start of every dispatch pass (Joe 2026-11-21: a matrix first, before a run strands it out of relay range).
+        Fills `busy`, `notes` and `out`; returns the spares left."""
+        from . import fleets as fl
+        if fl.held(f):
+            return spares
+        cradles = fl.empty_cradles(f, devices, busy)
+        if not cradles:
+            waiting = fl.empty_cradles(f, devices, set(), any_status=True)
+            notes[f["id"]] = {"at": now_iso(), "note": (
+                f"{len(waiting)} carrier(s) without a replicant, busy: each fetches a matrix when its run ends"
+                if waiting else "every carrier with a cradle has a replicant aboard")}
+            return spares
+        said = []
+        for v, cr in cradles:
+            if not spares:
+                said.append("no spare replicant matrix left for the other empty cradles")
+                break
+            steps, m, v, note = fl.matrix_pickup(f, devices, spares, stars, busy, reach, vessel=v, cradle=cr)
+            if not steps:
+                said.append(note)
+                continue
+            job = await self.create_job("loadouts", f"{f['name']}: {v['device_code']} picks up spare replicant matrix "
+                                        f"{m['device_code']}", v["device_code"], steps,
+                                        {"devices": [m["device_code"], v["device_code"], cr["device_code"]],
+                                         "fleet": f["id"]}, force=force)
+            spares = [x for x in spares if x["device_code"] != m["device_code"]]
+            busy |= {m["device_code"], v["device_code"], cr["device_code"]}
+            said.append(note)
+            out.append(f"{f['name']}: {note}" + ("" if job else " (dry run)"))
+            if job:
+                await self.log("loadouts", f"{f['name']}: {v['device_code']} has an empty cradle: {note}")
+        notes[f["id"]] = {"at": now_iso(), "note": "; ".join(said) or
+                          f"{len(cradles)} empty cradle(s), no spare matrix within the supply range"}
+        return spares
+
+    async def dispatch_matrix_pickups(self, devices: list[dict], busy: set[str], items: list[dict]) -> list[str]:
+        """Before carriers get work: idle logistics carriers without a replicant fetch a spare matrix first."""
+        from . import fleets as fl
+        on = [f for f in items if f.get("pick_matrix") and f.get("role") == "logistics"]
+        if not on:
+            return []
+        spares = fl.spare_matrices(devices, busy, set((await self.loadout_cfg()).get("ignore_tags") or []))
+        if not spares or not any(fl.empty_cradles(f, devices, busy) for f in on):
+            return []
+        stars = await self.star_lookup("by")   # shared with every reader: never change a record
+        reach = await self.supply_reach()
+        notes = await self.db.kv_get("matrix_pickups", {}) or {}
+        out: list[str] = []
+        for f in on:
+            spares = await self._logistics_pickups(f, devices, spares, stars, busy, reach, notes, out)
         await self.db.kv_set("matrix_pickups", notes)
         return out
 

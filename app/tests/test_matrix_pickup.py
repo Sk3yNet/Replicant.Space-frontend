@@ -168,3 +168,31 @@ def test_logistics_pass_fills_one_cradle_per_spare(client):
     assert len(out) == 1 and "HVEMPTY1 fetches matrix MX000001" in out[0]
     note = client.portal.call(client.app.state.db.kv_get, "matrix_pickups")["logistics"]["note"]
     assert "no spare replicant matrix left" in note
+
+
+def test_logistics_note_says_empty_carriers_are_busy(client):
+    e = client.app.state.worker.automations
+    ds = [d for d in _logi_devices() if d["device_code"] != "HVEMPTY1" and not d["device_code"].startswith(("MF", "MC"))]
+    client.portal.call(client.app.state.db.kv_set, "devices", ds)
+    client.portal.call(client.app.state.db.kv_set, "stars", {"stars": [{"designation": k, **v} for k, v in STARS.items()]})
+    client.portal.call(e.save_fleets, [dict(LOGI)])
+    assert client.portal.call(e.matrix_pickup_pass, True) == []
+    note = client.portal.call(client.app.state.db.kv_get, "matrix_pickups")["logistics"]["note"]
+    assert note.startswith("1 carrier(s) without a replicant, busy")   # HVEMPTY2 is away, not "all have a replicant"
+
+
+def test_dispatch_fills_empty_cradles_before_carriers_get_work(client):
+    """Joe 2026-11-21: a pilotless vessel picks up a matrix before a run strands it out of relay range."""
+    e = client.app.state.worker.automations
+    client.portal.call(client.app.state.db.kv_set, "devices", _logi_devices())
+    client.portal.call(client.app.state.db.kv_set, "stars", {"stars": [{"designation": k, **v} for k, v in STARS.items()]})
+    client.portal.call(e.save_fleets, [dict(LOGI)])
+
+    async def enable():
+        s = await e.settings()
+        s["rules"]["loadouts"]["enabled"] = True
+        await e.save_settings(s)
+    client.portal.call(enable)
+    out = client.portal.call(lambda: e.dispatch(full=False))
+    jobs = [j for j in client.portal.call(e.jobs) if "picks up spare replicant matrix" in j["title"]]
+    assert [j["device"] for j in jobs] == ["HVEMPTY1"], out
