@@ -759,8 +759,9 @@ Bump or skip a request on the Logistics page. Every logistics job still going ha
 ### Rescues
 - A device out of command range is brought home: its fleet's home, else the nearest covered home.
 - Excepted: placed relays and beacons, wards, hubs, fleets on a mission, and devices tagged `at:` the spot where they are
-  (stocked there on purpose), devices reserved for a contract (`contract:`), and devices tagged `to:` another system
-  (their own trip takes them there).
+  (stocked there on purpose). Devices reserved for a contract (`contract:`) or tagged `to:` another system wait a day
+  for their own trip (listed as reserved), then are rescued like the rest (1.522.0).
+- A rescue still waiting after a day goes first (priority 0, any free carrier), ahead of routine deliveries (1.522.0).
 - One that can surge is reached by a replicant in its system or anywhere its dark relay network covers, and commanded
   home. One that can't is picked up from its last known location by a carrier with a free seat, a replicant along.
   The seats every device stranded in that system (for the same home) needs pick the carrier: the smallest that seats

@@ -78,6 +78,8 @@ from .automations import STEP_TIMEOUT, step
 from .db import now_iso
 from .shapes import as_amounts
 
+KV_RESCUE_SINCE = "logistics_rescue_since"   # {rescue request id: when it was first seen}
+RESCUE_URGENT_H = 24   # a rescue waiting longer than this goes first (priority 0)
 KV_STATE = "logistics_state"        # the last pass: requests, runs, unmet
 KV_PREFS = "logistics_prefs"        # {"bump": {request id: tier}, "skip": [request ids], "confirm": {request id: iso}}
 KV_RESCUE_PAUSE = "logistics_rescue_pause"   # {"all": {"until": iso | None}, "fleets": {fleet id: {"until": iso | None}}}
@@ -822,7 +824,7 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
          repair_to: dict[str, int] | None = None, repair_stars: set[str] | None = None,
          lanes: dict[str, str] | None = None, upkeep: list[dict] | None = None,
          rescue_pause: dict | None = None, moves: tuple[list[dict], Any] | None = None,
-         device_escorts: set[str] | frozenset = frozenset()) -> dict:
+         device_escorts: set[str] | frozenset = frozenset(), rescue_since: dict[str, str] | None = None) -> dict:
     """What the logistics devices do this pass, and (`moves`) which carriers take the devices bound somewhere:
     `moves` is (batches, carry) from loadouts.plan — each batch of devices is a request here (kind `devices`), taken in
     its turn with the carriers of that turn; carriers outside the logistics fleets (spare ones, a fleet's own) are
@@ -1320,18 +1322,32 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                 or (pinned_at(d) and at_place(d, pinned_at(d)))   # the same, out of range: the game names only the star
                 or d.get("stowed_in_device_code") or d.get("attached_to_device_code") or tag in away_fleets
                 or any(t.startswith("boot:") for t in d.get("tags") or [])   # a bootstrap's own: out there on purpose
-                or for_contract(d) or in_transit(d)   # reserved: a contract's, or on its way (to:) to another system
                 or str(d.get("status") or "").lower().startswith(MOVING)):
             continue
         out_of_range = d.get("in_control_range") is False or (d.get("in_control_range") is None and star_of(loc) not in commandable)
         if not out_of_range:
             continue
+        # reserved devices (a contract's, or tagged to: another system) are left to their delivery for a day; still
+        # stranded after that, they're rescued like the rest (Joe 2026-11-20: trade-post surge plates and a cargo vessel
+        # stranded with relays in tow since 11-17 were never rescued)
+        reserved = for_contract(d) or in_transit(d)
         rid = f"rescue:{code}"
+        since = (rescue_since or {}).get(rid) or now_iso()
         req = {"id": rid, "kind": "rescue", "to": loc, "need": {}, "tier": 5, "base_tier": 5, "device": code,
+               "since": since,
                "label": f"rescue {code} ({(d.get('device_type') or '').replace('_', ' ')}) stranded at {loc}"}
+        try:
+            waited = (datetime.now(timezone.utc) - datetime.fromisoformat(since)).total_seconds()
+        except (TypeError, ValueError):
+            waited = 0
+        if waited > RESCUE_URGENT_H * 3600:
+            req["tier"] = 0   # waited a day behind everything else (Joe 2026-11-20): it goes first, any carrier
+            req["urgent"] = "stranded over a day"
+        elif reserved:
+            req["reserved"] = True   # listed (its wait counts), not run yet
         if rid in ((prefs or {}).get("bump") or {}):
             req["tier"] = int(prefs["bump"][rid])
-        req["skipped"] = rid in set((prefs or {}).get("skip") or [])
+        req["skipped"] = rid in set((prefs or {}).get("skip") or []) or bool(req.get("reserved"))
         pause = (rescue_pause or {}).get("all") or paused_tags.get(tag or "")
         if pause:
             req["skipped"] = True

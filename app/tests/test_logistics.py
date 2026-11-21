@@ -401,16 +401,35 @@ def test_a_bootstrap_device_out_of_range_is_not_rescued():
     assert not any(r["id"] == "rescue:MD" for r in p["requests"])                       # left mining there by its bootstrap
 
 
-def test_a_reserved_device_out_of_range_is_not_rescued():
-    devs = [dev("HV", "heaven_vessel", "A-1", **SURGE),
+def _reserved_devs():
+    return [dev("HV", "heaven_vessel", "A-1", **SURGE),
             dev("PL", "surge_platform", "A-1", **SURGE),
             dev("CT", "compute_core", "Z-5", tags=["contract:c1"], in_control_range=False, available_commands=["travel"]),
             dev("TO", "transport_drone", "Z-5", tags=["to:y"], in_control_range=False, available_commands=["travel"]),
             dev("ZZ", "transport_drone", "Z-5", tags=["to:z"], in_control_range=False, available_commands=["travel"])]
-    p = _rescue_plan(devs)
-    ids = {r["id"] for r in p["requests"]}
-    assert "rescue:CT" not in ids and "rescue:TO" not in ids   # a contract's, or bound for another system
-    assert "rescue:ZZ" in ids                                  # to: its own system: nothing holds it there
+
+
+def test_a_reserved_device_out_of_range_waits_a_day_for_its_delivery():
+    p = _rescue_plan(_reserved_devs())
+    by = {r["id"]: r for r in p["requests"]}
+    assert by["rescue:CT"]["skipped"] and by["rescue:TO"]["skipped"]   # a contract's, or bound for another system
+    assert not by["rescue:ZZ"]["skipped"]                              # to: its own system: nothing holds it there
+    assert not any(r["req"] in ("rescue:CT", "rescue:TO") for r in p["runs"])
+
+
+def test_a_rescue_waiting_over_a_day_goes_first_reserved_or_not():
+    """Joe 2026-11-20: stranded devices waited three days behind 222 other requests; reserved ones were never rescued."""
+    from datetime import datetime, timedelta, timezone
+    old = (datetime.now(timezone.utc) - timedelta(hours=25)).isoformat(timespec="seconds")
+    devs = _reserved_devs()
+    p = lg.plan(fleets=FLEETS, devices=devs, bps=BPS, inventory={}, pos={**POS, "Y": {"x": 40, "y": 0, "z": 0}},
+                commandable={"A", "B"}, hosts={"HV": "R1"}, busy=set(), reach=100, contracts=[], trades=[], incoming={},
+                replicants={}, drop=lambda s: f"{s}-1", dark_nets=[], away_fleets=set(),
+                rescue_since={"rescue:CT": old, "rescue:ZZ": old})
+    by = {r["id"]: r for r in p["requests"]}
+    assert by["rescue:CT"]["tier"] == 0 and not by["rescue:CT"]["skipped"]
+    assert by["rescue:ZZ"]["tier"] == 0 and by["rescue:TO"]["tier"] == 5 and by["rescue:TO"]["skipped"]
+    assert by["rescue:TO"]["since"] > old    # first seen now: its day starts
 
 
 def test_a_rescue_is_dropped_when_its_device_is_in_range_again_before_it_was_moved():

@@ -338,7 +338,8 @@ class FleetsMixin:
                     # only by a survey fleet's replicant, arrived after the fleet left and is stranded out of range)
                     repair_stars=(await self.commandable(devices, stars, networked=True)) | (homes_now & commandable),
                     lanes=(await self.db.kv_get(lg.KV_STATE, {}) or {}).get("lanes"), upkeep=upkeep,
-                    rescue_pause=lg.rescue_pauses(await self.db.kv_get(lg.KV_RESCUE_PAUSE, {})))
+                    rescue_pause=lg.rescue_pauses(await self.db.kv_get(lg.KV_RESCUE_PAUSE, {})),
+                    rescue_since=await self.db.kv_get(lg.KV_RESCUE_SINCE, {}) or {})
         if devices_on:
             box: dict = {}
             result["plan"] = await self.loadout_plan(only, routes=full, dispatch=lambda batches, carry: box.update(
@@ -405,6 +406,8 @@ class FleetsMixin:
             await self.db.kv_set(LISTING_KV, wanted)
         await self.db.kv_set("logistics_ami", sent)
         await self.db.kv_set(lg.KV_PICKUPS, pickups)
+        await self.db.kv_set(lg.KV_RESCUE_SINCE, {r["id"]: r["since"] for r in p["requests"]
+                                                 if r.get("kind") == "rescue" and r.get("since")})
         await self.db.kv_set(lg.KV_STATE, {"at": now_iso(), "requests": p["requests"], "runs": p["runs"], "unmet": p["unmet"],
                                            "far": p.get("far") or [], "fleet_devices": p["fleet_devices"], "reserve": p["reserve"], "escorts": escorts,
                                            "lanes": p["lanes"]})
