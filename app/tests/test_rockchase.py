@@ -594,10 +594,25 @@ def test_fleet_freighters_keep_clearing_the_pile_after_the_rigs_left(client):  #
     run = {"phase": "idle", "arrived": "SOL-OBJ-1"}
     inv = {"SOL-OBJ-1": {"volatiles": 621}}
     assert ChaseMixin._chase_leftover(e, run, {"objs": {"SOL-OBJ-1": rock(minutes=240)}, "inv": inv}) == "SOL-OBJ-1"
-    assert ChaseMixin._chase_leftover(e, run, {"objs": {"SOL-OBJ-1": rock(minutes=50)}, "inv": inv}) is None   # logistics' hour
+    assert ChaseMixin._chase_leftover(e, run, {"objs": {"SOL-OBJ-1": rock(minutes=50)}, "inv": inv}) is None   # the evacuation hour
     assert ChaseMixin._chase_leftover(e, run, {"objs": {"SOL-OBJ-1": rock(minutes=240)}, "inv": {}}) is None   # nothing left
     f = client.portal.call(e.fleets)
     f[0]["chase_run"] = {"phase": "idle", "arrived": "SOL-OBJ-1", "searched": {"SOL": iso(0)}}
     client.portal.call(e.save_fleets, f)
     out = client.portal.call(e.rock_chase_pass)
     assert "Chaser: CTL shuttles SOL-OBJ-1 → SOL-4-L5" in out, out
+
+
+def test_an_earlier_rocks_pile_is_cleared_before_the_new_ones(client):  # noqa: F811
+    """Joe 2026-11-21: Chaser_1 moved to RENGRELOR-OBJ-5 and OBJ-4's pile was lost at its impact."""
+    from rsweb.chase_engine import ChaseMixin
+    e = client.app.state.worker.automations
+    run = {"target": "SOL-OBJ-1", "arrived": "SOL-OBJ-1", "phase": "mining"}
+    ChaseMixin._remember(e, run, {"state": {}}, {"rigs": []}, {"rock": "SOL-OBJ-2", "resource": "carbon", "star": "SOL",
+                                                               "mine_h": 3}, set())
+    assert run["left"] == ["SOL-OBJ-1"] and run["target"] == "SOL-OBJ-2"
+    objs = {"SOL-OBJ-1": rock(minutes=240), "SOL-OBJ-2": rock("SOL-OBJ-2", 600)}
+    inv = {"SOL-OBJ-1": {"volatiles": 600}, "SOL-OBJ-2": {"carbon": 90}}
+    assert ChaseMixin._chase_leftover(e, run, {"objs": objs, "inv": inv}, "SOL-OBJ-2") == "SOL-OBJ-1"
+    assert ChaseMixin._chase_leftover(e, run, {"objs": objs, "inv": {"SOL-OBJ-2": {"carbon": 90}}}, "SOL-OBJ-2") is None
+    assert "left" not in run   # emptied: the shuttle goes back to the rock being mined

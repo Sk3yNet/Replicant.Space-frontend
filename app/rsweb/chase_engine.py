@@ -146,8 +146,9 @@ class ChaseMixin:
             if run.get("phase") == "idle" and not run.get("job"):
                 out += await self._chase_gather(f, cfg, run, ctx, k, ms)
         mining = run.get("target") if run.get("phase") == "mining" and run.get("target") == target and rigs_at else None
-        if not mining:   # Joe 2026-11-21: the fleet's freighters keep clearing a worked rock's pile after the rigs left,
-            mining = self._chase_leftover(run, ctx)   # until the evacuation hour; logistics never goes to a rock
+        # Joe 2026-11-21: the fleet's freighters keep clearing a worked rock's pile after the rigs left, until its
+        # evacuation hour, and finish an earlier rock's before the new one's (logistics never goes to a rock)
+        mining = self._chase_leftover(run, ctx, mining) or mining
         out += await self._chase_ami(f, cfg, run, ctx, k, ms, mining)
         if run.get("target"):
             out += await self._chase_ship(f, cfg, run, ctx, k, run["target"])
@@ -459,7 +460,9 @@ class ChaseMixin:
         return steps
 
     def _remember(self, run: dict, ctx: dict, k: dict, c: dict, codes: set[str]) -> None:
-        run.pop("arrived", None)
+        for r in (run.pop("arrived", None), run.get("target")):   # its pile is cleared before the new rock's (Joe 2026-11-21)
+            if r and r != c["rock"] and r not in (run.get("left") or []):
+                run.setdefault("left", []).append(r)
         run.update({"target": c["rock"], "resource": c["resource"], "star": c["star"], "since": now_iso(), "phase": "moving",
                     "note": f"→ {c['rock']} to mine {c['resource']} ({c['mine_h']:.1f} h of mining)"})
         for d in k["rigs"]:
@@ -669,17 +672,26 @@ class ChaseMixin:
         hot = set(open_rocks(ctx["objs"]))
         return ev.safe_spot(star, o.get("impact_target"), ctx["stars"], ctx["scans"].get(star), here=rock, avoid=hot)
 
-    def _chase_leftover(self, run: dict, ctx: dict) -> str | None:
-        """The rock the rigs last worked while a pile is left on it and the evacuation hour hasn't come (rm.CUTOFF_H)."""
+    def _chase_leftover(self, run: dict, ctx: dict, mining: str | None = None) -> str | None:
+        """The oldest rock the rigs worked and left (run.left, then run.arrived) while a pile is left on it and its
+        evacuation hour hasn't come (rm.CUTOFF_H). Rocks gone, past that hour or emptied drop off run.left."""
         from . import rockmining as rm
         from .shapes import as_amounts
+        open_ = rm.open_rocks(ctx["objs"])
+
+        def usable(rock: str | None) -> bool:
+            o = open_.get(rock) if rock else None
+            return bool(o) and (rm.hours_left(o, _now()) or 0) >= rm.CUTOFF_H + 0.1 \
+                and sum(q for q in as_amounts(ctx["inv"].get(rock) or {}).values() if q > 0) >= 1
+        left = [r for r in run.get("left") or [] if r != mining and usable(r)]
+        if left:
+            run["left"] = left
+        else:
+            run.pop("left", None)
+        if left:
+            return left[0]
         rock = run.get("arrived")
-        o = (ctx["objs"] or {}).get(rock) if rock else None
-        if not o or rock not in rm.open_rocks(ctx["objs"]):
-            return None
-        if (rm.hours_left(o, _now()) or 0) < rm.CUTOFF_H + 0.1:
-            return None
-        return rock if sum(q for q in as_amounts(ctx["inv"].get(rock) or {}).values() if q > 0) >= 1 else None
+        return rock if rock != mining and usable(rock) else None
 
     async def _chase_ami(self, f: dict, cfg: dict, run: dict, ctx: dict, k: dict, ms: list[dict], rock: str | None) -> list[str]:
         """Joe 2026-11-16: the fleet's AMI transport controller runs every fleet freighter. While the rigs mine a rock it
