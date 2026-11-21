@@ -581,8 +581,23 @@ def test_propulsors_stop_once_priority_materials_are_picked_up(client):  # noqa:
     assert "Chaser: P1 stops slowing SOL-OBJ-1: priority materials all picked up" in out, out
 
 
-def test_pile_left_on_a_rock_in_flight_is_hauled_out_after_the_rigs_left(client):  # noqa: F811
-    db, e = _setup(client, [], {"SOL-OBJ-1": rock(minutes=240), "SOL-OBJ-2": rock("SOL-OBJ-2", 240)})
-    got = client.portal.call(e.evacuation_targets, [], {}, ["SOL-OBJ-1", "SOL-3"])
-    assert "SOL-OBJ-1" in got   # 4 h from its ETA, no rigs there: the pile still goes now
-    assert "SOL-OBJ-2" not in got and "SOL-3" not in got   # no pile there / not a rock
+def test_fleet_freighters_keep_clearing_the_pile_after_the_rigs_left(client):  # noqa: F811
+    """Joe 2026-11-21: the chaser moves a worked rock's pile until the evacuation hour; logistics only after that."""
+    ctl = {"device_code": "CTL", "device_type": "ami_transport_controller", "location": "SOL-4-L5", "status": "idle",
+           "tags": ["fleet:rc"], "features": ["ami"], "available_commands": ["adopt", "set_directive", "launch"]}
+    fr = {"device_code": "FRT", "device_type": "cargo_freighter", "location": "SOL-4-L5", "status": "idle", "tags": ["fleet:rc"],
+          "features": ["cruise", "transport"], "cargo_capacity": 500, "available_commands": ["travel"]}
+    db, e = _setup(client, [rig("RIG1", "SOL-KUIPER"), fr, ctl], {"SOL-OBJ-1": rock(minutes=240, pct={"carbon": 0})},
+                   {"drop": "SOL-4-L5"})   # mined down: the rigs left
+    client.portal.call(db.kv_set, "inventory", [{"location": "SOL-OBJ-1", "items": {"volatiles": 621}}])
+    from rsweb.chase_engine import ChaseMixin
+    run = {"phase": "idle", "arrived": "SOL-OBJ-1"}
+    inv = {"SOL-OBJ-1": {"volatiles": 621}}
+    assert ChaseMixin._chase_leftover(e, run, {"objs": {"SOL-OBJ-1": rock(minutes=240)}, "inv": inv}) == "SOL-OBJ-1"
+    assert ChaseMixin._chase_leftover(e, run, {"objs": {"SOL-OBJ-1": rock(minutes=50)}, "inv": inv}) is None   # logistics' hour
+    assert ChaseMixin._chase_leftover(e, run, {"objs": {"SOL-OBJ-1": rock(minutes=240)}, "inv": {}}) is None   # nothing left
+    f = client.portal.call(e.fleets)
+    f[0]["chase_run"] = {"phase": "idle", "arrived": "SOL-OBJ-1", "searched": {"SOL": iso(0)}}
+    client.portal.call(e.save_fleets, f)
+    out = client.portal.call(e.rock_chase_pass)
+    assert "Chaser: CTL shuttles SOL-OBJ-1 → SOL-4-L5" in out, out

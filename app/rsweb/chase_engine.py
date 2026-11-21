@@ -146,6 +146,8 @@ class ChaseMixin:
             if run.get("phase") == "idle" and not run.get("job"):
                 out += await self._chase_gather(f, cfg, run, ctx, k, ms)
         mining = run.get("target") if run.get("phase") == "mining" and run.get("target") == target and rigs_at else None
+        if not mining:   # Joe 2026-11-21: the fleet's freighters keep clearing a worked rock's pile after the rigs left,
+            mining = self._chase_leftover(run, ctx)   # until the evacuation hour hands it to logistics (RENGRELOR-OBJ-4)
         out += await self._chase_ami(f, cfg, run, ctx, k, ms, mining)
         if run.get("target"):
             out += await self._chase_ship(f, cfg, run, ctx, k, run["target"])
@@ -666,6 +668,18 @@ class ChaseMixin:
         from .rockmining import open_rocks
         hot = set(open_rocks(ctx["objs"]))
         return ev.safe_spot(star, o.get("impact_target"), ctx["stars"], ctx["scans"].get(star), here=rock, avoid=hot)
+
+    def _chase_leftover(self, run: dict, ctx: dict) -> str | None:
+        """The rock the rigs last worked while a pile is left on it and the evacuation hour hasn't come (rm.CUTOFF_H)."""
+        from . import rockmining as rm
+        from .shapes import as_amounts
+        rock = run.get("arrived")
+        o = (ctx["objs"] or {}).get(rock) if rock else None
+        if not o or rock not in rm.open_rocks(ctx["objs"]):
+            return None
+        if (rm.hours_left(o, _now()) or 0) < rm.CUTOFF_H + 0.1:
+            return None
+        return rock if sum(q for q in as_amounts(ctx["inv"].get(rock) or {}).values() if q > 0) >= 1 else None
 
     async def _chase_ami(self, f: dict, cfg: dict, run: dict, ctx: dict, k: dict, ms: list[dict], rock: str | None) -> list[str]:
         """Joe 2026-11-16: the fleet's AMI transport controller runs every fleet freighter. While the rigs mine a rock it
