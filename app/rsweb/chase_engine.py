@@ -973,6 +973,20 @@ class ChaseMixin:
                                                   f"{', '.join(sorted(new))}")
         return out
 
+    def _chase_cleared(self, run: dict, ctx: dict, rock: str) -> bool:
+        """Joe 2026-11-21: the next rock is launched once the last one is cleared (the rigs worked it and left, and its
+        pile is all shipped) or evacuated (its evacuation hour, rm.CUTOFF_H, has come). A rock not mined yet isn't."""
+        from . import rockmining as rm
+        from .shapes import as_amounts
+        if rock == run.get("target") and run.get("phase") in ("mining", "moving"):
+            return False
+        o = rm.open_rocks(ctx["objs"]).get(rock)
+        if not o or (rm.hours_left(o, _now()) or 0) < rm.CUTOFF_H + 0.1:
+            return True
+        if rock not in (run.get("left") or []) and rock != run.get("arrived"):
+            return False
+        return sum(q for q in as_amounts(ctx["inv"].get(rock) or {}).values() if q > 0) < 1
+
     async def _chase_launch(self, f: dict, cfg: dict, run: dict, ctx: dict, k: dict) -> list[str]:
         """run["launch"] {rock, at} (Fleet details, or auto_launch at launch_at): a fleet vector charge goes to the Kuiper
         object's belt (flying itself, or on the carrier while the fleet has no target) and detonates it at the body."""
@@ -993,8 +1007,9 @@ class ChaseMixin:
             mine = f"fleet {f['name']}"
             flying = [d for d, v in (await self.db.kv_get(rc.LAUNCHED_KV, {}) or {}).items()
                       if (v or {}).get("by") == mine and d in rm.open_rocks(ctx["objs"])]
+            flying = [d for d in flying if not self._chase_cleared(run, ctx, d)]
             if flying:   # one launched rock at a time: the rigs work one rock
-                run["launch_note"] = f"next launch once {', '.join(sorted(flying))} is gone"
+                run["launch_note"] = f"next launch once {', '.join(sorted(flying))} is cleared or evacuated"
             else:
                 run.pop("inbound", None)
                 need = (run.get("need") or {}).get("order") or rm.RESOURCES

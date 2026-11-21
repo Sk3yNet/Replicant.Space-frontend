@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.525.0"
+VERSION = "1.526.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.526.0", "2026-11-21", "Rock chasers (Joe): auto launch waits until the last launched rock is cleared (the rigs are done with it and its pile is all shipped) or its evacuation hour has come, instead of until it's gone. A launched rock not mined yet still holds the next launch."),
     ("1.525.0", "2026-11-21", "Rock chasers (Joe): when the fleet moves on to a new rock, its freighters first clear the pile left on the old one (until that rock's evacuation hour), then shuttle from the new one. Chaser_1 went to RENGRELOR-OBJ-5 and about 3,400 units on OBJ-4 were lost at its impact."),
     ("1.524.0", "2026-11-21", "Logistics never goes to a rock (Joe): an asteroid's location (STAR-OBJ-n, -KUIPER-n, -OORT-n) is no longer a pick-up for any request, including the pre-impact evacuation and piles the asteroid mining rule leaves; carriers coming from afar could arrive after the impact. A rock chaser's own freighters ship its pile; anything left at the evacuation hour stays."),
     ("1.523.0", "2026-11-21", "Rock chasers (Joe): once the rigs leave a rock, the fleet's transport controller keeps shuttling the pile left there to the drop until the evacuation hour; only then does logistics take over. Before, the shuttle stopped with the rigs and the pile sat (RENGRELOR-OBJ-4, Chaser_1). Reverts 1.521.0, which had logistics haul such piles at once."),

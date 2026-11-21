@@ -616,3 +616,17 @@ def test_an_earlier_rocks_pile_is_cleared_before_the_new_ones(client):  # noqa: 
     assert ChaseMixin._chase_leftover(e, run, {"objs": objs, "inv": inv}, "SOL-OBJ-2") == "SOL-OBJ-1"
     assert ChaseMixin._chase_leftover(e, run, {"objs": objs, "inv": {"SOL-OBJ-2": {"carbon": 90}}}, "SOL-OBJ-2") is None
     assert "left" not in run   # emptied: the shuttle goes back to the rock being mined
+
+
+def test_next_launch_waits_until_the_last_rock_is_cleared_or_evacuated(client):  # noqa: F811
+    from rsweb.chase_engine import ChaseMixin
+    e = client.app.state.worker.automations
+    objs = {"SOL-OBJ-1": rock(minutes=240)}
+    pile = {"SOL-OBJ-1": {"volatiles": 600}}
+    cleared = lambda run, inv, o=objs: ChaseMixin._chase_cleared(e, run, {"objs": o, "inv": inv}, "SOL-OBJ-1")  # noqa: E731
+    assert not cleared({"target": "SOL-OBJ-1", "phase": "mining", "arrived": "SOL-OBJ-1"}, {})   # still mined
+    assert not cleared({"phase": "idle"}, {})   # launched, not mined yet
+    assert not cleared({"phase": "idle", "arrived": "SOL-OBJ-1"}, pile)   # rigs left, pile still there
+    assert cleared({"phase": "idle", "arrived": "SOL-OBJ-1"}, {})   # all shipped
+    assert cleared({"phase": "idle", "left": ["SOL-OBJ-1"]}, pile, {"SOL-OBJ-1": rock(minutes=50)})   # evacuation hour
+    assert cleared({"phase": "idle"}, {}, {})   # gone
