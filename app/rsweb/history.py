@@ -21,7 +21,7 @@ THIN_DAYS = 7
 BATCH = 4000
 MAX_BATCHES = 15          # per call
 STATE_KV = "history_pruned"
-RULES = 3                 # raise when the rules change, so the clean-up runs again without waiting a day
+RULES = 4                 # raise when the rules change, so the clean-up runs again without waiting a day
 
 KEEP_EVENTS = ("device.commented", "scan.completed", "prospect.completed", "bobnet.new", "mining.resource_depleted", "site.depleted",
                "salvage.depleted", "salvage.discovered", "system.impact_warning", "device.decommissioned",
@@ -97,6 +97,55 @@ async def prune_wiped(db, max_batches: int = MAX_BATCHES) -> tuple[int, bool]:
             return done, True
         await asyncio.sleep(0.05)
     return done, False
+
+
+LOG_DAYS = 30             # the command log (hand commands) and read notifications
+AUTO_LOG_DAYS = 7         # automation commands: ~12,000 a day with answers up to 20 KB (360,000 rows on 2026-11-22)
+KEEP_AUTO_PATHS = ("%/upload",)   # data uploads: the Simulations page lists every one ever made
+QUIET_LEVELS = ("info", "done")   # unread notifications of these levels go after LOG_DAYS too; the rest wait until read
+
+
+async def _first_id(db, table: str, col: str, cut: str) -> int | None:
+    """The first id stored at or after `cut` (ids grow with time): everything below it is older. Scans only the old
+    rows, where `DELETE ... WHERE at < ?` read the whole table (no index), every few minutes."""
+    row = await db.fetchone(f"SELECT id FROM {table} WHERE {col} >= ? ORDER BY id LIMIT 1", (cut,))
+    if row:
+        return row["id"]
+    row = await db.fetchone(f"SELECT MAX(id) AS id FROM {table}")
+    return (row["id"] + 1) if row and row["id"] is not None else None
+
+
+async def prune_logs(db, now: datetime | None = None, max_batches: int = MAX_BATCHES) -> tuple[int, bool]:
+    """The command log and the bell (owner 2026-11-22: the database had doubled to 1.3 GB on a slow disk): hand
+    commands and read notifications go after LOG_DAYS, automation commands after AUTO_LOG_DAYS (uploads kept), quiet
+    unread notifications after LOG_DAYS. (deleted, finished)."""
+    now = now or datetime.now(timezone.utc)
+    month, week = _iso(now - timedelta(days=LOG_DAYS)), _iso(now - timedelta(days=AUTO_LOG_DAYS))
+    a_month, a_week = await _first_id(db, "actions", "at", month), await _first_id(db, "actions", "at", week)
+    n_month = await _first_id(db, "notifications", "created_at", month)
+    keep = " AND ".join("path NOT LIKE ?" for _ in KEEP_AUTO_PATHS)
+    jobs = []
+    if a_month:
+        jobs.append(("DELETE FROM actions WHERE id IN (SELECT id FROM actions WHERE id < ? LIMIT ?)", (a_month,)))
+    if a_week:
+        jobs.append((f"DELETE FROM actions WHERE id IN (SELECT id FROM actions WHERE id < ? AND user = 'automation' "
+                     f"AND {keep} LIMIT ?)", (a_week, *KEEP_AUTO_PATHS)))
+    if n_month:
+        q = ",".join("?" * len(QUIET_LEVELS))
+        jobs.append((f"DELETE FROM notifications WHERE id IN (SELECT id FROM notifications WHERE id < ? "
+                     f"AND (read = 1 OR level IN ({q})) LIMIT ?)", (n_month, *QUIET_LEVELS)))
+    done, left = 0, max_batches
+    for sql, args in jobs:
+        while True:
+            if left <= 0:
+                return done, False
+            left -= 1
+            n = (await db.execute(sql, (*args, BATCH))).rowcount or 0
+            done += n
+            if n < BATCH:
+                break
+            await asyncio.sleep(0.05)
+    return done, True
 
 
 async def thin_history(db, now: datetime | None = None) -> None:
@@ -180,7 +229,8 @@ async def daily(db, now: datetime | None = None) -> int | None:
         await thin_history(db, now)
     w, wiped_done = await prune_wiped(db)
     n, finished = await prune_events(db, now)
-    n, finished = n + w, finished and wiped_done
+    g, logs_done = await prune_logs(db, now)
+    n, finished = n + w + g, finished and wiped_done and logs_done
     if finished:
         try:   # the write-ahead log only shrinks when it is emptied on purpose (it had grown to 139 MB, 2026-11-13)
             await db.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")

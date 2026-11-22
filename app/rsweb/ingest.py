@@ -863,11 +863,8 @@ class Worker:
     async def prune_timers(self) -> None:
         cutoff = _iso(datetime.now(timezone.utc) - timedelta(minutes=10))
         await self.db.execute("DELETE FROM timers WHERE ends_at < ?", (cutoff,))
-        # the action log and the bell would otherwise grow for ever: keep 30 days of actions, and read
-        # notifications for 30 days (unread ones stay until read)
-        month = _iso(datetime.now(timezone.utc) - timedelta(days=30))
-        await self.db.execute("DELETE FROM actions WHERE at < ?", (month,))
-        await self.db.execute("DELETE FROM notifications WHERE read = 1 AND created_at < ?", (month,))
+        # the action log and the bell: history.prune_logs, once a day in batches (these two full-table deletes ran on
+        # every replicant sync and read the whole 1.3 GB database on a slow disk, 2026-11-22)
         from . import history
         try:
             await history.daily(self.db)   # a month of events; older stock and backlog history as one value a day

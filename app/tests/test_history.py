@@ -126,3 +126,25 @@ def test_compaction_tries_again_after_a_locked_database(tmp_path):
         assert await history.compact_once(db) is None        # not within half an hour
         await db.close()
     asyncio.run(go())
+
+
+def test_command_log_and_bell_are_pruned(tmp_path):
+    """Joe 2026-11-22: hand commands and read notifications keep a month, automation commands a week (uploads kept),
+    quiet unread notifications a month; unread errors stay until read."""
+    async def go():
+        db = DB(str(tmp_path / "t.sqlite"))
+        await db.open()
+        rows = [(40, "you", "/devices/A"), (40, "automation", "/devices/E/upload"), (20, "you", "/devices/B"),
+                (20, "automation", "/devices/C"), (20, "automation", "/devices/D/upload"), (2, "automation", "/devices/F")]
+        for days, user, path in rows:
+            await db.execute("INSERT INTO actions(at, user, method, path, status) VALUES(?,?,?,?,200)", (_iso(days), user, "POST", path))
+        for days, level, read in ((40, "info", 1), (40, "info", 0), (40, "error", 0), (40, "done", 0), (5, "info", 1)):
+            await db.execute("INSERT INTO notifications(level, title, created_at, read) VALUES(?,?,?,?)", (level, "t", _iso(days), read))
+        assert await history.prune_logs(db, NOW) == (6, True)
+        assert [r["path"] for r in await db.fetchall("SELECT path FROM actions ORDER BY id")] == \
+            ["/devices/B", "/devices/D/upload", "/devices/F"]
+        assert [(r["level"], r["read"]) for r in await db.fetchall("SELECT level, read FROM notifications ORDER BY id")] == \
+            [("error", 0), ("info", 1)]
+        assert await history.prune_logs(db, NOW) == (0, True)
+        await db.close()
+    asyncio.run(go())

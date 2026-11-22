@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.531.5"
+VERSION = "1.531.6"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.531.6", "2026-11-22", "The command log and notifications are cleaned up once a day, in small batches (Joe: the database had doubled to 1.3 GB on a slow disk). Automation commands keep a week (data uploads kept), your own commands and read notifications a month, unread info notifications a month; unread errors and mentions stay until read. Before, two whole-table deletes ran every few minutes and read the entire database each time. After a start the server reads its database file once, front to back, so the disk cache is warm without running dd by hand."),
     ("1.531.5", "2026-11-22", "The \"Your server\" page shows how long the server has been starting, the attempt and its last log lines (Joe: stuck on a grey \"starting\" after a deploy with nothing to go on). Before, the log showed only once it had crashed. The server logs when it opens its database (with the file and write-log sizes) and how long that took, so a start stuck there shows it. A start no longer scans the whole events table for an old (1.109.0) simulation cleanup: on a slow disk that held the server on \"starting\" for over 15 minutes."),
     ("1.531.4", "2026-11-22", "A carrier already working a pile shuttles instead of far ones flying in (Joe: not several freighters flying a huge distance when one is already there). Logistics no longer sends a carrier that would take longer to reach the pile than a carrier already on that delivery (this pass, or a job still running) takes to come back for the rest."),
     ("1.531.3", "2026-11-22", "Logistics no longer sends a second load for a delivery that just arrived (Joe: the LAOWAOI-OORT shop got about three times the price of two approved trades). A delivery finished since the last stockpile poll now counts as on its way until the stockpile list shows it."),
