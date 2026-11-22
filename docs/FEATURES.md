@@ -559,6 +559,9 @@ rock chaser / trade post / terraformer / bootstrap), a home and a loadout (its o
   there joins one: nothing could be commanded there on arrival.
 - **Mining and survey fleets** first collect every member (from other systems too), then move together in one
   relocation mission when their carriers seat everyone.
+- An idle stationed mining or survey fleet whose members sit away from home (after a stopped mission, or a new home
+  set while they were elsewhere) gathers where they are and travels home together: checked by auto-scout (at most
+  hourly) and by *Back to station*. A stopped mission no longer keeps a new home from starting a move.
 - Otherwise (and always for bootstraps) the move is piecemeal: the fleet's own carriers and the logistics fleets' each
   load as many members as they hold and leave as they fill. Auto-relocate picks no new home while a move together runs, and never a home any fleet left as dry in the last 24 h.
 - A move stays open until every member is there: reported when complete, and once if members are still missing after

@@ -1501,3 +1501,32 @@ def test_a_modular_device_refused_before_compacting_teaches_nothing(client):
     assert client.portal.call(db.kv_get, "no_attach_types") == {"big_thing": "x"}
     assert fl.take_seat({"hold": 0, "attach": 1}, reg) == "attach"
     fl.NO_ATTACH_TYPES.discard("big_thing")
+
+
+def test_idle_fleet_away_from_home_gathers_and_goes_home_together(client):
+    # Surveyor 9 (2026-11-22): its members sat aboard its vessel at LESATHA after a stopped move, home LAOWAOI; the app
+    # only waited for its loadout at home. Now it gathers where they are and travels home together.
+    eng = client.app.state.worker.automations
+    rider = lambda c: {"device_code": c, "device_type": "survey_drone", "location": None, "status": "stowed",  # noqa: E731
+                       "stowed_in_device_code": "V", "tags": ["fleet:s"], "features": ["cruise", "stow"]}
+    ves = {"device_code": "V", "device_type": "heaven_vessel", "location": "AAA-8-L4", "status": "idle", "tags": ["fleet:s"],
+           "features": ["surge", "cruise"], "stow_capacity": 4}
+    devices = [ves, rider("D1"), rider("D2")]
+    stopped = {"status": "stopped", "targets": ["CCC"], "log": [], "relocate": True}
+    f = {"id": "s", "name": "S", "role": "explore", "home": "BBB", "station": True, "wants": {}, "mission": stopped}
+
+    async def commandable(devices, stars=None, without=None, **kw):
+        return {"AAA", "BBB", "CCC"}
+    eng.commandable = commandable
+    how = client.portal.call(eng.start_relocation, f, "CCC", "BBB", devices)
+    assert "relocation mission" in how and f["mission"]["from"] == "AAA"      # a stopped mission no longer blocks a new home
+    f["mission"] = dict(stopped)
+    assert client.portal.call(eng.gather_home, f, devices) is None              # stopped: devices stay where they are
+    f["mission"]["status"] = "done"
+    assert client.portal.call(eng.gather_home, f, devices) == "gathering in AAA, then home to BBB"
+    assert f["mission"]["status"] == "running" and f["mission"]["targets"] == ["BBB"] and f["mission"]["from"] == "AAA"
+    f["mission"]["status"] = "done"
+    assert client.portal.call(eng.gather_home, f, devices) is None              # once an hour
+    assert client.portal.call(eng.gather_home, f, devices, True)               # Back to station forces it
+    g = {**f, "home": "AAA", "mission": {"status": "done"}}
+    assert client.portal.call(eng.gather_home, g, devices, True) is None        # at home already

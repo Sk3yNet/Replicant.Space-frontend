@@ -1465,8 +1465,9 @@ class AutomationEngine(JobsMixin, LoadoutMixin, FleetsMixin, MiningRulesMixin, O
         from .shapes import normalize_blueprints
         devices = devices if devices is not None else await self.devices()
         # a new home never waits for a complete loadout (owner 2026-10-21): the loadout pass fills the fleet there
+        # a stopped mission is over (its devices stay where they are): a new home starts afresh (Surveyor 9, 2026-11-22)
         dark = await self.dark_home(f, new, devices) if old and new and old != new \
-            and (f.get("mission") or {}).get("status") not in ("running", "stalled", "stopped") else None
+            and (f.get("mission") or {}).get("status") not in ("running", "stalled") else None
         if dark:
             f["home"], f["pending_home"] = old, new   # it stays; pending_home_pass moves it once it can be commanded there
             return f"{new} is pending: {dark}"
@@ -1482,7 +1483,7 @@ class AutomationEngine(JobsMixin, LoadoutMixin, FleetsMixin, MiningRulesMixin, O
         here = fl.together(f, devices, prefer=old, free=solo)
         start = here["at"] if here["ready"] else old   # where it's gathered: it leaves from there
         if f.get("role") not in ("explore", "mining") or not f.get("station") or old == new \
-                or (f.get("mission") or {}).get("status") in ("running", "stalled", "stopped"):
+                or (f.get("mission") or {}).get("status") in ("running", "stalled"):
             f.pop("move_partial", None)
             return "the loadout pass moves it"
         bps = {b["device_type"]: b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))}
@@ -1498,6 +1499,33 @@ class AutomationEngine(JobsMixin, LoadoutMixin, FleetsMixin, MiningRulesMixin, O
                       + (f"; {', '.join(sorted(solo))} fly there on their own after their current task" if solo else ""))
         f["mission"] = m
         return "moving together in one relocation mission (everyone aboard before anything leaves)"
+
+    GATHER_HOME_EVERY = 3600   # s between tries to bring an idle fleet home together (gather_home)
+
+    async def gather_home(self, f: dict, devices: list[dict], force: bool = False) -> str | None:
+        """An idle stationed explore or mining fleet whose members are away from home (a stopped mission, a new home set
+        while they were elsewhere): start a relocation mission from where they are, so they gather wherever they are and
+        leave together once assembled (Joe 2026-11-22: Surveyor 9 waited in SOLARES for members that were elsewhere).
+        At most once an hour unless `force`. Returns the log line when a mission started, else None."""
+        from . import fleets as fl
+        home = f.get("home")
+        if not home or not f.get("station") or f.get("role") not in ("explore", "mining") \
+                or (f.get("mission") or {}).get("status") in ("running", "stalled", "stopped"):
+            return None
+        solo = fl.solo_flyers(f, devices)
+        at = fl.together(f, devices, prefer=home, free=solo)["at"]
+        if not at or at == home:
+            return None
+        last = _ts(f.get("gather_home_at"))
+        if not force and last and (_now() - last).total_seconds() < self.GATHER_HOME_EVERY:
+            return None
+        f["gather_home_at"] = now_iso()
+        how = await self.start_relocation(f, at, home, devices)
+        if not (f.get("mission") or {}).get("relocate") or (f["mission"].get("status") != "running"):
+            return None
+        f["scout_note"] = f"gathering in {at}, then home to {home} together"
+        await self.log("fleets", f"{f.get('name')}: members away from home — {how}")
+        return f"gathering in {at}, then home to {home}"
 
     async def pending_home_pass(self) -> list[str]:
         """Fleets with a new home nothing could be commanded at yet (start_relocation): move once it can be."""
@@ -1748,6 +1776,11 @@ class AutomationEngine(JobsMixin, LoadoutMixin, FleetsMixin, MiningRulesMixin, O
                 f["repair_deploys"], changed = [], True
             r = fl.readiness(f, devices)
             if not r["ready"]:   # nothing leaves short: the loadout pass fills it at home first
+                moved = await self.gather_home(f, devices)
+                if moved:   # its members are away from home: they gather and travel home together first
+                    out.append(f"{f['name']}: {moved}")
+                    changed = True
+                    continue
                 note = f"waiting: {fl.readiness_text(r)}"
                 if f.get("scout_note") != note:
                     f["scout_note"], changed = note, True

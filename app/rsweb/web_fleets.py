@@ -914,6 +914,10 @@ async def fleets_control(request: Request, fid: str, action: str = Form(...), us
             m["status"] = "done"
             eng._mlog(m, "back to station: the loadout pass brings its devices home" if f.get("station")
                       else "mission cleared")
+            if f.get("station"):   # members away from home gather where they are and travel home together
+                moved = await eng.gather_home(f, await eng.devices(), force=True)
+                if moved:
+                    eng._mlog(f["mission"], moved)
         m["job"] = None
         m.pop("auto_retry", None)   # a hand on it: automatic retries start over at the next stall
         await eng.save_fleets(items)
