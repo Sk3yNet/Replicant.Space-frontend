@@ -824,7 +824,8 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
          repair_to: dict[str, int] | None = None, repair_stars: set[str] | None = None,
          lanes: dict[str, str] | None = None, upkeep: list[dict] | None = None,
          rescue_pause: dict | None = None, moves: tuple[list[dict], Any] | None = None,
-         device_escorts: set[str] | frozenset = frozenset(), rescue_since: dict[str, str] | None = None) -> dict:
+         device_escorts: set[str] | frozenset = frozenset(), rescue_since: dict[str, str] | None = None,
+         serving: dict[str, set[str]] | None = None) -> dict:
     """What the logistics devices do this pass, and (`moves`) which carriers take the devices bound somewhere:
     `moves` is (batches, carry) from loadouts.plan — each batch of devices is a request here (kind `devices`), taken in
     its turn with the carriers of that turn; carriers outside the logistics fleets (spare ones, a fleet's own) are
@@ -833,7 +834,8 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
     replicant goes there, last of all (the engine reads the trades once a replicant is in the system). `repair_to`: repair
     devices already on their way, per star. `repair_stars`: where repair patrols may go (default: commandable). `lanes`:
     the task category each carrier worked last pass (device → CATEGORIES key). `rescue_pause`: rescue_pauses() (paused
-    rescues are listed, not run).
+    rescues are listed, not run). `serving`: request id → carriers on a delivery job for it (a far carrier isn't sent
+    when one of them is back for the rest sooner).
     Returns {"requests", "runs", "unmet", "spare", "reserve", "fleet_devices", "lanes"}."""
     from .rockchase import is_rock   # Joe 2026-11-21: never a pick-up at a rock (STAR-OBJ-n, -KUIPER-n, -OORT-n): it may
     inventory = {l: i for l, i in inventory.items() if not is_rock(l)}   # be gone before a carrier from afar arrives
@@ -1064,6 +1066,7 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                 return False
             return star_of(l) in commandable or can_escort()
         assigned = bool(r.get("_assigned"))
+        shuttle = False   # a carrier on this run comes back for the rest: no far one is sent this pass
         while need:
             piles = [l for l, s in spare.items() if sources_ok(l) and any(s.get(x, 0) >= 1 for x in need)]
             # a system that can spare all of it first (the destination's own system before any): the rest comes from
@@ -1167,6 +1170,20 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                                                   round(_dist(star_of(d.get("location")), fstar, pos) / RELAY_HOP),
                                                   room(d) < left, room(d) if room(d) >= left else -room(d), d["device_code"]))
                 code = cargo["device_code"]
+                # a carrier already on this run (this pass, or a job still delivering for it) is back for the rest
+                # sooner than a far one gets here: it shuttles (Joe 2026-11-22: not several freighters flying a huge
+                # distance when one is already there). Urgent ones too: the shuttle is the quicker way.
+                far = _dist(star_of(cargo.get("location")), fstar, pos)
+                trip = _dist(fstar, dstar, pos)
+                mates = [g["dev"] for g in group if can_surge(g["dev"])] + [d for d in r.get("_mates") or [] if can_surge(d)] + [
+                    d for d in pool if d["device_code"] in (serving or {}).get(r["id"], ()) and can_surge(d)]
+                if (mates and can_surge(cargo) and aboard(cargo) < 1
+                        and far > 2 * trip + RELAY_HOP):
+                    if not any(u["req"] == r["id"] for u in unmet):
+                        unmet.append({"req": r["id"], "why": f"{mates[0]['device_code']} comes back for the rest of "
+                                                             f"{fstar} sooner than {code} gets there ({far:.0f} ly)"})
+                    waits = shuttle = True
+                    break
                 if not group and small(cargo) and r.get("tier", 9) > 0:
                     # only small carriers are free: a big one busy elsewhere (on a job, in another lane, taken this
                     # pass) takes the pile later in one trip instead of a hauler taking a bite now
@@ -1305,6 +1322,9 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                          "reward_devices": rdev})
             if r["kind"] == "print":
                 sent_to.add(dest)
+            r.setdefault("_mates", []).extend(g["dev"] for g in group)
+            if shuttle:
+                break
         r["_left"], r["_assigned"] = need, assigned
     # rescues: your devices out of command range (beyond an active relay network, no replicant with them), last tier.
     # A device that can surge home is reached by a replicant (in its system, or anywhere its own dark relay network
@@ -1625,7 +1645,7 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
             if dl["carrier"] in every and r.get("category") in LANES:
                 worked[dl["carrier"]] = r["category"]
     for r in reqs:
-        for k_ in ("_left", "_assigned", "_with", "_piles", "_rest"):
+        for k_ in ("_left", "_assigned", "_with", "_piles", "_rest", "_mates"):
             r.pop(k_, None)
 
     # logistics devices hosting a replicant idle outside the network come back to wait in it (the rest can't be commanded there)

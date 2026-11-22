@@ -168,6 +168,7 @@ class FleetsMixin:
         inv_at = _ts(await self.db.kv_updated("inventory"))
         leaving: set[str] = set()   # replicants a job is about to move: the system they're in now isn't covered for long
         fulfilling: set[str] = set()   # deals a logistics job is on its way to fulfill: one replicant each
+        serving: dict[str, set[str]] = {}   # request → carriers on a delivery job for it (lg.plan `serving`)
         for j in jobs:
             t = (j.get("meta") or {}).get("logistics")
             if j["status"] not in ("running", "waiting"):
@@ -183,6 +184,8 @@ class FleetsMixin:
                 fulfilling |= {str(x).split(":", 1)[1] for x in (t.get("fulfils") or [t.get("req")]) if x and ":" in str(x)}
             if t and t.get("to"):
                 incoming[t["to"]] = {r: incoming.get(t["to"], {}).get(r, 0) + q for r, q in (t.get("carry") or {}).items()}
+                if t.get("req") and t.get("carry"):   # carriers on a delivery: back for the rest sooner than far ones
+                    serving.setdefault(t["req"], set()).update((j.get("meta") or {}).get("devices") or [])
             # what any job (logistics run, fleet mission, relocation) is still going to pick up is spoken for, and so is
             # what it loaded since the last stockpile poll (seen live 2026-10-13: four haulers sent to KELMORNEA-3 for what
             # an earlier trip was already fetching; 2026-10-17: three loads at an ALPHARDAN-BELT-1 already emptied)
@@ -335,7 +338,7 @@ class FleetsMixin:
                                              ((await self.db.kv_get(stj.KV_STATIONS, {})) or {}).get("stations") or [])
         plan_args = dict(fleets=items, devices=devices, bps=bps, inventory=inv, pos=pos, commandable=commandable, hosts=hosts,
                     busy=busy, reach=lg.SECTOR_RANGE_LY, contracts=contracts, trades=trades, incoming=incoming,
-                    replicants=reps, drop=lambda s_: lo.destination(s_, stars) if drop_raw(s_) in evac else drop_raw(s_),
+                    serving=serving, replicants=reps, drop=lambda s_: lo.destination(s_, stars) if drop_raw(s_) in evac else drop_raw(s_),
                     busy_stars=mission_stars,
                     prefs=await self.db.kv_get(lg.KV_PREFS, {}) or {}, ami=ami, moved=moved,
                     dark_nets=await self.dark_networks(devices, pos, bps, reps), away_fleets=away_fleets,

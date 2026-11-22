@@ -1718,3 +1718,24 @@ def test_a_fleetless_rescue_goes_to_the_nearest_printing_hub_not_a_nearer_mining
                 busy=set(), reach=100, contracts=[], trades=[], incoming={}, replicants={}, drop=lambda s: f"{s}-1")
     run = next(r for r in p["runs"] if r["kind"] == "rescue" and r.get("req") == "rescue:NC")
     assert run["to"] == "A-1"
+
+
+def test_a_carrier_at_the_pile_shuttles_instead_of_far_ones_flying_in():
+    # Joe 2026-11-22: not several freighters flying a huge distance when one is already there
+    devs = [dev("FZ", "cargo_freighter", "Z-1", cargo_capacity=100, **SURGE),
+            dev("FA", "cargo_freighter", "A-1", cargo_capacity=100, **SURGE),
+            dev("AF", "autofactory", "Z-2", tags=[], status="waiting_for_resources",
+                print_queue=[{"device_type": "mining_drone", "quantity": 5}])]
+    args = dict(fleets=FLEETS, devices=devs, bps=BPS, inventory={"Z-1": {"carbon": 300}}, pos=POS,
+                commandable={"A", "B", "Z"}, hosts={}, busy=set(), reach=100, contracts=[], trades=[], incoming={},
+                replicants={}, drop=lambda s: f"{s}-1")
+    p = lg.plan(**args)
+    sent = sorted(c for r in p["runs"] if r["req"] == "print:Z-2" for c in cargo(r))
+    assert sent == ["FZ"]
+    assert any("comes back for the rest" in u["why"] for u in p["unmet"] if u["req"] == "print:Z-2")
+    # next pass: FZ is still on its delivery job for the request; FA stays put
+    p = lg.plan(**{**args, "busy": {"FZ"}, "incoming": {"Z-2": {"carbon": 100}}, "serving": {"print:Z-2": {"FZ"}}})
+    assert not [r for r in p["runs"] if r["req"] == "print:Z-2"]
+    # with nobody on it, the far one goes
+    p = lg.plan(**{**args, "busy": {"FZ"}})
+    assert sorted(c for r in p["runs"] if r["req"] == "print:Z-2" for c in cargo(r)) == ["FA"]

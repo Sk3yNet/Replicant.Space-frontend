@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.531.3"
+VERSION = "1.531.4"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.531.4", "2026-11-22", "A carrier already working a pile shuttles instead of far ones flying in (Joe: not several freighters flying a huge distance when one is already there). Logistics no longer sends a carrier that would take longer to reach the pile than a carrier already on that delivery (this pass, or a job still running) takes to come back for the rest."),
     ("1.531.3", "2026-11-22", "Logistics no longer sends a second load for a delivery that just arrived (Joe: the LAOWAOI-OORT shop got about three times the price of two approved trades). A delivery finished since the last stockpile poll now counts as on its way until the stockpile list shows it."),
     ("1.531.2", "2026-11-22", "Fleetless rescues go to the nearest printing hub, not the nearest fleet home (Joe: a negative energy conduit stranded at SOL was taken to Miner_9's belt at ALPHARDAN, 0.3 ly nearer than the SOLARES hub). A covered home without a hub is used only when no hub is covered."),
     ("1.531.1", "2026-11-22", "Print what's missing stays within the supply range (Joe: Chaser_2's cargo freighters were queued at ISOLITHOR). With no autofactory at home, the button took the first factory by device code anywhere; it now skips factories beyond the supply range (at most the 1728 ly sector range) and picks the nearest system."),
