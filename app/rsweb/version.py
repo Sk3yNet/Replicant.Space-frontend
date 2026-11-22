@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.528.0"
+VERSION = "1.529.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.529.0", "2026-11-22", "Consolidate trade controllers (Joe: they hold 10 trades now, not 5). A trade post card has Consolidate shops: the lowest-numbered shops needed (one per 10 stocked types) stay, every listing on another shop is taken down and listed again on one of them straight away (12 per pass, every 5 minutes, until done; Stop consolidating halts it), the fleet wants only the shops it needs, and each emptied controller closes its shop and leaves the fleet as a spare."),
     ("1.528.0", "2026-11-21", "Information beacons (game v4.1.0, Joe): Activity › Info beacons lists yours with description, broadcast switch and comments (delete as owner), other players' beacons found by device scans, and comments on yours; the same card shows on a beacon's device page and the System page shows broadcasts. device.commented raises an info notification. Reviewed game releases 4.0.0 to 4.1.0 and refreshed openapi.json."),
     ("1.527.0", "2026-11-21", "Logistics carriers without a replicant (Joe): with Needs an active replicant aboard, an idle carrier with an empty cradle fetches a spare matrix at the start of every carrier assignment, before it gets other work, instead of only when the 15-minute check caught it idle (the empty heaven vessels were always busy then). The card now says when empty carriers are busy instead of claiming every carrier has a replicant."),
     ("1.526.0", "2026-11-21", "Rock chasers (Joe): auto launch waits until the last launched rock is cleared (the rigs are done with it and its pile is all shipped) or its evacuation hour has come, instead of until it's gone. A launched rock not mined yet still holds the next launch."),

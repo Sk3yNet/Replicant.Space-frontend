@@ -38,6 +38,7 @@ DEFAULT_PRICING = {"factor": 2.0, "pct_per_hour": 10.0}
 EXCLUDED = {"system_hub"}      # never offered (owner: manufacturing time scales with the hubs you have)
 RESOURCES = ["structural", "conductive", "silicates", "carbon", "volatiles", "rares"]
 EVERY_S = 300
+MOVES_PER_PASS = 12            # consolidation: listings moved to another shop per pass (2 game calls each)
 PER_SHOP = 10                  # the game caps a trade controller at 10 listings (season 4 patch, 2026-11-17; 5 before)
 
 
@@ -292,7 +293,7 @@ def plan(fleet: dict, devices: list[dict], trades: dict | list | None, state: di
     spot = settings(fleet)["spot"]
     out: dict[str, Any] = {"rows": rows(fleet, bps, p), "actions": [], "release": [], "need": {}, "skip": [],
                            "notes": [], "location": spot or (ctrl or {}).get("location"), "pin": None, "pins": [],
-                           "shops": [], "unpin": [], "give": [], "claims_done": []}
+                           "shops": [], "unpin": [], "give": [], "claims_done": [], "drop": []}
     if not ctrl:
         out["notes"].append("no AMI trade controller in the fleet")
         return out
@@ -343,6 +344,16 @@ def plan(fleet: dict, devices: list[dict], trades: dict | list | None, state: di
     for t, (c, _) in cur_of.items():
         if (settings(fleet)["onhand"].get(t) or 0) > 0:
             used[c] += 1
+    # consolidation (owner 2026-11-22, controllers went from 5 to 10 listings): the lowest-numbered shops needed stay,
+    # the listings of the others move over (delisted and listed again on a keeper) and the emptied ones are let go
+    cons = bool(state.get("consolidate"))
+    keepers: list[str] = []
+    moves: dict[str, str] = {}   # type -> the shop it leaves
+    if cons:
+        nums = number_shops(state.get("numbers") or {}, [c["device_code"] for c in ctrls])
+        keepers = sorted(read, key=lambda c: (nums.get(c, 999), c))[:shops_needed(fleet)]
+        for c in keepers:
+            used[c] = max(used[c], len(read[c] or []))
     slot: dict[str, str] = {}
     for r in sorted(out["rows"], key=lambda r: (-value(r["price"]), r["type"])):
         t = r["type"]
@@ -350,8 +361,15 @@ def plan(fleet: dict, devices: list[dict], trades: dict | list | None, state: di
             continue
         if t in cur_of:
             slot[t] = cur_of[t][0]
+            if cons and slot[t] not in keepers and cur_of[t][1] and len(moves) < MOVES_PER_PASS:
+                to = next((c for c in keepers if read[c] is not None and used[c] < PER_SHOP), None)
+                if to:
+                    moves[t] = slot[t]
+                    used[slot[t]] -= 1
+                    slot[t] = to
+                    used[to] += 1
             continue
-        free = next((c for c in sorted(read) if read[c] is not None and used[c] < PER_SHOP), None)
+        free = next((c for c in (keepers or sorted(read)) if read[c] is not None and used[c] < PER_SHOP), None)
         if free:
             slot[t] = free
             used[free] += 1
@@ -362,6 +380,7 @@ def plan(fleet: dict, devices: list[dict], trades: dict | list | None, state: di
         t = r["type"]
         mine = listings.get(t) or {}
         c, cur = cur_of.get(t, (slot.get(t), None))
+        to = slot.get(t) if t in moves else None
         known = c is not None and read.get(c) is not None
         listed = int((cur or {}).get("current_stock") or 0) if known else (int(mine.get("stock") or 0) if t in cur_of else 0)
         esc = {x for x in mine.get("escrow") or []}
@@ -434,6 +453,15 @@ def plan(fleet: dict, devices: list[dict], trades: dict | list | None, state: di
                            f"({', '.join(d['device_code'] for d in others[:3])})")
             continue
         price = r["price"]
+        if to and cur and listed > 0:   # consolidation: taken down here, listed again on the keeping shop at once
+            out["actions"].append({"type": t, "controller": to, "from": c, "delete": cur["trade_code"],
+                                   "create": {"name": t.replace("_", " ").capitalize(), "stock": listed + len(loose),
+                                              "criteria": {"resources": price, "devices": {}},
+                                              "rewards": {"resources": {}, "devices": {t: 1}}},
+                                   "escrow": sorted(esc | {d["device_code"] for d in loose}), "price": price})
+            r["status"] = f"moving to shop {to}"
+            r["controller"] = to
+            continue
         repriced = bool(cur) and listed > 0 and {k: int(v) for k, v in r["listed_price"].items()} != price
         loose = sorted(loose + extra, key=lambda d: d["device_code"])
         if loose and (listed == 0 or listed + len(loose) >= want) or repriced:
@@ -451,6 +479,17 @@ def plan(fleet: dict, devices: list[dict], trades: dict | list | None, state: di
     if waiting:
         out["notes"].append(f"{waiting} type(s) wait for a shop slot: {shops_needed(fleet)} AMI trade controllers "
                             f"needed, {len(ctrls)} in the fleet")
+    if cons:   # shops left empty (or never at the spot) are let go once every keeper is in place
+        out["moves"] = len(moves)
+        if len(keepers) == shops_needed(fleet):
+            out["drop"] = sorted(c["device_code"] for c in ctrls if c["device_code"] not in keepers
+                                 and (c["device_code"] not in read or read[c["device_code"]] == [])
+                                 and not any(x == c["device_code"] for x in slot.values()))
+        left = [c for c in read if c not in keepers and c not in out.get("drop", []) and read[c]]
+        out["consolidating"] = {"keep": keepers, "left": left}
+        if moves or left:
+            out["notes"].append(f"consolidating into {len(keepers)} shop(s): {len(moves)} listing(s) moved this pass, "
+                                f"{len(left)} shop(s) still to empty")
     out["shops"] = [{"code": c["device_code"], "location": c.get("location"), "read": read.get(c["device_code"]) is not None,
                      "types": sorted(t for t, x in slot.items() if x == c["device_code"])} for c in ctrls]
     return out
@@ -593,8 +632,9 @@ class TradePostMixin:
             for a in pl["actions"] if not dry else []:
                 t, code = a["type"], a["controller"]
                 if a["delete"]:
-                    ok, _, err = await self.send("DELETE", f"/devices/{code}/trades/{a['delete']}", None,
-                                                 f"trade post {f.get('name')}: take down the {t} listing")
+                    ok, _, err = await self.send("DELETE", f"/devices/{a.get('from') or code}/trades/{a['delete']}", None,
+                                                 f"trade post {f.get('name')}: take down the {t} listing"
+                                                 + (f" on {a['from']} to list it on {code}" if a.get("from") else ""))
                     if not ok:
                         notes.append(f"{t}: delisting failed: {err}")
                         continue
@@ -626,6 +666,8 @@ class TradePostMixin:
                 if await self.create_job("trade_post", f"trade post {f.get('name')}: {len(loose)} controller(s) no longer in "
                                          "the fleet unpinned, spare", None, steps, {"devices": [d["device_code"] for d in loose]}):
                     out.append(f"{f.get('name')}: {len(loose)} controller(s) left the fleet: spare")
+            if st.get("consolidate") and not dry:
+                await self._trade_post_consolidate(f, st, pl, by, busy, out)
             claims = st.setdefault("claims", {})
             gives = [g for g in pl["give"] if g["code"] in by and g["code"] not in busy]
             if gives and not dry:
@@ -658,6 +700,41 @@ class TradePostMixin:
         for line in out:
             await self.log("trade_post", line)
         return out
+
+    async def _trade_post_consolidate(self, f: dict, st: dict, pl: dict, by: dict, busy: set, out: list[str]) -> None:
+        """Consolidation's second half (owner 2026-11-22): the emptied shops close (clear_directive) and leave the fleet
+        as spares, the fleet wants only the shops it needs, and once no other shop lists anything it is over."""
+        from .db import now_iso
+        from .engine_base import step
+        from .fleets import fleet_tag
+        from .loadouts import tag_step
+        need = shops_needed(f)
+        items = await self.fleets()
+        for x in items:
+            if x.get("id") == f["id"] and int((x.get("wants") or {}).get("ami_trade_controller") or 0) != need:
+                x.setdefault("wants", {})["ami_trade_controller"] = need
+                await self.save_fleets(items)
+                out.append(f"{f.get('name')}: {need} AMI trade controllers wanted ({PER_SHOP} listings each)")
+        drop = [by[c] for c in pl.get("drop") or [] if c in by and c not in busy]
+        if drop:
+            steps = []
+            for d in drop:
+                if (d.get("ami_directive") or {}).get("name"):
+                    steps.append(step(f"{d['device_code']}: close the shop", f"/devices/{d['device_code']}",
+                                      {"command": "clear_directive"}))
+                steps.append(tag_step(d["device_code"], ["spare"],
+                                      [x for x in d.get("tags") or [] if x == fleet_tag(f["id"]) or x.startswith(("to:", "at:"))]))
+            if await self.create_job("trade_post", f"trade post {f.get('name')}: {len(drop)} emptied shop(s) closed, spare: "
+                                     f"{', '.join(d['device_code'] for d in drop)}", None, steps,
+                                     {"devices": [d["device_code"] for d in drop]}):
+                out.append(f"{f.get('name')}: {len(drop)} emptied shop(s) closed and made spare")
+                st.setdefault("consolidated", {"at": now_iso(), "freed": []})["freed"] += [d["device_code"] for d in drop]
+        c = pl.get("consolidating") or {}
+        if c.get("keep") and not c.get("left") and not pl.get("moves") and not pl.get("drop"):
+            done = st.pop("consolidate")
+            freed = (st.get("consolidated") or {}).get("freed") or []
+            st["consolidated"] = {"at": now_iso(), "by": (done or {}).get("by"), "freed": freed, "shops": len(c["keep"])}
+            out.append(f"{f.get('name')}: consolidated into {len(c['keep'])} shop(s), {len(freed)} controller(s) freed")
 
     async def shop_rollcall_text(self, devices: list[dict] | None = None, intro: str | None = None) -> str:
         from . import shop as sh

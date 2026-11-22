@@ -444,3 +444,76 @@ def test_claimed_overage_is_delisted_then_handed_over():
     pl = tp.plan(f, devs, {"SHOP": []}, st, BPS, P, TAG)
     assert pl["give"] == [{"code": "E1", "fleet": "m1", "type": "mining_drone", "tags": [TAG]}]
     assert pl["claims_done"] == ["mining_drone"] and pl["actions"] == []
+
+
+def _three_shops():
+    """12 types listed 5 / 5 / 2 over three shops (the old 5-listing cap): two shops of 10 are enough."""
+    bps = {f"t{i}": {"device_type": f"t{i}", "print_time": 0, "resources": {"structural": 10 * (i + 1)}} for i in range(12)}
+    fleet = {"id": "tp", "name": "Post", "role": "trade_post", "home": "SOL",
+             "trade_post": {"onhand": {f"t{i}": 1 for i in range(12)}}}
+    codes = ["SHOP", "SHOP2", "SHOP3"]
+    devs = [dev(c, "ami_trade_controller", tags=["fleet:tp", "at:sol-4-l4"], ami_directive={"name": "trade"}) for c in codes]
+
+    def lst(i):
+        return {"trade_code": f"TRD-{i}", "current_stock": 1, "initial_stock": 1, "rewards": {"devices": {f"t{i}": 1}},
+                "criteria": {"resources": tp.formula_price({"structural": 10 * (i + 1)}, 0, P)}}
+    where = {"SHOP": range(0, 5), "SHOP2": range(5, 10), "SHOP3": range(10, 12)}
+    trades = {c: [lst(i) for i in where[c]] for c in codes}
+    st = {"numbers": {"SHOP": 1, "SHOP2": 2, "SHOP3": 3},
+          "listings": {f"t{i}": {"trade_code": f"TRD-{i}", "escrow": [], "controller": c} for c in codes for i in where[c]}}
+    return fleet, devs, trades, st, bps
+
+
+def test_consolidation_moves_listings_to_the_lowest_numbered_shops():
+    """Owner 2026-11-22: controllers hold 10 listings now, so the old 5-per-shop spread is packed into fewer shops."""
+    fleet, devs, trades, st, bps = _three_shops()
+    pl = tp.plan(fleet, devs, trades, st, bps, P, TAG)
+    assert pl["actions"] == [] and not pl["drop"]   # nothing moves unless asked
+    st["consolidate"] = {"at": "2026-11-22T00:00:00+00:00"}
+    pl = tp.plan(fleet, devs, trades, st, bps, P, TAG)
+    moves = sorted((a["type"], a["from"], a["controller"], a["delete"]) for a in pl["actions"])
+    assert moves == [("t10", "SHOP3", "SHOP", "TRD-10"), ("t11", "SHOP3", "SHOP", "TRD-11")]
+    assert all(a["create"]["stock"] == 1 for a in pl["actions"])
+    assert pl["drop"] == []   # SHOP3 still lists until the moves are read back
+    trades = {"SHOP": trades["SHOP"] + trades["SHOP3"], "SHOP2": trades["SHOP2"], "SHOP3": []}
+    pl = tp.plan(fleet, devs, trades, st, bps, P, TAG)
+    assert pl["actions"] == [] and pl["drop"] == ["SHOP3"] and pl["consolidating"]["left"] == []
+
+
+def test_consolidation_closes_emptied_shops_and_lowers_wants(client):  # noqa: F811
+    from test_ops import H
+    db, e = client.app.state.db, client.app.state.worker.automations
+    fleet, devs, trades, st, bps = _three_shops()
+    client.portal.call(db.kv_set, "blueprints", list(bps.values()))
+    client.portal.call(db.kv_set, "devices", client.portal.call(db.kv_get, "devices") + devs)
+    client.portal.call(e.save_fleets, [{**fleet, "wants": {"ami_trade_controller": 3}, "trade_post": {
+        **fleet["trade_post"], "spot": "SOL-4-L4"}}])
+    trades["SHOP"] += trades.pop("SHOP3")
+    trades["SHOP3"] = []
+    client.portal.call(db.kv_set, tp.KV, {"tp": st})
+    sent = []
+
+    async def fake_get(path, *a, **k):
+        return {"trades": trades[path.split("/")[2]]}
+
+    async def fake_send(method, path, body, why, *a, **k):
+        sent.append((method, path, body))
+        return True, {}, None
+    e.api.get, e.send = fake_get, fake_send
+    r = client.post("/fleets/tp/tradepost", data={"action": "consolidate"}, headers={**H, "HX-Request": "true"})
+    assert "Consolidating into 2 shop(s)" in r.text
+    assert client.portal.call(e.fleets)[0]["wants"]["ami_trade_controller"] == 2
+    job = next(j for j in client.portal.call(e.jobs) if "emptied shop" in (j.get("title") or ""))
+    bodies = [s.get("body") for s in job["steps"]]
+    assert {"command": "clear_directive"} in bodies and "SHOP3" in job["title"]
+    assert not any(m == "DELETE" for m, _, _ in sent)
+    devs2 = client.portal.call(db.kv_get, "devices")
+    for d in devs2:
+        if d.get("device_code") == "SHOP3":
+            d["tags"], d["ami_directive"] = ["spare"], None
+    client.portal.call(db.kv_set, "devices", devs2)
+    out = client.portal.call(e.trade_post_pass, True)
+    assert any("consolidated into 2 shop(s), 1 controller(s) freed" in x for x in out)
+    st = client.portal.call(db.kv_get, tp.KV)["tp"]
+    assert "consolidate" not in st and st["consolidated"]["freed"] == ["SHOP3"]
+    assert "Consolidate shops" in client.get("/fleets/details?all=1", headers=H).text

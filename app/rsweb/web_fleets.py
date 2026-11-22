@@ -1307,6 +1307,26 @@ async def fleets_tradepost(request: Request, fid: str, user: str = Depends(curre
         lines = out or ["Nothing to list or change right now."]
         return HTMLResponse('<div class="result ok">' + "<br>".join(html.escape(x) for x in lines)
                             + (f'<br><span class="lv-alert">{html.escape(note)}</span>' if note else "") + '</div>')
+    if form.get("action") in ("consolidate", "consolidate_stop"):   # owner 2026-11-22: shops hold 10 listings, not 5
+        from .db import now_iso
+        state = await db.kv_get(tp.KV, {}) or {}
+        st = state.setdefault(fid, {})
+        if form.get("action") == "consolidate_stop":
+            st.pop("consolidate", None)
+            await db.kv_set(tp.KV, state)
+            await eng.log("trade_post", f"{f['name']}: consolidation stopped by {user}")
+            return HTMLResponse('<div class="result ok">Consolidation stopped: listings stay where they are now.</div>')
+        st["consolidate"] = {"at": now_iso(), "by": user}
+        st.pop("consolidated", None)
+        await db.kv_set(tp.KV, state)
+        await eng.log("trade_post", f"{f['name']}: consolidation into {tp.shops_needed(f)} shop(s) started by {user}")
+        out = await eng.trade_post_pass(force=True)
+        note = ((await db.kv_get(tp.KV, {}) or {}).get(fid) or {}).get("note")
+        lines = out or ["Nothing to move right now."]
+        return HTMLResponse(f'<div class="result ok">Consolidating into {tp.shops_needed(f)} shop(s), up to '
+                            f'{tp.MOVES_PER_PASS} listings per pass (every 5 minutes) until done.<br>'
+                            + "<br>".join(html.escape(x) for x in lines)
+                            + (f'<br><span class="lv-alert">{html.escape(note)}</span>' if note else "") + '</div>')
     if form.get("action") != "stock":
         return HTMLResponse('<div class="result err">Unknown action.</div>')
     onhand, prices, bad = {}, {}, []

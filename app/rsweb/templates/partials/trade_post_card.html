@@ -13,6 +13,12 @@
     <datalist id="tp-spots-{{ f.id }}">{% for loc in tp.spots %}<option value="{{ loc }}">{% endfor %}</datalist>
     <button class="small" name="action" value="spot">Save spot</button>
     <button class="small ghost" name="action" value="run" title="Read the listing now and create, restock or reprice the trades (otherwise every 5 minutes)">List now</button>
+    {% if tp.state.consolidate %}<span class="muted">consolidating since {{ tp.state.consolidate.at | ago }}</span>
+    <button class="small ghost" name="action" value="consolidate_stop">Stop consolidating</button>
+    {% elif tp.shops | length > 1 %}<button class="small ghost" name="action" value="consolidate"
+      title="Pack the listings into the fewest shops ({{ tp.per_shop }} listings each, {{ tp.needed }} needed): listings on the other shops are taken down and listed again on the lowest-numbered shops, then the emptied controllers close and become spare"
+      >Consolidate shops{% if tp.shops | length > tp.needed %} ({{ tp.shops | length }} → {{ tp.needed }}){% endif %}</button>{% endif %}
+    {% if tp.state.consolidated %}<span class="muted">last consolidated {{ tp.state.consolidated.at | ago }}{% if tp.state.consolidated.freed %}: {{ tp.state.consolidated.freed | length }} controller(s) freed{% endif %}</span>{% endif %}
   </form>
   <form hx-post="/fleets/{{ f.id }}/tradepost" hx-target="next .tp-out" class="row small" style="margin:4px 0">
     <input type="hidden" name="action" value="pricing">
