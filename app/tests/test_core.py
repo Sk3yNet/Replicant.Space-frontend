@@ -787,6 +787,35 @@ def test_audit_flags_mismatches():
     assert "FL1" not in by                                                      # a fleet on a mission: the mission's business
 
 
+def test_audit_resolves_stale_tags_and_waits():
+    """Rows that used to stay "not handled" (Joe 2026-11-22): the plan drops the tags, waits aren't open problems."""
+    from rsweb import loadouts as lo
+    devs = [
+        {"device_code": "R1", "device_type": "ftl_relay", "location": "VAL-5-L4", "status": "relaying", "tags": ["to:val"]},
+        {"device_code": "R2", "device_type": "ftl_relay", "location": "KOL", "status": "out_of_range",
+         "in_control_range": False, "tags": ["to:kol"]},
+        {"device_code": "MD2", "device_type": "mining_drone", "location": "FAL-1-L4", "status": "idle", "tags": ["fleet:fal", "fleet:aem"]},
+        {"device_code": "MD6", "device_type": "mining_drone", "location": "AEM-2-L4", "status": "idle", "tags": ["fleet:ghost"]},
+        {"device_code": "MD7", "device_type": "mining_drone", "location": "AEM-2-L4", "status": "idle", "tags": ["to:fleet:aem"]},
+        {"device_code": "MD8", "device_type": "mining_drone", "location": "MAR-2-L4", "status": "idle", "tags": ["fleet:aem"]},
+    ]
+    fleets = [{"id": "aem", "name": "Aem", "home": "AEM", "station": True, "wants": {"mining_drone": 3}},
+              {"id": "fal", "name": "Fal", "home": "FAL", "station": True, "wants": {}}]
+    cfg = {"phases": [], "fleets": fleets, "fleets_migrated": True}
+    stars = {"AEM": {}, "FAL": {}, "VAL": {}, "KOL": {}, "MAR": {}}
+    p = lo.plan(cfg, devs, [], {}, stars, {}, {"MD8"}, [], {})
+    rem = p["tag_remove"]
+    assert rem["R1"] == ["to:val"] and "R2" not in rem
+    assert rem["MD2"] == ["fleet:aem"] and rem["MD6"] == ["fleet:ghost"] and rem["MD7"] == ["to:fleet:aem"]
+    assert any(s["body"]["configuration"]["remove_tags"] == ["to:val"] for s in lo.tag_steps(p) if "R1" in s["path"])
+    by = {}
+    for a in lo.audit(cfg, devs, stars, p, set(), None, {"MD8"}):
+        by.setdefault(a["code"], []).append(a)
+    assert all(a["fixed"] for c in ("R1", "MD2", "MD6", "MD7") for a in by[c])
+    assert by["R2"][0]["wait"] and "comms" in by["R2"][0]["how"]
+    assert by["MD8"][0]["fixed"]          # on a running delivery job: that job brings it home
+
+
 def test_pinned_devices_reach_their_spot():
     from rsweb import loadouts as lo
     from rsweb.ami_schedule import handoffs

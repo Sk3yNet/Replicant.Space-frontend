@@ -29,18 +29,21 @@
     <h2>Tags &amp; controllers check
       <span class="small muted" style="font-weight:normal">checked {% if audit_age %}{{ audit_age }} min ago{% else %}just now{% endif %}, kept an hour
         <button class="small ghost" hx-post="/fleets/recompute" hx-swap="none" title="Check every device's tags and controllers again now (also recomputes the plans)">Refresh</button></span>
-      <span class="muted small">{% if not audit %}all consistent ✓{% else %}{{ audit | rejectattr('fixed') | list | length }} open · {{ audit | selectattr('fixed') | list | length }} fixed by the next pass{% endif %}</span></h2>
+      <span class="muted small">{% if not audit %}all consistent ✓{% else %}{% set waiting = audit | selectattr('wait') | list | length %}{{ audit | rejectattr('fixed') | rejectattr('wait') | list | length }} open · {{ audit | selectattr('fixed') | list | length }} fixed by the next pass{% if waiting %} · {{ waiting }} waiting{% endif %}{% endif %}</span></h2>
     {% if audit %}<table class="small"><tr><th>Device</th><th>Where</th><th>Issue</th><th>Next pass</th></tr>
       {% for a in audit %}<tr><td class="mono"><a href="/devices/{{ a.code }}">{{ a.code }}</a> <span class="muted">{{ a.type | human }}</span></td>
         <td>{{ a.location or '—' }}</td><td>{{ a.issue }}</td>
-        <td>{% if a.fixed %}<span class="lv-done">✓ {{ a.how }}</span>{% else %}<span class="lv-alert">not handled</span>{% endif %}</td></tr>{% endfor %}
+        <td>{% if a.fixed %}<span class="lv-done">✓ {{ a.how }}</span>{% elif a.wait %}<span class="muted">⏳ {{ a.how }}</span>{% else %}<span class="lv-alert" title="{{ a.how }}">not handled: {{ a.how }}</span>{% endif %}</td></tr>{% endfor %}
     </table>{% else %}<p class="muted small">Every device's fleet / spare / to: tags and its controller match the fleets.</p>{% endif %}
     <p class="muted small">Checks, for every device outside ignored tags and fleets away on a mission: spare devices still run by a
       controller; spare devices that are still in a fleet; more than one fleet tag, or one for a fleet that doesn't exist; old
       <code>home:</code> tags; a controller in another system; arrived devices still tagged <code>to:</code>; idle members away from
       their fleet's home; drones run by another fleet's controller; and idle drones in their system that no controller runs. When a
       loadout shrinks, spare devices are released by their controller and moved devices are released before leaving. On arrival they
-      join their fleet and are adopted by that system's controller.</p>
+      join their fleet and are adopted by that system's controller. The plan also drops a <code>to:</code> tag from a
+      beacon or relay already working in that system, fleet tags for fleets that don't exist, extra fleet tags (the first
+      stays) and <code>to:</code>/<code>at:</code> tags that aren't locations. ⏳ rows wait for something that clears on its
+      own: a running job, comms range or a known position.</p>
   </div>
 
   <div class="card">

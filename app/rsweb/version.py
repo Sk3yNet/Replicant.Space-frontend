@@ -16,11 +16,17 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.529.0"
+VERSION = "1.530.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.530.0", "2026-11-22", "Tags & controllers check: rows that never resolved now fix themselves or say what they wait for. "
+     "The loadout pass drops a to: tag from a relay or beacon already working in that system (relays at VALRETHIEL, "
+     "VELFAROM, LARPHLLAO and ZANHERAR, a beacon at SHINGSSA), fleet tags naming no fleet, extra fleet tags (the first "
+     "stays) and to:/at: tags that aren't locations. A member away from home that a running delivery job is bringing "
+     "back counts as handled (Miner_9's kit at MARKOB). Devices out of comms range, with no known position or on a running "
+     "job are shown as waiting, not as open problems. The open rows are kept for the diagnostics connector (loadout_audit)."),
     ("1.529.0", "2026-11-22", "Consolidate trade controllers (Joe: they hold 10 trades now, not 5). A trade post card has Consolidate shops: the lowest-numbered shops needed (one per 10 stocked types) stay, every listing on another shop is taken down and listed again on one of them straight away (12 per pass, every 5 minutes, until done; Stop consolidating halts it), the fleet wants only the shops it needs, and each emptied controller closes its shop and leaves the fleet as a spare."),
     ("1.528.0", "2026-11-21", "Information beacons (game v4.1.0, Joe): Activity › Info beacons lists yours with description, broadcast switch and comments (delete as owner), other players' beacons found by device scans, and comments on yours; the same card shows on a beacon's device page and the System page shows broadcasts. device.commented raises an info notification. Reviewed game releases 4.0.0 to 4.1.0 and refreshed openapi.json."),
     ("1.527.0", "2026-11-21", "Logistics carriers without a replicant (Joe): with Needs an active replicant aboard, an idle carrier with an empty cradle fetches a spare matrix at the start of every carrier assignment, before it gets other work, instead of only when the 15-minute check caught it idle (the empty heaven vessels were always busy then). The card now says when empty carriers are busy instead of claiming every carrier has a replicant."),

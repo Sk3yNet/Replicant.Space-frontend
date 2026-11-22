@@ -339,6 +339,30 @@ def is_component(d: dict) -> bool:
     return "component" in (d.get("tags") or [])
 
 
+def tag_remove_fixes(devices: list[dict], cfg: dict, ignore: set, hosts: dict, tag_remove: dict) -> None:
+    """Tags the Tags & controllers check used to list as "not handled" forever (Joe 2026-11-22), dropped by the plan:
+    • to:<star> on a beacon or relay already working in that star: placed devices aren't the planner's, so no arrival
+      step ever cleared it (live: relays relaying at VALRETHIEL, VELFAROM, LARPHLLAO, ZANHERAR, a beacon at SHINGSSA);
+    • a fleet: tag naming no fleet (the planner ignores such a device for good);
+    • a to:/at: tag that isn't a location (ignored everywhere);
+    • more than one fleet tag: the first stays (the one the planner already counts it for; a controller of another
+      fleet then lets it go by the usual rule)."""
+    every = {fl.fleet_tag(f["id"]) for f in cfg.get("fleets") or [] if f.get("id")}
+    for d in devices:
+        code, tags = d.get("device_code"), list(d.get("tags") or [])
+        if not code or ignore & set(tags) or code in (hosts or {}):
+            continue
+        rem = tag_remove[code]
+        here = star_of(d.get("location"))
+        if placed(d) and here and not for_contract(d):
+            rem.update(t for t in tags if t == to_tag(here))
+        rem.update(t for t in tags if t.startswith(("to:", "at:")) and not is_place(t[3:]))
+        ftags = [t for t in tags if t.startswith("fleet:")]
+        rem.update(t for t in ftags if t not in every)
+        known = [t for t in ftags if t in every]
+        rem.update(known[1:])
+
+
 def for_contract(d: dict) -> bool:
     """Tagged for a contract (contractsupply.py): it goes to / stays at the contract's location, no fleet takes it."""
     return any(str(t).startswith("contract:") for t in d.get("tags") or [])
@@ -604,6 +628,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         if (SPARE in tags and not (ignore & set(tags))
                 and ((placed(d) and (d.get("device_type") != "ftl_beacon" or fleet_tag_of(d))) or assigned(d))):
             tag_remove[d["device_code"]].add(SPARE)
+    tag_remove_fixes(devices, cfg, ignore, replicant_hosts, tag_remove)
     # an explore fleet's relay switched on at home (before survey_cargo kept them aboard) stays as the system's relay and
     # leaves the fleet — the first one where no other relay of ours works; the others go with the fleet next mission
     cargo = survey_cargo(devices, cfg["fleets"])
@@ -2309,11 +2334,24 @@ def audit(cfg: dict, devices: list[dict], stars: dict[str, dict], p: dict, hando
     out: list[dict] = []
 
     def add(d: dict, issue: str, fixed: bool, how: str) -> None:
+        # what can't be done right now isn't an open problem (Joe 2026-11-22: rows that never resolved): a device on a
+        # running job, out of comms range or with no known position is handled by the pass after that clears
+        wait = "" if fixed else waits(d)
         out.append({"code": d["device_code"], "type": d.get("device_type"), "location": d.get("location"),
-                    "issue": issue, "fixed": fixed, "how": how})
+                    "issue": issue, "fixed": fixed, "how": wait or how, "wait": bool(wait)})
+
+    def waits(d: dict) -> str:
+        if d.get("in_control_range") is False or str(d.get("status") or "").startswith("out_of_range"):
+            return "out of comms range: handled once it's back in reach (stranded devices get a logistics rescue)"
+        if d.get("location_stale"):
+            return "its position is unknown right now: handled once the game reports it"
+        if d["device_code"] in busy:
+            return "a running job uses it: handled when that job ends"
+        return ""
 
     for d in devices:
-        tags = set(d.get("tags") or [])
+        tags_in_order = list(d.get("tags") or [])
+        tags = set(tags_in_order)
         code = d.get("device_code")
         ftags = sorted(t for t in tags if t.startswith("fleet:"))
         if ignore & tags or code in (replicant_hosts or {}) or any(t not in stationed for t in ftags if t in every):
@@ -2333,13 +2371,15 @@ def audit(cfg: dict, devices: list[dict], stars: dict[str, dict], p: dict, hando
             add(d, f"tagged spare and {', '.join(ftags)}", bool(set(ftags) & removed) or SPARE in removed,
                 "fleet tag removed" if set(ftags) & removed else "spare removed")
         if len(ftags) > 1:
-            add(d, f"{len(ftags)} fleet tags: {', '.join(ftags)}", False, "remove all but one on its device page")
+            gone = sorted(set(ftags) & removed)
+            add(d, f"{len(ftags)} fleet tags: {', '.join(ftags)}", bool(gone), f"{', '.join(gone)} removed" if gone
+                else "remove all but one on its device page")
         unknown = [t for t in ftags if t not in every]
         if unknown:
-            add(d, f"{', '.join(unknown)}: no such fleet", False, "remove the tag, or create the fleet")
+            add(d, f"{', '.join(unknown)}: no such fleet", set(unknown) <= removed, "tag removed")
         bad = sorted(t for t in tags if t.startswith(("to:", "at:")) and not is_place(t[3:]))
         if bad:
-            add(d, f"{', '.join(bad)}: not a location (ignored)", False, "remove the tag on its device page")
+            add(d, f"{', '.join(bad)}: not a location (ignored)", set(bad) <= removed, "tag removed")
         if homes:
             add(d, f"old {', '.join(homes)} tag (from before stationed fleets)", bool(set(homes) & removed) or code in moves,
                 "converted: it joins the fleet stationed there, or the tag is dropped")
@@ -2351,12 +2391,17 @@ def audit(cfg: dict, devices: list[dict], stars: dict[str, dict], p: dict, hando
             # a device still aboard its carrier, or on a running delivery job, is cleared by that job's last step (live
             # 2026-10-28: 7B1B81BA attached to 3E6D7DD7 at ANLOREN-7-L4, its job's detach and -to:anloren still to come)
             riding = code in busy or in_transit(d, by)
-            add(d, f"arrived in {dest} but still tagged to:{dest.lower()}", code in arrived or riding,
-                "arrival step clears it" if code in arrived else "its delivery job clears it on drop-off")
-        f = stationed.get(ftags[0]) if ftags else None
+            dropped = any(t.startswith("to:") for t in removed)
+            add(d, f"arrived in {dest} but still tagged to:{dest.lower()}", code in arrived or riding or dropped,
+                "arrival step clears it" if code in arrived else "tag removed (it's working there)" if dropped
+                else "its delivery job clears it on drop-off")
+        kept = [t for t in tags_in_order if t.startswith("fleet:") and t not in removed]   # the planner's: first stays
+        f = stationed.get(kept[0]) if kept else None
         if f and here and here != f["home"] and not dest and SPARE not in tags and not ctrl and d.get("taxi_mode") != "taxi" \
                 and str(d.get("status") or "").startswith(("idle", "stowed")) and not d.get("location_stale"):
-            add(d, f"idle in {here}, away from {f['name']}'s home {f['home']}", code in moves, "sent home")
+            add(d, f"idle in {here}, away from {f['name']}'s home {f['home']}", code in moves or code in busy,
+                "sent home" if code in moves else "its delivery job brings it home" if code in busy
+                else "the plan doesn't send it home (see the plan's notes)")
         cfleet = next((t for t in ctrl_dev.get("tags") or [] if t.startswith("fleet:")), None)
         if ctrl and cfleet and cfleet not in ftags and not (not ftags and cfleet in stationed):
             joins = cfleet in tag_add.get(code, ())
@@ -2366,7 +2411,7 @@ def audit(cfg: dict, devices: list[dict], stars: dict[str, dict], p: dict, hando
         if code in handoff_drones:
             add(d, "idle in its system with no controller", True, "adopted by the system's controller")
     star_order = {s: i for i, s in enumerate(sorted(known))}
-    return sorted(out, key=lambda x: (x["fixed"], star_order.get(star_of(x["location"]), 0), x["code"]))
+    return sorted(out, key=lambda x: (x["fixed"], x.get("wait", False), star_order.get(star_of(x["location"]), 0), x["code"]))
 
 
 # --- prints ordered by this app (kv "loadout_orders") ------------------------------------------------------

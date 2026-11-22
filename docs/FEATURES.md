@@ -469,7 +469,7 @@ rock chaser / trade post / terraformer / bootstrap), a home and a loadout (its o
   per hour, drones and rigs mining now, and per resource, location and day. Measured as the pile gains where each fleet's
   devices mine (AMI-run devices report no amounts), split by devices mining there; the game's `mining.stopped` totals beside it.
 - **Fleet details** (the slower parts): an index of the fleets, each fleet's card (members, loadout, missions), what the
-  next loadout pass would do, the tags & controllers check (kept an hour, Refresh rechecks), and what's spare or on the
+  next loadout pass would do, the tags & controllers check (kept an hour, Refresh rechecks; stale tags are dropped by the plan, rows waiting on a job, comms range or a position show as waiting), and what's spare or on the
   way. Each card loads as it scrolls into view; a name in the index (`?fleet=<id>`) opens that fleet alone, `?all=1`
   every card at once. A card's Add / remove devices list loads when opened. On a logistics fleet each member can be
   released after its run: it leaves the fleet at once (no new run picks it), finishes the run it's on, and as a spare
