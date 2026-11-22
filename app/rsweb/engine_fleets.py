@@ -169,9 +169,15 @@ class FleetsMixin:
         leaving: set[str] = set()   # replicants a job is about to move: the system they're in now isn't covered for long
         fulfilling: set[str] = set()   # deals a logistics job is on its way to fulfill: one replicant each
         for j in jobs:
-            if j["status"] not in ("running", "waiting"):
-                continue
             t = (j.get("meta") or {}).get("logistics")
+            if j["status"] not in ("running", "waiting"):
+                # delivered since the last stockpile poll: the pile doesn't show it yet, so it's still on its way (live
+                # 2026-11-22: LAOWAOI-OORT got about three times the price of two approved trades, each arrival
+                # followed by another load in the pass before the stockpile list caught up)
+                fin = _ts(j.get("finished_at"))
+                if j["status"] == "done" and t and t.get("to") and fin and (not inv_at or fin > inv_at):
+                    incoming[t["to"]] = {r: incoming.get(t["to"], {}).get(r, 0) + q for r, q in (t.get("carry") or {}).items()}
+                continue
             if t and any(str(st.get("desc") or "").startswith(("fulfill ", "execute ")) for st in j["steps"][j.get("idx", 0):]):
                 # live 2026-10-25: three replicant carriers left for Geothermal Surplus at ELUSORYR-3 within two hours
                 fulfilling |= {str(x).split(":", 1)[1] for x in (t.get("fulfils") or [t.get("req")]) if x and ":" in str(x)}

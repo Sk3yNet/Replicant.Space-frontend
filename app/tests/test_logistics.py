@@ -203,6 +203,26 @@ def test_logistics_pass_sends_a_job_for_a_waiting_print(client):  # noqa: F811
     assert "takes no missions" in r.text or r.status_code in (404, 405)
 
 
+def test_a_delivery_done_since_the_last_stockpile_poll_counts_as_on_its_way(client):  # noqa: F811
+    db, e = client.app.state.db, eng(client)
+    cat = client.portal.call(db.kv_get, "stars") or {"stars": []}
+    cat["stars"] += [{"designation": d, "position": p} for d, p in POS.items()]
+    client.portal.call(db.kv_set, "stars", cat)
+    client.portal.call(db.kv_set, "blueprints", list(BPS.values()))
+    client.portal.call(db.kv_set, "devices", world() + [dev("RL", "ftl_relay", "A-4-L4", tags=[], status="relaying"),
+                                                     dev("RL2", "ftl_relay", "B-4-L4", tags=[], status="relaying")])
+    client.portal.call(db.kv_set, "inventory", [{"location": "A-1", "items": {"carbon": 300}}])
+    client.portal.call(db.kv_set, "replicants", {"R1": {"location": "A-1", "hosted_device_code": "HV"}})
+    items = client.portal.call(e.fleets)
+    client.portal.call(e.save_fleets, items + [{"id": "cab", "name": "Cab", "role": "logistics", "home": "A", "wants": {}}])
+    later = (datetime.now(timezone.utc) + timedelta(minutes=1)).isoformat(timespec="seconds")
+    client.portal.call(e.save_jobs, [{"id": "logistics-old", "rule": "logistics", "status": "done", "steps": [], "idx": 0,
+                                      "finished_at": later, "title": "logistics: prints at B-2",
+                                      "meta": {"logistics": {"req": "print:B-2", "to": "B-2", "carry": {"carbon": 100}}}}])
+    out = client.portal.call(e.logistics_pass, True)
+    assert not [x for x in out or [] if "prints at B-2" in x]
+
+
 def test_a_hauler_is_towed_for_a_long_range_run():
     devs = [dev("HL", "transport_hauler", "A-1", cargo_capacity=80, available_commands=["travel", "collect_resources"]),
             dev("PL", "surge_platform", "A-1", **SURGE),
