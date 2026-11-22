@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.531.0"
+VERSION = "1.531.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.531.1", "2026-11-22", "Print what's missing stays within the supply range (Joe: Chaser_2's cargo freighters were queued at ISOLITHOR). With no autofactory at home, the button took the first factory by device code anywhere; it now skips factories beyond the supply range (at most the 1728 ly sector range) and picks the nearest system."),
     ("1.531.0", "2026-11-22", "Fleets away from home gather and go home together (Joe: Surveyor 9 waited for its loadout in its old home while its members were elsewhere). A new home starts a move together even after a stopped mission; an idle survey or mining fleet whose members sit away from home starts a relocation from where they are (auto-scout checks hourly, Back to station at once)."),
     ("1.529.1", "2026-11-22", "Consolidation fix (Joe: stock was printed again). The wanted trade controllers dropped to 8 at the start, so Loadouts let go of 6 shops that still listed and their 19 types looked unlisted. Wanted controllers now drop only once consolidation is over, and a controller at the shop spot that left the post while still listing rejoins it, after which consolidation carries on and moves its listings."),
     ("1.530.0", "2026-11-22", "Tags & controllers check: rows that never resolved now fix themselves or say what they wait for. "

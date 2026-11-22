@@ -1770,3 +1770,19 @@ def test_no_mission_roles_end_and_refuse_missions(client):
     client.portal.call(eng.save_fleets, items)
     client.portal.call(eng.run_fleets)   # used to fail the whole stage
     assert client.portal.call(eng.fleets)[0]["mission"]["status"] == "done"
+
+
+def test_fleet_print_stays_within_sector_range(client):
+    # live 2026-11-22: Chaser_2 (home KELMONENT, no factory there) got its freighters queued at ISOLITHOR in the Delta
+    # sector: the pick was home first, then by device code, with no range check
+    eng = client.app.state.worker.automations
+    world = client.app.state.api.http._transport.app.state.world
+    world.devices.append({"device_code": "0000FACE", "device_type": "autofactory", "location": "DELTAFAR-BELT-1",
+                          "status": "idle", "features": ["print"], "available_commands": ["enqueue_print", "travel"]})
+    client.portal.call(client.app.state.worker.sync_devices)
+    client.portal.call(eng.save_fleets, [{"id": "c2", "name": "C2", "role": "rock_chaser", "home": "ABOTEIN",
+                                          "wants": {"cargo_freighter": 1}}])
+    r = client.post("/fleets/c2/print", headers=HX)
+    assert "print 1× cargo freighter" in r.text
+    job = [j for j in client.portal.call(eng.jobs) if j["rule"] == "chain"][-1]
+    assert [s["path"] for s in job["steps"]] == ["/devices/AF00BEEF"]

@@ -1186,9 +1186,22 @@ async def fleets_print(request: Request, fid: str, user: str = Depends(current_u
     facs = [d for d in st["devices"] if is_factory(d) and d.get("location") and d.get("in_control_range") is not False
             and not d.get("stowed_in_device_code") and not d.get("attached_to_device_code")
             and not str(d.get("status") or "").startswith(("compact", "stowed", "attach"))]
-    facs.sort(key=lambda d: (star_of(d.get("location")) != f["home"], d.get("device_code")))
+    # never print beyond the supply range of the fleet's home (live 2026-11-22: Chaser_2, home KELMONENT with no
+    # factory, got its freighters queued at ISOLITHOR in the Delta sector; the old pick was home first, then by code)
+    pos = await eng.star_lookup("pos_all")
+    reach = fl.sector_reach(await eng.supply_reach())
+    home = f["home"]
+    far = [d for d in facs if fl.beyond_reach(home, star_of(d.get("location")), pos, reach)]
+    facs = [d for d in facs if d not in far]
+
+    def ly(d: dict) -> float:
+        s = star_of(d.get("location"))
+        return fl._dist(home, s, pos) if (pos.get(home) and pos.get(s)) or s == home else float("inf")
+
+    facs.sort(key=lambda d: (ly(d), d.get("device_code")))
     if not facs:
-        return HTMLResponse('<div class="result err">No autofactory to print on.</div>')
+        why = f" within {reach:,.0f} ly of {home}" if far else ""
+        return HTMLResponse(f'<div class="result err">No autofactory to print on{html.escape(why)}.</div>')
     # every autofactory in the chosen system shares the prints, evenly by print time
     peers = [d for d in facs if star_of(d.get("location")) == star_of(facs[0].get("location"))]
     bps = {b["device_type"]: b for b in normalize_blueprints(await request.app.state.db.kv_get("blueprints", []))}
