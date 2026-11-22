@@ -188,7 +188,8 @@ class DB:
         self.conn.row_factory = aiosqlite.Row
         await self.conn.executescript(SCHEMA)
         await self.conn.commit()
-        await self.separate_simulated()
+        # separate_simulated() was a one-time move for databases from before 1.109.0, long done: its full scan of the
+        # events table held a start for 15+ minutes on a slow disk (Joe 2026-11-22, 1.3 GB database)
         # page requests read through their own connection (WAL lets it read while the engine writes), so a page's
         # reads don't queue behind the engine's on the one connection's worker thread; every write stays on conn
         self.rconn = await aiosqlite.connect(self.path)
