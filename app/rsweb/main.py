@@ -37,6 +37,7 @@ def _warm(path: str) -> None:
     """Read the database file once, front to back, so the OS keeps it in its cache: after a restart the engine's
     small random reads ran at about 0.4 MB/s on a slow disk and held the server for an hour; read straight through
     it took under 5 minutes (Joe 2026-11-22). Plain file reads in a thread: nothing touches SQLite."""
+    from . import history
     t0, n = time.monotonic(), 0
     try:
         with open(path, "rb", buffering=0) as f:
@@ -44,6 +45,8 @@ def _warm(path: str) -> None:
                 n += len(chunk)
     except OSError:
         return
+    finally:
+        history.WARM["done"] = True   # the daily clean-up waits for this
     logging.getLogger("rsweb").info("database file cached: %.0f MB in %.0f s", n / 1e6, time.monotonic() - t0)
 
 
@@ -59,6 +62,8 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
         boot.info("opening the database %s (%s)", s.db_path, _sizes(s.db_path))   # a stuck start shows where (Joe 2026-11-22)
         await db.open()
         boot.info("database open in %.1f s", time.monotonic() - t0)
+        from . import history
+        history.WARM["done"] = s.disable_background or not Path(s.db_path).exists()
         app.state.warm = asyncio.create_task(asyncio.to_thread(_warm, s.db_path), name="warm-db") \
             if not s.disable_background and Path(s.db_path).exists() else None
         api = RSClient(s, transport=transport)

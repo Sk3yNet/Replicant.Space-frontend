@@ -106,16 +106,28 @@ QUIET_LEVELS = ("info", "done")   # unread notifications of these levels go afte
 
 
 async def _first_id(db, table: str, col: str, cut: str) -> int | None:
-    """The first id stored at or after `cut` (ids grow with time): everything below it is older. Scans only the old
-    rows, where `DELETE ... WHERE at < ?` read the whole table (no index), every few minutes."""
-    row = await db.fetchone(f"SELECT id FROM {table} WHERE {col} >= ? ORDER BY id LIMIT 1", (cut,))
-    if row:
-        return row["id"]
-    row = await db.fetchone(f"SELECT MAX(id) AS id FROM {table}")
-    return (row["id"] + 1) if row and row["id"] is not None else None
+    """The first id stored at or after `cut` (ids grow with time): everything below it is older. A binary search over
+    ids (about 20 single-row reads): a scan by time read every old row, and `DELETE ... WHERE at < ?` the whole table
+    (no index), which on a slow disk held the server for minutes (2026-11-22)."""
+    row = await db.fetchone(f"SELECT MIN(id) AS lo, MAX(id) AS hi FROM {table}")
+    if not row or row["hi"] is None:
+        return None
+    lo, hi = row["lo"], row["hi"] + 1   # answer in [lo, hi]
+    while lo < hi:
+        mid = (lo + hi) // 2
+        r = await db.fetchone(f"SELECT id, {col} AS t FROM {table} WHERE id >= ? ORDER BY id LIMIT 1", (mid,))
+        if r is None or str(r["t"]) >= cut:
+            hi = mid             # every row from mid on is new
+        else:
+            lo = r["id"] + 1     # every row up to r is old
+    return lo                    # rows below lo are old, the rest new
 
 
-async def prune_logs(db, now: datetime | None = None, max_batches: int = MAX_BATCHES) -> tuple[int, bool]:
+LOG_BATCH = 1000          # rows per delete; automation answers run to 20 KB each, so batches stay small on a slow disk
+LOG_BATCHES = 3           # per call (every minute while a clean-up is unfinished)
+
+
+async def prune_logs(db, now: datetime | None = None, max_batches: int = LOG_BATCHES) -> tuple[int, bool]:
     """The command log and the bell (owner 2026-11-22: the database had doubled to 1.3 GB on a slow disk): hand
     commands and read notifications go after LOG_DAYS, automation commands after AUTO_LOG_DAYS (uploads kept), quiet
     unread notifications after LOG_DAYS. (deleted, finished)."""
@@ -140,9 +152,9 @@ async def prune_logs(db, now: datetime | None = None, max_batches: int = MAX_BAT
             if left <= 0:
                 return done, False
             left -= 1
-            n = (await db.execute(sql, (*args, BATCH))).rowcount or 0
+            n = (await db.execute(sql, (*args, LOG_BATCH))).rowcount or 0
             done += n
-            if n < BATCH:
+            if n < LOG_BATCH:
                 break
             await asyncio.sleep(0.05)
     return done, True
@@ -213,9 +225,14 @@ async def compact_once(db) -> dict | None:
     return rec
 
 
+WARM = {"done": True}   # main.py clears it while the database file is being read into the cache after a start
+
+
 async def daily(db, now: datetime | None = None) -> int | None:
     """Run the clean-up when a day has passed since the last finished one (or one is unfinished). Returns the events
     deleted, None when it wasn't due."""
+    if not WARM["done"]:   # its scans would crawl on a cold slow disk (2026-11-22): wait for the warm-up
+        return None
     now = now or datetime.now(timezone.utc)
     st = await db.kv_get(STATE_KV, {}) or {}
     try:
