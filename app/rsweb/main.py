@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -20,6 +22,17 @@ from . import web
 HERE = Path(__file__).parent
 
 
+def _sizes(path: str) -> str:
+    """The database file and its write-ahead log, in MB (a big leftover log takes a while to replay on open)."""
+    out = []
+    for suf in ("", "-wal"):
+        try:
+            out.append(f"{Path(path + suf).name} {os.path.getsize(path + suf) / 1e6:.0f} MB")
+        except OSError:
+            pass
+    return ", ".join(out) or "new"
+
+
 def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTransport | None = None) -> FastAPI:
     s = settings or default_settings
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
@@ -27,7 +40,11 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         db = DB(s.db_path)
+        boot = logging.getLogger("rsweb")
+        t0 = time.monotonic()
+        boot.info("opening the database %s (%s)", s.db_path, _sizes(s.db_path))   # a stuck start shows where (Joe 2026-11-22)
         await db.open()
+        boot.info("database open in %.1f s", time.monotonic() - t0)
         api = RSClient(s, transport=transport)
         from . import components as comp
         api.before_post = lambda a, path, body: comp.before_print(a, db, path, body)
