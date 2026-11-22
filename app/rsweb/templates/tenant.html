@@ -64,7 +64,12 @@
           (attempt {{ status.restarts }}), or restart it now.</p>
         <details><summary>Last log lines</summary><pre>{{ status.log | join('\n') }}</pre></details>
       {% else %}
-        <p>Starting your server. This page opens the dashboard as soon as it's up (usually a few seconds).</p>
+        <p>Starting your server. This page opens the dashboard as soon as it's up (usually a few seconds; after an
+          update the first engine pass can keep it busy for several minutes).</p>
+        {% if status.starting_for or status.restarts %}
+          <p class="small muted">Starting for {{ (status.starting_for // 60) ~ ' min ' if status.starting_for >= 60 }}{{ status.starting_for % 60 }} s{% if status.restarts %} · attempt {{ status.restarts + 1 }}{% endif %}{% if status.last_exit %} · last try {{ status.last_exit }}{% endif %}</p>
+        {% endif %}
+        {% if status.log %}<details><summary>Last log lines</summary><pre>{{ status.log | join('\n') }}</pre></details>{% endif %}
       {% endif %}
       <form method="post" action="/_tenant/restart" class="inline"><button class="small">Restart</button></form>
     </div>

@@ -206,3 +206,20 @@ def test_wallpaper_route_finds_the_users_server_by_slug(mgr):
     assert r.status_code == 200 and r.headers["x-tenant-port"] == str(t["port"])
     assert mgr.get("/_tenant/wallpaper-route", headers=WS("someone-else-000000")).status_code == 403
     assert sup.env_for(ANN)["WALLPAPER_SLUG"] == t["slug"]
+
+
+def test_starting_page_shows_log_and_time(mgr):
+    """Joe 2026-11-22: stuck on "starting" after a deploy with nothing to go on — the page shows how long, the try
+    and the server's last log lines while it starts, not only once it has crashed."""
+    import time as _t
+    from rsweb.tenants import Proc
+    mgr.post("/_tenant/key", data={"token": GOOD}, headers=H(ANN), follow_redirects=False)
+    sup = mgr.app.state.sup
+    p = Proc(email=ANN, port=1, started_at=_t.monotonic() - 125, restarts=1, last_exit="exited with code 1 at 14:30")
+    p.log.extend(["INFO first pass", "Traceback: boom"])
+    from types import SimpleNamespace
+    p.process = SimpleNamespace(returncode=None)   # running, not answering /healthz yet
+    sup.procs[ANN] = p
+    r = mgr.get("/_tenant/", headers=H(ANN))
+    assert "starting…" in r.text and "Starting for 2 min 5 s" in r.text and "attempt 2" in r.text
+    assert "Traceback: boom" in r.text and "exited with code 1" in r.text

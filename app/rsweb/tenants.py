@@ -350,7 +350,8 @@ class Supervisor:
         if not p:
             return {"state": "stopped", "port": None, "restarts": 0, "last_exit": None, "log": []}
         return {"state": p.state, "port": p.port, "restarts": p.restarts, "last_exit": p.last_exit,
-                "uptime": int(time.monotonic() - p.started_at) if p.ready else 0, "log": list(p.log)[-40:]}
+                "uptime": int(time.monotonic() - p.started_at) if p.ready else 0, "log": list(p.log)[-40:],
+                "starting_for": int(time.monotonic() - p.started_at) if not p.ready and p.started_at else 0}
 
 
 # =====================================================================================
