@@ -37,6 +37,8 @@ class ChaseMixin:
             await self.save_fleets(fleet_list)
             left = [q for q in await self.db.kv_get(rc.PENDING_KV, []) or [] if q not in queued]   # queued meanwhile: next pass
             await self.db.kv_set(rc.PENDING_KV, left)
+        if rc.upgrade_search(fleet_list):
+            await self.save_fleets(fleet_list)
         mine = [f for f in fleet_list if f.get("role") == rc.ROLE and f.get("home") and not f.get("recall_hold")]   # recalled: held
         if not mine:
             return []
@@ -936,7 +938,6 @@ class ChaseMixin:
         for des in [d for d, m in marks.items() if not _ts(m.get("found_at")) or _now() - _ts(m["found_at"]) > rc.KUIPER_HOURS * 3600]:
             marks.pop(des)
         searched, read = run.setdefault("searched", {}), run.setdefault("read", {})
-        every = float(cfg.get("search_hours") or rc.DEFAULTS["search_hours"]) * 3600
         for s in k["sensors"]:
             code, loc = s["device_code"], s.get("location") or ""
             star = loc.split("-")[0]
@@ -944,14 +945,15 @@ class ChaseMixin:
                     or star not in ctx["reach"]:
                 continue
             last = _ts(searched.get(star))
-            if (not last or _now() - last > every) and loc != f"{star}-KUIPER":
+            due = rc.search_due(cfg, last, _ts(read.get(star)), _now())
+            if due and loc != f"{star}-KUIPER":
                 # Joe 2026-11-16: a sensor array detects only from the Kuiper belt: take it there first
                 mv = run.setdefault("sensor_moves", {}).setdefault(code, {})
                 out += await self._chase_ferry(f, run, ctx, k, s, f"{star}-KUIPER", mv,
                                                f"{f['name']}: {code} → {star}-KUIPER to search for Kuiper objects",
                                                f"{code} → {star}-KUIPER to search", f"{code} on its way to {star}-KUIPER")
                 continue
-            if not last or _now() - last > every:
+            if due:
                 run.get("sensor_moves", {}).pop(code, None)
                 ok, _, err = await self.send("POST", f"/devices/{code}", {"command": "detect_object"},
                                              f"auto: rock chaser {code} searches {star}")

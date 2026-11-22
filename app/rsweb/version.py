@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.531.8"
+VERSION = "1.532.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.532.0", "2026-11-22", "Rock chasers: search every 0 h (the new default) starts the next Kuiper sweep as soon as the last one's results are read; existing chasers move to 0 once."),
     ("1.531.8", "2026-11-22", "Regular event lookups (incoming rocks and diversions, AMI history, location events, hubs, trades) use the event index instead of reading all 800,000 stored events: with the disk starved the incoming-rock check held the engine for over 7 minutes."),
     ("1.531.7", "2026-11-22", "The new command-log clean-up is gentler: it finds the cut-off by a quick search instead of reading every old row, deletes 1,000 rows at a time (3,000 a minute), and the daily clean-up waits until the database file is cached after a start. 1.531.6 ran its first clean-up on a cold disk and held the engine for over 15 minutes."),
     ("1.531.6", "2026-11-22", "The command log and notifications are cleaned up once a day, in small batches (Joe: the database had doubled to 1.3 GB on a slow disk). Automation commands keep a week (data uploads kept), your own commands and read notifications a month, unread info notifications a month; unread errors and mentions stay until read. Before, two whole-table deletes ran every few minutes and read the entire database each time. After a start the server reads its database file once, front to back, so the disk cache is warm without running dd by hand."),

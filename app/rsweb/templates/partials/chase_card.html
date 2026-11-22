@@ -69,8 +69,8 @@
           <span class="muted">Resources to take from rocks you launched. Empty: the priority list.</span></label>
       </fieldset>
       <fieldset><legend>Kuiper search and launch</legend>
-        <label class="f">search every <span><input name="search_hours" type="number" min="1" step="1" value="{{ c.search_hours | int }}" style="width:4em"> h</span>
-          <span class="muted">How often the fleet's sensor array sweeps the Kuiper belt of the system it is in (needs a sensor array in the fleet, and a system with a Kuiper belt). Default 24.</span></label>
+        <label class="f">search every <span><input name="search_hours" type="number" min="0" step="1" value="{{ c.search_hours | int }}" style="width:4em"> h</span>
+          <span class="muted">How often the fleet's sensor array sweeps the Kuiper belt of the system it is in (needs a sensor array in the fleet, and a system with a Kuiper belt). 0: a new sweep as soon as the last one's results are in (about an hour). Default 0.</span></label>
         <label class="f">mark from <select name="launch_size">{% for s in ['small', 'medium', 'large'] %}<option {{ 'selected' if c.launch_size == s }}>{{ s }}</option>{% endfor %}</select>
           <span class="muted">Kuiper objects at least this big are listed below as marked for launch. Launched rocks arrive in 6 to 24 h, smaller ones slower. Default medium.</span></label>
         <label class="f">launch at <input name="launch_at" value="{{ c.launch_at }}" placeholder="planet or moon, e.g. {{ f.home }}-3" size="16">

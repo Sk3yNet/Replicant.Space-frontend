@@ -630,3 +630,19 @@ def test_next_launch_waits_until_the_last_rock_is_cleared_or_evacuated(client): 
     assert cleared({"phase": "idle", "arrived": "SOL-OBJ-1"}, {})   # all shipped
     assert cleared({"phase": "idle", "left": ["SOL-OBJ-1"]}, pile, {"SOL-OBJ-1": rock(minutes=50)})   # evacuation hour
     assert cleared({"phase": "idle"}, {}, {})   # gone
+
+
+def test_search_every_zero_searches_again_once_results_are_read():
+    """Joe 2026-11-22: search_hours 0 (the default) starts a new sweep as soon as the last one has finished."""
+    now = 1_000_000.0
+    cfg = {"search_hours": 0}
+    assert rc.search_due(cfg, None, None, now)
+    assert not rc.search_due(cfg, now - 600, None, now)            # sweep running
+    assert rc.search_due(cfg, now - 4000, now - 10, now)           # results read: go again
+    assert rc.search_due(cfg, now - 3 * 3600, None, now)           # results never read: don't stall
+    assert not rc.search_due({"search_hours": 6}, now - 4000, now - 10, now)
+    assert rc.search_due({"search_hours": 6}, now - 7 * 3600, now - 10, now)
+    fl = [{"role": rc.ROLE, "chase": {"search_hours": 6.0}}, {"role": "mining", "chase": {"search_hours": 6.0}}]
+    assert rc.upgrade_search(fl) and fl[0]["chase"]["search_hours"] == 0.0 and fl[1]["chase"]["search_hours"] == 6.0
+    fl[0]["chase"]["search_hours"] = 3.0
+    assert not rc.upgrade_search(fl) and fl[0]["chase"]["search_hours"] == 3.0   # once only: later choices stay

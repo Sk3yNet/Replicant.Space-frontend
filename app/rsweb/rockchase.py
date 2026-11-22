@@ -11,7 +11,7 @@ of home (mode `roam`, never beyond the sector range). Each pass (engine stage ro
     (else the system's safe spot, evacuate.safe_spot), also after the rigs left; logistics never goes to a rock
   • leaving: `leave_minutes` (80) before the ETA everything boards the carrier at once and flies to the next target (or
     the safe spot) with the last load shipped out beside it; the asteroid defense evacuation at the hour stays the backstop
-  • search: a sensor array in the fleet sweeps the Kuiper belt of the system it is in every `search_hours`; objects of at
+  • search: a sensor array in the fleet sweeps the Kuiper belt of the system it is in every `search_hours` (0: again as soon as the last sweep's results are read); objects of at
     least `launch_size` are marked for launch (Fleet details: launch at a planet or moon with a fleet vector charge, or
     `auto_launch` at `launch_at`)
 
@@ -31,7 +31,7 @@ SIZES = ["small", "medium", "large"]
 MODES = ("hub", "roam")
 DEFAULTS: dict[str, Any] = {"mode": "roam", "radius": 100.0, "min_size": "small", "priority": "", "min_hours": 2.0,
                             "leave_minutes": 80.0, "ship_min": 50.0, "drop": "", "keep_pct": 5.0, "launched_resources": "",
-                            "search_hours": 24.0, "launch_size": "medium", "launch_at": "", "auto_launch": False,
+                            "search_hours": 0.0, "launch_size": "medium", "launch_at": "", "auto_launch": False,
                             "follow_need": True, "stage_kuiper": True, "slow_rocks": True}
 SURGE_S_PER_LY = 50.0   # rough surge pace for ranking; the chosen trip is checked with the game's preview
 CRUISE_H = 0.25         # rough in-system trip for ranking
@@ -143,6 +143,31 @@ def can_launch(charge: dict, des: str) -> bool:
     return charge.get("location") in (des, launch_spot(des)) and not charge.get("stowed_in_device_code") \
         and not charge.get("attached_to_device_code")
 SEARCH_MINUTES = 65     # a detect_object sweep takes about an hour
+SEARCH0 = "chase_search0"   # fleet flag: moved to search_hours 0 once (1.532.0)
+
+
+def upgrade_search(fleets: list[dict]) -> bool:
+    """Joe 2026-11-22: searching back to back (0) is the default; chasers set before (6 h, 24 h) move to it once."""
+    changed = False
+    for f in fleets:
+        if f.get("role") == ROLE and not f.get(SEARCH0):
+            f.setdefault("chase", {})["search_hours"] = 0.0
+            f[SEARCH0] = changed = True
+    return changed
+
+
+def search_due(cfg: dict, last: float | None, read: float | None, now: float) -> bool:
+    """A new Kuiper sweep is due: never searched, or `search_hours` since the last one; 0 = once the last sweep's results
+    were read (or it has been twice a sweep's time, in case they never are)."""
+    if not last:
+        return True
+    try:
+        every = max(0.0, float(cfg.get("search_hours") or 0)) * 3600
+    except (TypeError, ValueError):
+        every = 0.0
+    if every:
+        return now - last > every
+    return (read or 0) >= last or now - last > 2 * SEARCH_MINUTES * 60
 
 
 def settings(f: dict) -> dict:
