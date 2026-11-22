@@ -1135,7 +1135,7 @@ class OpsRules:
         from . import defence as dfn
         objs = await self.db.kv_get("objects", {}) or {}
         rows = await self.db.fetchall("SELECT event, payload, location, created_at FROM events WHERE event='system.object_detected' "
-                                      "OR event LIKE 'diversion.%' OR event IN ('system.object_diverted', 'system.object_impacted', "
+                                      "OR (event >= 'diversion.' AND event < 'diversion/') OR event IN ('system.object_diverted', 'system.object_impacted', "
                                       "'system.impact_warning', 'system.object_off_target') ORDER BY seq")
         for r in rows:
             p = _json.loads(r["payload"] or "{}")

@@ -42,7 +42,7 @@ def _devices_needed(c: dict) -> dict[str, int]:
 async def load(db) -> dict[str, dict]:
     """designation -> event record, newest info wins; closed ones carry status/rewards/consumed."""
     from . import season
-    rows = await db.fetchall("SELECT event, payload, created_at, received_at FROM events WHERE event LIKE 'event.%' ORDER BY seq")
+    rows = await db.fetchall("SELECT event, payload, created_at, received_at FROM events WHERE (event >= 'event.' AND event < 'event/') ORDER BY seq")
     reset = await season.reset_at(db)   # contracts end with the season (game docs): last season's are gone
     out: dict[str, dict] = {}
     for r in rows:

@@ -244,5 +244,5 @@ def stock_by_star(inventory: list[dict]) -> dict[str, dict[str, float]]:
 
 async def hub_events(db) -> list[dict]:
     rows = await db.fetchall("SELECT event, device_code, star, location, payload, created_at FROM events "
-                             "WHERE event LIKE 'hub.%' ORDER BY seq")
+                             "WHERE (event >= 'hub.' AND event < 'hub/') ORDER BY seq")
     return [dict(r) for r in rows]

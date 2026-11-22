@@ -50,12 +50,12 @@ async def managed_by(db) -> dict[str, str]:
     # decoding each payload) on each call held the server seconds per engine pass (sampled live 2026-10-27). A count
     # that doesn't add up (events deleted, e.g. a simulation's) replays them all again.
     memo = db.__dict__.setdefault("_managed_memo", {"seq": 0, "n": 0, "out": {}})
-    rows = await db.fetchall("SELECT seq, device_code, event, payload FROM events WHERE event LIKE 'ami.%' AND seq > ? "
+    rows = await db.fetchall("SELECT seq, device_code, event, payload FROM events WHERE (event >= 'ami.' AND event < 'ami/') AND seq > ? "
                              "ORDER BY seq", (memo["seq"],))
-    n = (await db.fetchone("SELECT COUNT(*) AS n FROM events WHERE event LIKE 'ami.%'") or {}).get("n") or 0
+    n = (await db.fetchone("SELECT COUNT(*) AS n FROM events WHERE (event >= 'ami.' AND event < 'ami/')") or {}).get("n") or 0
     if n != memo["n"] + len(rows):
         memo.update(seq=0, n=0, out={})
-        rows = await db.fetchall("SELECT seq, device_code, event, payload FROM events WHERE event LIKE 'ami.%' ORDER BY seq")
+        rows = await db.fetchall("SELECT seq, device_code, event, payload FROM events WHERE (event >= 'ami.' AND event < 'ami/') ORDER BY seq")
     out: dict[str, str] = memo["out"]
     for r in rows:
         p = json.loads(r["payload"] or "{}")

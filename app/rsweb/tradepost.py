@@ -61,7 +61,7 @@ async def fresh_listings(db, cache: dict, codes: list[str], now) -> dict[str, li
     if not keep:
         return {}
     rows = await db.fetchall(
-        f"SELECT device_code, MAX(received_at) AS last FROM events WHERE event LIKE 'trade.%' "
+        f"SELECT device_code, MAX(received_at) AS last FROM events WHERE (event >= 'trade.' AND event < 'trade/') "
         f"AND device_code IN ({','.join('?' * len(keep))}) GROUP BY device_code", tuple(keep))
     touched = {r["device_code"] for r in rows if (r["last"] or "") >= keep[r["device_code"]]}
     return {c: cache[c]["trades"] for c in keep if c not in touched}
