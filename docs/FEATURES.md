@@ -773,7 +773,8 @@ Bump or skip a request on the Logistics page. Every logistics job still going ha
   comms range.
 
 ### Rescues
-- A device out of command range is brought home: its fleet's home, else the nearest covered home.
+- A device out of command range is brought home: its fleet's home; a fleetless device (or one whose home is dark)
+  goes to the nearest covered printing hub, else the nearest covered home (1.531.2).
 - Excepted: placed relays and beacons, wards, hubs, fleets on a mission, and devices tagged `at:` the spot where they are
   (stocked there on purpose). Devices reserved for a contract (`contract:`) or tagged `to:` another system wait a day
   for their own trip (listed as reserved), then are rescued like the rest (1.522.0).

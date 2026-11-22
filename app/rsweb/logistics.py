@@ -1371,8 +1371,11 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
                 unmet.append({"req": r["id"], "why": f"picked up together with {together[code]}"})
             return
         fleet_home = home
-        if not (home and home in commandable):   # fleetless (or its home is dark): the nearest covered home system
-            homes = [f["home"] for f in fleets or [] if f.get("home") in commandable and (f.get("station") or f.get("materials") == "self")]
+        if not (home and home in commandable):   # fleetless (or its home is dark): the nearest covered printing hub,
+            # else the nearest covered home system (Joe 2026-11-22: a conduit stranded at SOL went to Miner_9's belt at
+            # ALPHARDAN, 0.3 ly nearer than the SOLARES hub, where nothing uses it)
+            hubs = [f["home"] for f in fleets or [] if f.get("home") in commandable and f.get("materials") == "self"]
+            homes = hubs or [f["home"] for f in fleets or [] if f.get("home") in commandable and f.get("station")]
             home = min(homes, key=lambda h: (_dist(star, h, pos), h), default=None)
         home_loc = drop(home) if home else wait_point({"_fleet": {}}, star)
         if not home_loc:

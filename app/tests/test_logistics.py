@@ -1685,3 +1685,16 @@ def test_a_big_pile_waits_for_a_busy_freighter_rather_than_a_hauler_taking_a_bit
     devs.pop(2)                                                      # no freighter at all: the hauler goes
     run = next(r for r in lg.plan(busy=set(), **kw)["runs"] if r["req"] == "print:Z-2")
     assert cargo(run) == ["H1"]
+
+
+def test_a_fleetless_rescue_goes_to_the_nearest_printing_hub_not_a_nearer_mining_home():
+    """Joe 2026-11-22: a conduit stranded at SOL went to Miner_9's belt at ALPHARDAN, 0.3 ly nearer than the SOLARES hub."""
+    fleets = FLEETS + [{"id": "m9", "role": "mining", "home": "B", "station": True}]
+    pos = {**POS, "Z": {"x": 6, "y": 0, "z": 0}}   # B is 1 ly from Z, the hub A 6 ly
+    devs = [dev("HV", "heaven_vessel", "A-1", **SURGE),
+            dev("PL", "surge_platform", "A-1", attach_capacity=2, **SURGE),
+            dev("NC", "negative_energy_conduit", "Z", tags=[], in_control_range=False, available_commands=["stow"])]
+    p = lg.plan(fleets=fleets, devices=devs, bps=BPS, inventory={}, pos=pos, commandable={"A", "B"}, hosts={"HV": "R1"},
+                busy=set(), reach=100, contracts=[], trades=[], incoming={}, replicants={}, drop=lambda s: f"{s}-1")
+    run = next(r for r in p["runs"] if r["kind"] == "rescue" and r.get("req") == "rescue:NC")
+    assert run["to"] == "A-1"
