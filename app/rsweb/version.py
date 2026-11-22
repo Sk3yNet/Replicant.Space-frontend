@@ -21,6 +21,7 @@ VERSION = "1.530.0"
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.529.1", "2026-11-22", "Consolidation fix (Joe: stock was printed again). The wanted trade controllers dropped to 8 at the start, so Loadouts let go of 6 shops that still listed and their 19 types looked unlisted. Wanted controllers now drop only once consolidation is over, and a controller at the shop spot that left the post while still listing rejoins it, after which consolidation carries on and moves its listings."),
     ("1.530.0", "2026-11-22", "Tags & controllers check: rows that never resolved now fix themselves or say what they wait for. "
      "The loadout pass drops a to: tag from a relay or beacon already working in that system (relays at VALRETHIEL, "
      "VELFAROM, LARPHLLAO and ZANHERAR, a beacon at SHINGSSA), fleet tags naming no fleet, extra fleet tags (the first "

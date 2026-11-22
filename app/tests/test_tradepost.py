@@ -502,7 +502,7 @@ def test_consolidation_closes_emptied_shops_and_lowers_wants(client):  # noqa: F
     e.api.get, e.send = fake_get, fake_send
     r = client.post("/fleets/tp/tradepost", data={"action": "consolidate"}, headers={**H, "HX-Request": "true"})
     assert "Consolidating into 2 shop(s)" in r.text
-    assert client.portal.call(e.fleets)[0]["wants"]["ami_trade_controller"] == 2
+    assert client.portal.call(e.fleets)[0]["wants"]["ami_trade_controller"] == 3   # lowered only once it is over
     job = next(j for j in client.portal.call(e.jobs) if "emptied shop" in (j.get("title") or ""))
     bodies = [s.get("body") for s in job["steps"]]
     assert {"command": "clear_directive"} in bodies and "SHOP3" in job["title"]
@@ -516,4 +516,32 @@ def test_consolidation_closes_emptied_shops_and_lowers_wants(client):  # noqa: F
     assert any("consolidated into 2 shop(s), 1 controller(s) freed" in x for x in out)
     st = client.portal.call(db.kv_get, tp.KV)["tp"]
     assert "consolidate" not in st and st["consolidated"]["freed"] == ["SHOP3"]
+    assert client.portal.call(e.fleets)[0]["wants"]["ami_trade_controller"] == 2
     assert "Consolidate shops" in client.get("/fleets/details?all=1", headers=H).text
+
+
+def test_shop_that_left_while_listing_rejoins(client):  # noqa: F811
+    """Live 2026-11-22: Loadouts let go of 6 shops that still listed when consolidation lowered the wanted count, so
+    their types looked unlisted and stock was printed again. Such a shop rejoins and consolidation carries on."""
+    db, e = client.app.state.db, client.app.state.worker.automations
+    fleet, devs, trades, st, bps = _three_shops()
+    devs[2]["tags"] = ["spare"]   # SHOP3 left the fleet with its 2 listings
+    client.portal.call(db.kv_set, "blueprints", list(bps.values()))
+    client.portal.call(db.kv_set, "devices", client.portal.call(db.kv_get, "devices") + devs)
+    client.portal.call(e.save_fleets, [{**fleet, "wants": {"ami_trade_controller": 2}, "trade_post": {
+        **fleet["trade_post"], "spot": "SOL-4-L4"}}])
+    client.portal.call(db.kv_set, tp.KV, {"tp": st})
+    client.portal.call(db.kv_set, "shop_trades", {"SHOP3": {"trades": trades["SHOP3"], "at": "2026-11-22T00:00:00+00:00"}})
+
+    async def fake_get(path, *a, **k):
+        return {"trades": trades[path.split("/")[2]]}
+
+    async def fake_send(method, path, body, why, *a, **k):
+        return True, {}, None
+    e.api.get, e.send = fake_get, fake_send
+    out = client.portal.call(e.trade_post_pass, True)
+    assert any("1 shop(s) that still list rejoined" in x for x in out)
+    assert client.portal.call(e.fleets)[0]["wants"]["ami_trade_controller"] == 3
+    job = next(j for j in client.portal.call(e.jobs) if "rejoin" in (j.get("title") or ""))
+    assert job["steps"][0]["body"]["configuration"]["add_tags"] == ["fleet:tp", "at:sol-4-l4"]
+    assert client.portal.call(db.kv_get, tp.KV)["tp"]["consolidate"]["by"] == "rejoin"

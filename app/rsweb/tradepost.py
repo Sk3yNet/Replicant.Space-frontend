@@ -666,7 +666,8 @@ class TradePostMixin:
                 if await self.create_job("trade_post", f"trade post {f.get('name')}: {len(loose)} controller(s) no longer in "
                                          "the fleet unpinned, spare", None, steps, {"devices": [d["device_code"] for d in loose]}):
                     out.append(f"{f.get('name')}: {len(loose)} controller(s) left the fleet: spare")
-            if st.get("consolidate") and not dry:
+            back = await self._trade_post_rejoin(f, st, pl, devices, cache, busy, out) if not dry else False
+            if st.get("consolidate") and not dry and not back:   # rejoining shops are read (and emptied) from next pass
                 await self._trade_post_consolidate(f, st, pl, by, busy, out)
             claims = st.setdefault("claims", {})
             gives = [g for g in pl["give"] if g["code"] in by and g["code"] not in busy]
@@ -701,6 +702,42 @@ class TradePostMixin:
             await self.log("trade_post", line)
         return out
 
+    async def _trade_post_wants(self, f: dict, n: int, out: list[str]) -> None:
+        items = await self.fleets()
+        for x in items:
+            if x.get("id") == f["id"] and int((x.get("wants") or {}).get("ami_trade_controller") or 0) != n:
+                x.setdefault("wants", {})["ami_trade_controller"] = n
+                await self.save_fleets(items)
+                out.append(f"{f.get('name')}: {n} AMI trade controllers wanted ({PER_SHOP} listings each)")
+
+    async def _trade_post_rejoin(self, f: dict, st: dict, pl: dict, devices: list[dict], cache: dict, busy: set,
+                                 out: list[str]) -> bool:
+        """A controller that left the fleet while it still lists the post's trades (live 2026-11-22: Loadouts let go
+        of 6 listing shops when consolidation lowered the wanted count) rejoins it at the spot, and consolidation
+        (re)starts so its listings move to the kept shops. Their types looked unlisted meanwhile, so stock was printed."""
+        from .db import now_iso
+        from .fleets import fleet_tag
+        from .loadouts import at_tag, tag_step
+        from .shop import is_shop
+        spot = pl.get("location")
+        if not spot:
+            return False
+        mine = {c["device_code"] for c in controllers(f, devices)}
+        back = [d for d in devices if is_shop(d) and d.get("device_code") not in mine and d.get("location") == spot
+                and d["device_code"] not in busy and not any(str(t).startswith("fleet:") for t in d.get("tags") or [])
+                and (cache.get(d["device_code"]) or {}).get("trades")]   # its last read listed something
+        if not back:
+            return False
+        await self._trade_post_wants(f, len(mine) + len(back), out)
+        steps = [tag_step(d["device_code"], [fleet_tag(f["id"]), at_tag(spot)], ["spare"]) for d in back]
+        if await self.create_job("trade_post", f"trade post {f.get('name')}: {len(back)} shop(s) still listing rejoin: "
+                                 f"{', '.join(d['device_code'] for d in back)}", None, steps,
+                                 {"devices": [d["device_code"] for d in back]}):
+            out.append(f"{f.get('name')}: {len(back)} shop(s) that still list rejoined the post")
+            st.setdefault("consolidate", {"at": now_iso(), "by": "rejoin"})
+            return True
+        return False
+
     async def _trade_post_consolidate(self, f: dict, st: dict, pl: dict, by: dict, busy: set, out: list[str]) -> None:
         """Consolidation's second half (owner 2026-11-22): the emptied shops close (clear_directive) and leave the fleet
         as spares, the fleet wants only the shops it needs, and once no other shop lists anything it is over."""
@@ -709,13 +746,9 @@ class TradePostMixin:
         from .fleets import fleet_tag
         from .loadouts import tag_step
         need = shops_needed(f)
-        items = await self.fleets()
-        for x in items:
-            if x.get("id") == f["id"] and int((x.get("wants") or {}).get("ami_trade_controller") or 0) != need:
-                x.setdefault("wants", {})["ami_trade_controller"] = need
-                await self.save_fleets(items)
-                out.append(f"{f.get('name')}: {need} AMI trade controllers wanted ({PER_SHOP} listings each)")
         drop = [by[c] for c in pl.get("drop") or [] if c in by and c not in busy]
+        # wanted controllers drop to `need` only once it is over: lowered early, Loadouts let go of 6 shops that still
+        # listed (live 2026-11-22), so their 19 types looked unlisted and were printed again
         if drop:
             steps = []
             for d in drop:
@@ -731,6 +764,7 @@ class TradePostMixin:
                 st.setdefault("consolidated", {"at": now_iso(), "freed": []})["freed"] += [d["device_code"] for d in drop]
         c = pl.get("consolidating") or {}
         if c.get("keep") and not c.get("left") and not pl.get("moves") and not pl.get("drop"):
+            await self._trade_post_wants(f, need, out)
             done = st.pop("consolidate")
             freed = (st.get("consolidated") or {}).get("freed") or []
             st["consolidated"] = {"at": now_iso(), "by": (done or {}).get("by"), "freed": freed, "shops": len(c["keep"])}
