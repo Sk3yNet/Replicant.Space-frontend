@@ -164,16 +164,40 @@ def now_iso() -> str:
 # caller annotating star dicts (the map does) doesn't change the cached catalog.
 CACHED = {"stars"}
 SPLIT_KEYS = ("devices", "inventory", "stars")   # their VIRT… (simulated) part goes to sim:<key>
-ROW_KEYS = {"devices"}   # lists of devices stored one row each (device_rows) instead of one JSON value
+# lists stored one row per item (device_rows) instead of one JSON value: key -> the item field that names the row (None:
+# a digest of the item, for append-only lists such as the log). Jobs and the log were rewritten whole on every job step
+# and log line, ~20 MB a minute (write meter, 2026-11-23).
+ROW_KEYS: dict[str, str | None] = {"devices": "device_code", "automation_jobs": "id", "automation_log": None,
+                                   "fleets": "id"}
 ROWS_MARK = "__device_rows__"
 # dictionaries stored one row per entry (kv_rows): key -> the name of one part whose own entries are rows too (None:
 # only the top level). kv_get / kv_set behave as before for every caller.
-DICT_ROWS: dict[str, str | None] = {"surveyed": None, "others": "stars"}
+# A (name, field) pair: that part is a list of dictionaries, one row each, named by `field` (the star catalog's
+# "stars", by designation). Values that don't fit (duplicate names, other types) are stored whole as before.
+DICT_ROWS: dict[str, Any] = {"surveyed": None, "others": "stars", "stars": ("stars", "designation"),
+                             "census_stars": None, "locations": None}
 DICT_MARK = "__kv_rows__"
 _SEP = "\t"
 _MISSING = object()
 PACK_MAX = 8_000_000   # (2 MB until 1.407.0: four values read every tick had grown just past it)
 # saved values up to this many characters of JSON are also kept decoded in memory (kv_get)
+
+
+def _row_codes(field: str | None, value: Any) -> list | None:
+    """Each list item's row name (see ROW_KEYS), or None when `value` isn't such a list."""
+    if not isinstance(value, list):
+        return None
+    if field:
+        return [d.get(field) if isinstance(d, dict) else None for d in value]
+    codes, seen = [], {}
+    try:
+        for d in value:
+            h = hashlib.blake2b(marshal.dumps(d, 2), digest_size=8).hexdigest()
+            seen[h] = seen.get(h, 0) + 1
+            codes.append(h if seen[h] == 1 else f"{h}#{seen[h]}")
+    except ValueError:
+        return None
+    return codes
 
 
 def _copy(v: Any) -> Any:
@@ -385,7 +409,7 @@ class DB:
 
     async def _rows_write(self, key: str, value: Any) -> bool:
         """Store a list of devices by row. False: not such a list (stored as one value, as any other key)."""
-        codes = [d.get("device_code") if isinstance(d, dict) else None for d in value] if isinstance(value, list) else None
+        codes = _row_codes(ROW_KEYS.get(key, "device_code"), value)
         if not codes or not all(isinstance(c, str) and c for c in codes) or len(set(codes)) != len(codes):
             if self._rows.pop(key, None) is not None or await self._rows_load(key) is not None:
                 self._rows.pop(key, None)
@@ -416,18 +440,19 @@ class DB:
             self._rows[key]["all"] = old["all"]     # nothing a reader sees changed
         t0 = time.perf_counter()
         try:
-            perf.note_write(key, sum(len(t) for _, _, t in changed))
             if changed:
                 await self.conn.executemany(
                     "INSERT INTO device_rows(key, code, data) VALUES(?,?,?) "
                     "ON CONFLICT(key, code) DO UPDATE SET data=excluded.data", changed)
             if gone:
                 await self.conn.executemany("DELETE FROM device_rows WHERE key=? AND code=?", [(key, c) for c in gone])
+            mark = ""
             if changed or gone or first or codes != old["order"]:
+                mark = json.dumps({ROWS_MARK: True, "order": codes})
                 await self.conn.execute(
                     "INSERT INTO kv(key, value, updated_at) VALUES(?,?,?) "
                     "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
-                    (key, json.dumps({ROWS_MARK: True, "order": codes}), now_iso()))
+                    (key, mark, now_iso()))
             else:
                 await self.conn.execute("UPDATE kv SET updated_at=? WHERE key=?", (now_iso(), key))
             await self.conn.commit()
@@ -439,6 +464,7 @@ class DB:
                 pass
             raise
         self._digest.pop(key, None)
+        perf.note_write(key, sum(len(t) for _, _, t in changed) + len(mark))
         perf.note_query((time.perf_counter() - t0) * 1000)
         return True
 
@@ -449,15 +475,25 @@ class DB:
         if not isinstance(value, dict):
             return None
         deep, out = DICT_ROWS.get(key), {}
+        field = None
+        if isinstance(deep, tuple):
+            deep, field = deep
         for k, v in value.items():
             if not isinstance(k, str) or _SEP in k:
                 return None
-            if k == deep and isinstance(v, dict):
+            if k == deep and field is None and isinstance(v, dict):
                 out[k] = {}
                 for k2, v2 in v.items():
                     if not isinstance(k2, str):
                         return None
                     out[k + _SEP + k2] = v2
+            elif k == deep and field is not None and isinstance(v, list):
+                out[k] = []
+                for item in v:
+                    name = item.get(field) if isinstance(item, dict) else None
+                    if not isinstance(name, str) or not name or k + _SEP + name in out:
+                        return None
+                    out[k + _SEP + name] = item
             else:
                 out[k] = v
         return out
@@ -471,8 +507,12 @@ class DB:
                 part = out.setdefault(top, {})
                 if isinstance(part, dict):
                     part[sub] = v
+                elif isinstance(part, list):
+                    part.append(v)
+            elif isinstance(v, (dict, list)) and not v:
+                out[c] = type(v)()     # a part whose entries are rows: a fresh one to fill, never the stored one
             else:
-                out[c] = v if not isinstance(v, dict) or v else {}
+                out[c] = v
         return out
 
     async def _drows_load(self, key: str) -> dict | None:
@@ -480,7 +520,7 @@ class DB:
         if key in self._drows:
             return self._drows[key]
         ver = self._ver.get(key, 0)
-        row = await self.fetchone("SELECT value FROM kv WHERE key=?", (key,))
+        row = await self.fetchone("SELECT substr(value, 1, 40) AS value FROM kv WHERE key=?", (key,))
         if not row or not row["value"].startswith('{"' + DICT_MARK):
             return None
         rows = await self.fetchall("SELECT code, data FROM kv_rows WHERE key=? ORDER BY rowid", (key,))
@@ -550,12 +590,15 @@ class DB:
 
     async def kv_get(self, key: str, default: Any = None) -> Any:
         t0 = time.perf_counter()
-        if key in DICT_ROWS:
+        if key in DICT_ROWS and key not in self._cache:
             st = await self._drows_load(key)
             if st is not None:
                 if st["all"] is None:
                     st["all"] = marshal.dumps(self._assemble(st["obj"]))
                 value = marshal.loads(st["all"])
+                if key in CACHED and key not in self._cache and st is self._drows.get(key):
+                    self._cache[key] = value          # its own copy (shares nothing with the rows)
+                    value = _copy(value)
                 perf.note_kv(key, 0, (time.perf_counter() - t0) * 1000)
                 return value
         if key in self._cache:
@@ -604,7 +647,7 @@ class DB:
         """fn(value of `key`), worked out once and shared until the key is next written. Callers must not change the
         result. For the hot readers of the star catalog (tens of thousands of stars, read every pass): copying it on each
         read and rebuilding the same lookups was most of an engine pass (2026-10-21)."""
-        if key in ROW_KEYS and (key, name) not in self._derived:
+        if (key in ROW_KEYS or key in DICT_ROWS) and (key, name) not in self._derived:
             ver = self._ver.get(key, 0)
             out = fn(await self.kv_get(key, default))
             if self._ver.get(key, 0) != ver:

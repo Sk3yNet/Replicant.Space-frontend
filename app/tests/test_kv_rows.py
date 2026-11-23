@@ -52,3 +52,66 @@ def test_write_meter_reports_bytes_per_key():
     perf.note_write("meter-test", 0)
     row = next(r for r in perf.writes_report(50)["rows"] if r["key"] == "meter-test")
     assert row["n"] == 2 and row["mb"] == 2.0
+
+
+def test_jobs_and_log_store_one_row_per_item(tmp_path):
+    async def go():
+        path = str(tmp_path / "t.sqlite")
+        db = DB(path)
+        await db.open()
+        jobs = [{"id": f"j{i}", "status": "running", "steps": ["x" * 2000]} for i in range(50)]
+        await db.kv_set("automation_jobs", jobs)
+        log = [{"at": "t", "rule": "r", "text": "same"}] * 3 + [{"at": f"t{i}", "rule": "r", "text": "x" * 500} for i in range(200)]
+        await db.kv_set("automation_log", log)
+        perf.writes.pop("automation_jobs", None)
+        perf.writes.pop("automation_log", None)
+        jobs = await db.kv_get("automation_jobs")
+        jobs[7]["status"] = "done"
+        await db.kv_set("automation_jobs", jobs)
+        log = (await db.kv_get("automation_log"))[1:] + [{"at": "new", "rule": "r", "text": "y"}]
+        await db.kv_set("automation_log", log)
+        assert perf.writes["automation_jobs"][1] < 8000      # one job and the order, not fifty jobs
+        assert perf.writes["automation_log"][1] < 10000       # one line and the order, not 100 KB
+        await db.close()
+        db = DB(path)
+        await db.open()
+        assert (await db.kv_get("automation_jobs"))[7]["status"] == "done"
+        got = await db.kv_get("automation_log")
+        assert got == log and got[0] == got[1] == {"at": "t", "rule": "r", "text": "same"}
+        await db.close()
+    asyncio.run(go())
+
+
+def test_star_catalog_stored_by_star_keeps_its_order_and_cache(tmp_path):
+    async def go():
+        path = str(tmp_path / "t.sqlite")
+        db = DB(path)
+        await db.open()
+        cat = {"stars": [{"designation": f"S{i}", "x": i, "planets": [{"n": 1}]} for i in range(3000)],
+               "sources": {"catalogue": 3000}}
+        await db.kv_set("stars", cat)
+        perf.writes.pop("stars", None)
+        c = await db.kv_get("stars")
+        c["stars"].append({"designation": "NEW", "x": -1})
+        c["stars"][5]["entry_point"] = "S5-1-L4"
+        await db.kv_set("stars", c)
+        assert perf.writes["stars"][1] < 500             # two stars, not three thousand
+        c2 = await db.kv_get("stars")
+        c2["stars"][0]["x"] = 99                          # a caller's copy is its own
+        assert (await db.kv_get("stars"))["stars"][0]["x"] == 0
+        await db.close()
+        db = DB(path)
+        await db.open()
+        got = await db.kv_get("stars")
+        assert [s["designation"] for s in got["stars"][:2]] == ["S0", "S1"] and got["stars"][-1]["designation"] == "NEW"
+        assert got["stars"][5]["entry_point"] == "S5-1-L4" and got["sources"] == {"catalogue": 3000}
+        got["stars"][1]["x"] = 7                          # each star dict is the caller's own (CACHED contract)
+        assert (await db.kv_get("stars"))["stars"][1]["x"] == 1
+        dup = {"stars": [{"designation": "A"}, {"designation": "A"}]}   # duplicate names: stored whole
+        await db.kv_set("stars", dup)
+        await db.close()
+        db = DB(path)
+        await db.open()
+        assert await db.kv_get("stars") == dup
+        await db.close()
+    asyncio.run(go())

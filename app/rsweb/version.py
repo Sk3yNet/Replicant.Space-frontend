@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.534.1"
+VERSION = "1.535.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.535.0", "2026-11-23", "Fewer disk writes, part 2 (from the write meter): automation jobs, the automation log and fleets are stored one row per item, and the star catalog one row per star (census stars and locations by entry), so a job step, a log line or a newly found star writes kilobytes instead of the whole value (jobs and the log were about 20 MB a minute)."),
     ("1.534.1", "2026-11-23", "Diagnostics › Performance and the Claude connector's storage figures (table counts, largest values) run on a database connection of their own and are kept 15 minutes: on the shared read connection their whole-table scans held every page up for 20 s or more."),
     ("1.534.0", "2026-11-23", "Fewer disk writes: the survey record (`surveyed`, 8.9 MB) and other players' devices (`others`, 13 MB) are stored one row per entry, so a change writes only what changed instead of the whole value (the survey record was written whole after every finished scan, about 13 a minute, over 100 MB a minute). Diagnostics › Performance lists the MB written per saved value over the last hour."),
     ("1.533.0", "2026-11-23", "Rock chasers: auto launch with no launch-at body aims at the lowest-numbered planet of the home system with no life on it, and skips a body the game refuses (Chaser_2 had two rocks marked and never launched: the body was blank). New option *mine the belt between rocks* (on): while there is no rock to work, the idle rigs mine the home system's richest belt, what the stockpile is lowest on first, until a rock comes in."),
