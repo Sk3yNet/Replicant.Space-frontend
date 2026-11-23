@@ -1328,7 +1328,7 @@ class OpsRules:
                     o["read_error"] = e.message
                 continue
             reading = body.get("object") if isinstance(body.get("object"), dict) else None
-            if o.get("overdue") and (not reading or str(reading.get("status") or "") in ("impacted", "diverted", "destroyed")):
+            if o.get("overdue") and (not reading or str(reading.get("status") or "") in dfn.INACTIVE):
                 o["closed"] = str((reading or {}).get("status") or "gone")   # past its ETA and no longer incoming
                 o["closed_at"] = now_iso()
                 continue

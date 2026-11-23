@@ -498,8 +498,13 @@ class AutomationEngine(JobsMixin, LoadoutMixin, FleetsMixin, MiningRulesMixin, O
                     perf.note_stage(stage, (time.perf_counter() - t_stage) * 1000, (time.thread_time() - c_stage) * 1000)
                 self.stage_errors.pop(stage, None)
                 if stage == "civ_beacon_pass":
+                    # only what changed since the last pass: the same ~170 "no beacon, vessel or autofactory" lines
+                    # every tick pushed everything else out of the 300-line log within minutes (2026-11-23)
+                    seen = getattr(self, "_civ_lines", set())
                     for line in out or []:
-                        await self.log("civ_beacons", line)
+                        if line not in seen:
+                            await self.log("civ_beacons", line)
+                    self._civ_lines = set(out or [])
             self.stage = None
             self.tick_n += 1
             await self.note_tick()

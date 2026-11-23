@@ -270,6 +270,7 @@ NO_SITE_RE = re.compile(r"\bno \w+ remaining at any active site", re.I)
 # "No conductive remaining at salvage site" (live 2026-11-12, FALQUORYX-2-2): our copy of the salvage's amounts is stale;
 # the resource is noted in kv salvage_gone {body: [resource]} and never asked for there again
 SALVAGE_GONE_RE = re.compile(r"\bno (\w+) remaining at salvage site", re.I)
+EMPTY_HOLD_RE = re.compile(r"cargo is empty", re.I)   # deposit_resources with nothing aboard
 QUIET_SKIP_RE = re.compile(NO_SITE_RE.pattern + r"|nothing to activate|maximum active sites|" + SALVAGE_GONE_RE.pattern, re.I)
 BUSY_RETRY_S, BUSY_TRIES = 300, 36   # retry such a refusal every 5 min, for up to 3 h
 # the game server itself failing (a 502/503/504 answer, or no answer): nothing was done, so send the same step again

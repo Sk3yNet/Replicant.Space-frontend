@@ -2804,3 +2804,36 @@ def test_print_queue_timed_redraws_read_no_game(client):
         assert reads
     finally:
         w.api.request = real
+
+
+def test_a_mined_out_rock_is_no_threat():
+    """Live 2026-11-23: SOLARES-OBJ-1 read "depleted" for 4 h and two propulsors there were told to activate every
+    5 min ("System object is no longer active")."""
+    from rsweb import defence as dfn
+    dev = {"device_code": "P1", "device_type": "propulsor", "location": "SOL-OBJ-9", "status": "idle"}
+    a = dfn.assess({"designation": "SOL-OBJ-9", "impact_eta": "2099-01-01T00:00:00Z", "status": "depleted",
+                    "impact_likelihood": 96.8, "required_strength": 24, "progress_pct": 3.2}, [dev], {})
+    assert not a["threat"]
+    assert dfn.plan(a, [dev], {}, set(), {})["activate"] == []
+
+
+def test_deposit_with_an_empty_hold_is_done(client):
+    """Live 2026-11-23: deposits planned from a stale device list stopped five logistics jobs with "Cargo is empty";
+    a hold the same job loaded still stops it."""
+    eng = client.app.state.worker.automations
+    from rsweb.automations import step
+
+    async def fake_send(method, path, body, label):
+        if body.get("command") == "deposit_resources":
+            return False, None, "Cargo is empty"
+        return True, {"status": "ok"}, None
+    eng.send = fake_send
+    dep = step("C: deposit at X-BELT-1", "/devices/C", {"command": "deposit_resources"}, critical=True)
+    job = client.portal.call(eng.create_job, "logistics", "deposit only", "C", [dep], {"devices": ["C"]}, True)
+    job = next(j for j in client.portal.call(eng.jobs) if j["id"] == job["id"])
+    assert job["status"] == "done", [(x["desc"], x["status"], x.get("error")) for x in job["steps"]]
+    load = step("C: load", "/devices/C", {"command": "collect_resources", "resources": {"carbon": 5}}, critical=True)
+    dep = step("C: deposit at X-BELT-1", "/devices/C", {"command": "deposit_resources"}, critical=True)
+    job = client.portal.call(eng.create_job, "logistics", "load and deposit", "C", [load, dep], {"devices": ["C"]}, True)
+    job = next(j for j in client.portal.call(eng.jobs) if j["id"] == job["id"])
+    assert job["status"] == "failed"

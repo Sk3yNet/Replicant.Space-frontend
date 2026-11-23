@@ -553,6 +553,20 @@ class ChaseMixin:
         if j and j["status"] in ("running", "waiting", "pending"):
             return []
         dry = {r: t for r, t in (b.get("dry") or {}).items()}
+        from . import sites
+        for st in (j or {}).get("steps") or []:
+            if (st.get("body") or {}).get("command") == "start_mining" and st.get("status") in ("failed", "skipped") \
+                    and "exhausted" in str(st.get("error") or "").lower():
+                # "Belt exhausted - no active resource sites" (live 2026-11-23: Chaser_5 sent its rigs to FALQUORYX-BELT-1
+                # every ~90 s for two hours, each job stopping after 3 refusals): remembered for 12 h like a drone's refusal
+                ex = await self.db.kv_get("exhausted_places", {}) or {}
+                ex[belt] = now_iso()
+                await self.db.kv_set("exhausted_places", ex)
+                break
+        if belt in sites.exhausted_belts(devices, await self.exhausted_places()):
+            run["belt"] = {"at": belt, "dry": dry}
+            run["belt_note"] = f"{belt} is exhausted (no open sites): the rigs wait for the next rock"
+            return []
         for st in (j or {}).get("steps") or []:   # the game said no open site has it: try the next resource
             body = st.get("body") or {}
             if body.get("command") == "start_mining" and st.get("status") in ("failed", "skipped") \

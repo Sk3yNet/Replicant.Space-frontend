@@ -506,6 +506,16 @@ class JobsMixin:
                         await self.log(job["rule"], f"{job['title']}: '{st['desc']}' — {err}; trying again every "
                                                     f"{BUSY_RETRY_S // 60} min")
                     return
+                if (st.get("body") or {}).get("command") == "deposit_resources" and EMPTY_HOLD_RE.search(err or "") \
+                        and not any(x.get("status") == "done" and (x.get("body") or {}).get("command") == "collect_resources"
+                                    and x.get("path") == st.get("path") for x in job["steps"][:job["idx"]]):
+                    # a hold planned from a stale device list that was emptied already (live 2026-11-23, five jobs
+                    # stopped "Cargo is empty"): nothing to unload is the unload done. A hold this job loaded still stops.
+                    st["status"] = "skipped"
+                    await self.log(job["rule"], f"{job['title']}: '{st['desc']}': the hold was already empty", "info")
+                    job["idx"] += 1
+                    await self._update(job)
+                    continue
                 if st["critical"]:
                     st["status"] = "failed"
                     job["status"] = "failed"

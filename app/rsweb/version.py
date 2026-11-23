@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.535.0"
+VERSION = "1.536.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.536.0", "2026-11-23", "Automation check fixes. A full device sync no longer undoes an order answered while it was paging (deposits answered with an empty hold came back full, and the next logistics pass sent the carrier to deposit again: five jobs stopped \"Cargo is empty\"); a deposit with nothing aboard now counts as done unless the same job loaded that hold. A mined-out rock (status depleted) is no threat: SOLARES-OBJ-1's two propulsors were told to activate every 5 minutes for 4 hours. Rock chasers skip an exhausted home belt for 12 h (Chaser_5 sent its rigs to FALQUORYX-BELT-1 every 90 s for two hours). The beacon pass logs only lines that changed, so its ~170 repeated lines no longer push everything else out of the automation log."),
     ("1.535.0", "2026-11-23", "Fewer disk writes, part 2 (from the write meter): automation jobs, the automation log and fleets are stored one row per item, and the star catalog one row per star (census stars and locations by entry), so a job step, a log line or a newly found star writes kilobytes instead of the whole value (jobs and the log were about 20 MB a minute)."),
     ("1.534.1", "2026-11-23", "Diagnostics › Performance and the Claude connector's storage figures (table counts, largest values) run on a database connection of their own and are kept 15 minutes: on the shared read connection their whole-table scans held every page up for 20 s or more."),
     ("1.534.0", "2026-11-23", "Fewer disk writes: the survey record (`surveyed`, 8.9 MB) and other players' devices (`others`, 13 MB) are stored one row per entry, so a change writes only what changed instead of the whole value (the survey record was written whole after every finished scan, about 13 a minute, over 100 MB a minute). Diagnostics › Performance lists the MB written per saved value over the last hour."),

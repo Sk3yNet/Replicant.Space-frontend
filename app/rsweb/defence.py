@@ -31,6 +31,10 @@ CONCLUDED = "concluded (impact time passed)"
 # past its ETA and not reported impacted or diverted: keep away for this long (SOLARES-OBJ-6 struck 18.5 h late, 2026-11-08)
 OVERDUE_H = 48
 OVERDUE = "overdue (past its impact time, not reported down yet)"
+# statuses the game gives a rock that no longer comes in: nothing to divert. Live 2026-11-23: SOLARES-OBJ-1 read
+# "depleted" (mined out) for 4 h, and every 5 min two propulsors there were told to activate ("System object is no
+# longer active")
+INACTIVE = {"depleted", "impacted", "diverted", "destroyed", "inactive", "gone"}
 
 OFF_TARGET = "off_target"   # v3.6.0 (2026-10-21): diverted, still navigable and minable until the ETA (system.object_off_target)
 
@@ -178,6 +182,7 @@ def assess(obj: dict, devices: list[dict], bps: dict[str, dict], now: datetime |
             "resources_left": resources_left(obj),
             "overdue": bool(obj.get("overdue")),
             "threat": verdict not in ("diverted", "diverted enough", "too late", "launched by you", OVERDUE)
+            and str(obj.get("status") or "active").lower() not in INACTIVE
             and not obj.get("closed") and likelihood > 0}
 
 

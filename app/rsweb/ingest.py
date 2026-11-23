@@ -1030,7 +1030,18 @@ class Worker:
             else:
                 d.pop("folded", None)
         await self._note_relay_states(devices)
-        await self.db.kv_set("devices", devices)
+        async with self.devices_lock:
+            # an order answered after `prev` was read (the awaits above take a while): its answer is on the stored list
+            # now, and writing this list as it is would undo it (live 2026-11-23: deposits answered "cargo: []" came
+            # back as full holds, and the next logistics pass sent 2D6BFDF1 to deposit again: "Cargo is empty")
+            now = {d.get("device_code"): d for d in await self.db.kv_get("devices", []) or []
+                   if (d.get("_unconfirmed") or {}).get("t", 0) > t0}
+            for d in devices if now else []:
+                h = now.get(d.get("device_code"))
+                if h:
+                    d.update({k: h[k] for k in (*self.REPLY_FIELDS, "travel", "_unconfirmed", "stowed_in_device_code",
+                                                "attached_to_device_code", "location") if k in h})
+            await self.db.kv_set("devices", devices)
         self.hub.publish("state", "devices")
         try:   # lost equipment: out of sight (surging, unlisted, out of range) until seen again
             from .lost import track
