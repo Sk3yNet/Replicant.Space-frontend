@@ -1530,3 +1530,14 @@ def test_idle_fleet_away_from_home_gathers_and_goes_home_together(client):
     assert client.portal.call(eng.gather_home, f, devices, True)               # Back to station forces it
     g = {**f, "home": "AAA", "mission": {"status": "done"}}
     assert client.portal.call(eng.gather_home, g, devices, True) is None        # at home already
+
+
+def test_template_save_takes_a_large_grid(client):
+    """Six templates × ~85 device types × 2 boxes passed Starlette's 1,000-field default: every save got a 400."""
+    client.post("/loadouts/phases", data={"new_phase": "Big"}, headers=HX)
+    pid = client.portal.call(client.app.state.db.kv_get, "loadouts")["phases"][0]["id"]
+    data = {f"want:{pid}:t{i}": "" for i in range(1500)}
+    data[f"want:{pid}:mining_drone"] = "3"
+    r = client.post("/loadouts/phases", data=data, headers=HX)
+    assert r.status_code == 200
+    assert client.portal.call(client.app.state.db.kv_get, "loadouts")["phases"][0]["wants"] == {"mining_drone": 3}

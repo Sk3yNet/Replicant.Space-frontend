@@ -14,7 +14,8 @@ async def loadouts_page(request: Request, user: str = Depends(current_user)):
 
 @router.post("/loadouts/phases", response_class=HTMLResponse)
 async def loadouts_save_phases(request: Request, user: str = Depends(current_user)):
-    form = await request.form()
+    # Two boxes per device type per template: 6 templates passed Starlette's 1,000-field default and every save got a 400.
+    form = await request.form(max_fields=FORM_MAX_FIELDS)
     cfg = await request.app.state.worker.automations.loadout_cfg()
     for ph in cfg["phases"]:
         pid = ph["id"]

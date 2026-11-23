@@ -2302,6 +2302,9 @@ async def loadout_ctx(request: Request) -> dict:
             "all_tags": sorted({t for d in st["devices"] for t in (d.get("tags") or [])})}
 
 
+FORM_MAX_FIELDS = 20000   # for grid forms (templates × device types); Starlette's default is 1,000
+
+
 async def save_loadouts(request: Request, cfg: dict) -> None:
     await request.app.state.db.kv_set("loadouts", {k: v for k, v in cfg.items() if k != "fleets"})
 
