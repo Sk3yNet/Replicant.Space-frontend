@@ -646,3 +646,56 @@ def test_search_every_zero_searches_again_once_results_are_read():
     assert rc.upgrade_search(fl) and fl[0]["chase"]["search_hours"] == 0.0 and fl[1]["chase"]["search_hours"] == 6.0
     fl[0]["chase"]["search_hours"] = 3.0
     assert not rc.upgrade_search(fl) and fl[0]["chase"]["search_hours"] == 3.0   # once only: later choices stay
+
+
+def test_default_launch_body_is_the_lowest_planet_without_life():
+    """Joe 2026-11-23: Chaser_2 had auto launch on and no launch-at body, so it never launched."""
+    scan = {"planets": [{"designation": "SOL-3"}, {"designation": "SOL-1", "life_stage": "intelligent"},
+                        {"designation": "SOL-2"}, {"designation": "SOL-4", "moons": [{"designation": "SOL-4-1"}]}]}
+    assert rc.default_body("SOL", scan) == "SOL-2"
+    assert rc.default_body("SOL", scan, {"SOL-2": "refused"}) == "SOL-3"
+    assert rc.default_body("SOL", {}) is None
+
+
+def test_auto_launch_without_a_body_uses_the_default_and_skips_a_refused_one(client):  # noqa: F811
+    import json
+    charge = {"device_code": "VC1", "device_type": "vector_charge", "location": "SOL-KUIPER-001", "status": "idle",
+              "tags": ["fleet:rc"], "features": ["cruise"], "available_commands": ["detonate", "travel"]}
+    db, e = _setup(client, [rig("RIG1", "SOL-1"), charge], {}, {"auto_launch": True})
+    scan = {"planets": [{"designation": "SOL-1", "life_stage": "microbial"}, {"designation": "SOL-2"}, {"designation": "SOL-3"}]}
+    client.portal.call(db.execute, "INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
+                       ("SOL", json.dumps(scan), iso(0)))
+    f = client.portal.call(e.fleets)
+    f[0]["chase_run"] = {"searched": {"SOL": iso(0)}, "read": {"SOL": iso(0)}, "refused": {"SOL-2": "Cannot target"},
+                         "marked": {"SOL-KUIPER-001": {"star": "SOL", "composition": "ice", "mass_class": "medium",
+                                                       "found_at": iso(0)}}}
+    client.portal.call(e.save_fleets, f)
+    out = client.portal.call(e.rock_chase_pass)
+    assert any("SOL-KUIPER-001 at SOL-3" in x for x in out), out   # the mock game doesn't know VC1
+    run = client.portal.call(e.fleets)[0]["chase_run"]
+    assert run["launch_body"] == "SOL-3" and "SOL-3" not in run["refused"]   # "Device not found" isn't the body's fault
+
+
+def test_idle_rigs_mine_the_home_belt_until_a_rock_comes_in(client):  # noqa: F811
+    """Joe 2026-11-23: between rocks Chaser_1's five rigs sat idle at RENGRELOR-KUIPER."""
+    import json
+    db, e = _setup(client, [rig("RIG1", "SOL-KUIPER", attached_to_device_code="PLAT"), carrier("PLAT", "SOL-KUIPER")], {})
+    scan = {"planets": [{"designation": "SOL-3"}],
+            "asteroid_belt": {"belts": [{"designation": "SOL-BELT-1", "resources": {"carbon": "rich", "volatiles": "low"}}]},
+            "outer_system": {"kuiper": {"designation": "SOL-KUIPER", "distance_au": 40}}}
+    client.portal.call(db.execute, "INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
+                       ("SOL", json.dumps(scan), iso(0)))
+    client.portal.call(db.kv_set, "inventory", [{"location": "SOL-BELT-1", "items": {"carbon": 900, "volatiles": 10}}])
+    out = client.portal.call(e.rock_chase_pass)
+    assert "Chaser: no rock to work: rigs mine volatiles at SOL-BELT-1" in out, out
+    job = next(j for j in client.portal.call(e.jobs) if "until a rock comes in" in j["title"])
+    bodies = [st.get("body") for st in job["steps"]]
+    assert {"command": "travel", "destination": "SOL-BELT-1"} in bodies
+    assert bodies[-1] == {"command": "start_mining", "resource_type": "volatiles"}
+    # off: the rigs wait
+    f = client.portal.call(e.fleets)
+    f[0]["chase"]["belt_idle"] = False
+    f[0]["chase_run"].pop("belt", None)
+    client.portal.call(e.save_fleets, f)
+    client.portal.call(e.save_jobs, [])
+    assert not any("rigs mine" in x for x in client.portal.call(e.rock_chase_pass))

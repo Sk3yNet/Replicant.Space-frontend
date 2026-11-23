@@ -5,6 +5,7 @@
     · {{ run.phase }}{% if run.target %}: <a href="/defence"><b>{{ run.target }}</b></a>{% if run.resource %} ({{ run.resource }}){% endif %}{% endif %}
     {% if run.note %}<span class="muted"> · {{ run.note }}</span>{% endif %}
     {% if run.ship_note %}<span class="muted"> · {{ run.ship_note }}</span>{% endif %}
+    {% if run.belt_note %}<span class="muted"> · {{ run.belt_note }}</span>{% elif run.belt and run.belt.res %}<span class="muted"> · rigs mining {{ run.belt.res }} at {{ run.belt.at }} until a rock comes in</span>{% endif %}
     {% if run.target %}<form class="inline" hx-post="/fleets/{{ f.id }}/chase" hx-target="next .chase-out" hx-confirm="Drop {{ run.target }}? The fleet picks another rock (it skips this one for 6 h).">
       <input type="hidden" name="action" value="drop"><button class="small">Drop target</button></form>{% endif %}<span class="chase-out"></span></div>
   {# Joe 2026-11-19: where the rock mining process stands, step by step #}
@@ -73,8 +74,10 @@
           <span class="muted">How often the fleet's sensor array sweeps the Kuiper belt of the system it is in (needs a sensor array in the fleet, and a system with a Kuiper belt). 0: a new sweep as soon as the last one's results are in (about an hour). Default 0.</span></label>
         <label class="f">mark from <select name="launch_size">{% for s in ['small', 'medium', 'large'] %}<option {{ 'selected' if c.launch_size == s }}>{{ s }}</option>{% endfor %}</select>
           <span class="muted">Kuiper objects at least this big are listed below as marked for launch. Launched rocks arrive in 6 to 24 h, smaller ones slower. Default medium.</span></label>
-        <label class="f">launch at <input name="launch_at" value="{{ c.launch_at }}" placeholder="planet or moon, e.g. {{ f.home }}-3" size="16">
-          <span class="muted">The body a marked object is launched at: it hits there, with its terraform effect, unless mined out.</span></label>
+        <label class="f">launch at <input name="launch_at" value="{{ c.launch_at }}" placeholder="{{ run.launch_body or 'planet or moon, e.g. ' ~ f.home ~ '-3' }}" size="16">
+          <span class="muted">The body a marked object is launched at: it hits there, with its terraform effect, unless mined out. Empty: the lowest-numbered planet of {{ f.home }} with no life on it{% if run.launch_body %} (now {{ run.launch_body }}){% endif %}; a body the game refuses is skipped next time.</span></label>
+        <label class="f">mine the belt between rocks <input type="checkbox" name="belt_idle" {{ 'checked' if c.belt_idle }}>
+          <span class="muted">While there is no rock to work, the idle rigs mine {{ f.home }}'s richest belt, what the stockpile is lowest on first. They leave for the next rock as soon as one comes in. Default on.</span></label>
         <label class="f">wait at the Kuiper belt <input type="checkbox" name="stage_kuiper" {{ 'checked' if c.stage_kuiper }}>
           <span class="muted">Between rocks the fleet waits at {{ f.home }}'s Kuiper belt: the sensor array sweeps it and the vector charge is ready, close to a rock when it launches. Haulers and AMI controllers stay at the drop for the supply ferry. Default on.</span></label>
         <label class="f">slow launched rocks <input type="checkbox" name="slow_rocks" {{ 'checked' if c.slow_rocks }}>
@@ -91,6 +94,6 @@
     {% for des, m in marks | dictsort %}<div>• <span class="mono">{{ des }}</span> {{ m.get('mass_class') or '' }} {{ m.get('composition') or '' }} <span class="muted">found {{ m.get('found_at') | ago }}</span>
       <form class="inline" hx-post="/fleets/{{ f.id }}/chase" hx-target="next .chase-out" hx-confirm="Launch {{ des }}? A fleet vector charge is used up and the rock will strike the body you pick.">
         <input type="hidden" name="action" value="launch"><input type="hidden" name="rock" value="{{ des }}">
-        <input name="at" value="{{ c.launch_at }}" placeholder="planet or moon" size="12" required> <button class="small">Launch</button></form><span class="chase-out"></span></div>{% endfor %}
+        <input name="at" value="{{ c.launch_at or run.launch_body or '' }}" placeholder="planet or moon" size="12" required> <button class="small">Launch</button></form><span class="chase-out"></span></div>{% endfor %}
   </div>{% endif %}
 </div>

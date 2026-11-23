@@ -32,7 +32,7 @@ MODES = ("hub", "roam")
 DEFAULTS: dict[str, Any] = {"mode": "roam", "radius": 100.0, "min_size": "small", "priority": "", "min_hours": 2.0,
                             "leave_minutes": 80.0, "ship_min": 50.0, "drop": "", "keep_pct": 5.0, "launched_resources": "",
                             "search_hours": 0.0, "launch_size": "medium", "launch_at": "", "auto_launch": False,
-                            "follow_need": True, "stage_kuiper": True, "slow_rocks": True}
+                            "follow_need": True, "stage_kuiper": True, "slow_rocks": True, "belt_idle": True}
 SURGE_S_PER_LY = 50.0   # rough surge pace for ranking; the chosen trip is checked with the game's preview
 CRUISE_H = 0.25         # rough in-system trip for ranking
 KUIPER_HOURS = 24.0     # a detected Kuiper object stays this long (docs)
@@ -411,3 +411,36 @@ def marked(kuiper: list[dict], cfg: dict, star: str, at: str) -> dict[str, dict]
         if des and big_enough(k, cfg["launch_size"]):
             out[des] = {"star": star, "mass_class": size_of(k), "composition": k.get("composition"), "found_at": at}
     return out
+
+
+def default_body(star: str, scan: dict | None, refused: dict | set | None = None) -> str | None:
+    """Joe 2026-11-23: with no launch-at body set, auto launch aims at the lowest-numbered planet of the system with no
+    life on it (the game refuses inhabited bodies, Joe; any life stage counts), skipping bodies the game refused."""
+    from .traffic import inhabited
+    life = inhabited({star: scan or {}})
+    out = []
+    for p in (scan or {}).get("planets") or []:
+        des = str((p or {}).get("designation") or "").upper() if isinstance(p, dict) else ""
+        m = re.fullmatch(rf"{re.escape(star)}-(\d+)", des)
+        if m and des not in life and des not in (refused or ()):
+            out.append((int(m.group(1)), des))
+    return min(out)[1] if out else None
+
+
+BELT_DRY_HOURS = 3.0   # a resource the belt's open sites lack (the game's "No X remaining at any active site") rests this long
+
+
+def belt_choice(need: list[str], offered: list[str], dry: dict[str, str] | None = None, now: float | None = None) -> str | None:
+    """What idle rigs mine at the home belt (Joe 2026-11-23): the first resource of the stockpile's order the belt offers,
+    skipping ones lately refused; None when nothing is left."""
+    import time
+    now = now if now is not None else time.time()
+    from datetime import datetime
+    def fresh(t: str | None) -> bool:
+        try:
+            return now - datetime.fromisoformat(str(t)).timestamp() < BELT_DRY_HOURS * 3600
+        except (TypeError, ValueError):
+            return False
+    skip = {r for r, t in (dry or {}).items() if fresh(t)}
+    order = [r for r in (need or rm.RESOURCES) if r in offered and r not in skip]
+    return order[0] if order else None

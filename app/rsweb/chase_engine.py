@@ -1,6 +1,8 @@
 """Rock chaser fleets in the engine (rockchase.py has the rules): stage rock_chase_pass."""
 from __future__ import annotations
 
+import re
+
 import logging
 from datetime import datetime, timezone
 from typing import Any
@@ -146,7 +148,11 @@ class ChaseMixin:
             run.pop("target", None)
             out += await self._chase_move(f, cfg, run, ctx, k)
             if run.get("phase") == "idle" and not run.get("job"):
+                if cfg.get("belt_idle"):   # Joe 2026-11-23: no rock to work: the rigs mine the home belt meanwhile
+                    out += await self._chase_belt(f, cfg, run, ctx, k, need)
                 out += await self._chase_gather(f, cfg, run, ctx, k, ms)
+            else:
+                run.pop("belt", None)
         mining = run.get("target") if run.get("phase") == "mining" and run.get("target") == target and rigs_at else None
         # Joe 2026-11-21: the fleet's freighters keep clearing a worked rock's pile after the rigs left, until its
         # evacuation hour, and finish an earlier rock's before the new one's (logistics never goes to a rock)
@@ -481,6 +487,10 @@ class ChaseMixin:
             run["phase"] = "idle"
             return []
         rock = c["rock"]
+        bj = ctx["jobs"].get((run.get("belt") or {}).get("job"))
+        if bj and bj["status"] in ("running", "waiting", "pending"):   # the rigs are on their way to the belt: next pass
+            run["note"] = f"{rock} is next, once the rigs' trip to {run['belt'].get('at')} has ended"
+            return []
         car = k["carriers"][0] if k["carriers"] else None
         steps: list[dict] = []
         for d in k["rigs"]:   # rigs still mining somewhere else stop first
@@ -519,6 +529,79 @@ class ChaseMixin:
         out = [f"→ {rock} to mine {c['resource']}"]
         out += await self._chase_freighters(f, cfg, run, ctx, k, c["star"])
         return out
+
+    async def _chase_belt(self, f: dict, cfg: dict, run: dict, ctx: dict, k: dict, need: list[str]) -> list[str]:
+        """Joe 2026-11-23: while the fleet has no rock to work, its idle rigs mine the home system's richest belt, the
+        resource the stockpile is lowest on first (the supply ferry / logistics takes the belt's pile as any other). When a
+        rock comes in, _chase_move stops them and the carrier picks them up at the belt."""
+        from . import fleets as fl
+        from . import rockchase as rc
+        from .automations import step
+        from .engine_base import NO_SITE_RE
+        from .prospects import belt_resources
+        if (f.get("mission") or {}).get("status") in ("running", "stalled", "stopped"):
+            return []
+        home, devices, busy = f["home"], ctx["devices"], ctx["busy"]
+        scan = ctx["scans"].get(home)
+        belt = fl.richest_belt(home, scan)
+        if not belt:
+            run["belt_note"] = f"{home} has no asteroid belt: the rigs wait for the next rock"
+            return []
+        run.pop("belt_note", None)
+        b = run.get("belt") or {}
+        j = ctx["jobs"].get(b.get("job"))
+        if j and j["status"] in ("running", "waiting", "pending"):
+            return []
+        dry = {r: t for r, t in (b.get("dry") or {}).items()}
+        for st in (j or {}).get("steps") or []:   # the game said no open site has it: try the next resource
+            body = st.get("body") or {}
+            if body.get("command") == "start_mining" and st.get("status") in ("failed", "skipped") \
+                    and NO_SITE_RE.search(str(st.get("error") or "")):
+                dry[body.get("resource_type")] = now_iso()
+        res = rc.belt_choice(need, belt_resources(scan, belt), dry)
+        if not res:
+            run["belt"] = {"at": belt, "dry": dry}
+            run["belt_note"] = f"nothing left to mine at {belt} for now"
+            return []
+
+        def free(d: dict) -> bool:
+            return d["device_code"] not in busy and str(d.get("status") or "").lower() in ("idle", "inactive", "")
+        at_belt = [d for d in k["rigs"] if d.get("location") == belt and free(d)
+                   and not d.get("stowed_in_device_code") and not d.get("attached_to_device_code")]
+        away = [d for d in k["rigs"] if d not in at_belt and free(d) and (fl.tug(d, devices).get("location") or "").split("-")[0] == home
+                and not rc.is_rock(fl.tug(d, devices).get("location"))]
+        steps = [step(f"{d['device_code']}: mine {res} at {belt}", f"/devices/{d['device_code']}",
+                      {"command": "start_mining", "resource_type": res}) for d in at_belt]
+        codes = {d["device_code"] for d in at_belt}
+        car = k["carriers"][0] if k["carriers"] else None
+        ride = [d for d in away if not fl.flies_itself(d) or fl.tug(d, devices) is not d]
+        fly = [d for d in away if d not in ride]
+        for d in fly:
+            code = d["device_code"]
+            steps += [step(f"{code} → {belt}", f"/devices/{code}", {"command": "travel", "destination": belt}),
+                      fl._wait_arrive(code, belt),
+                      step(f"{code}: mine {res} at {belt}", f"/devices/{code}", {"command": "start_mining", "resource_type": res})]
+            codes.add(code)
+        if ride and car and car["device_code"] not in busy and (car.get("location") or "").split("-")[0] == home:
+            cc = car["device_code"]
+            keep = {d["device_code"] for d in k["surveyors"] + k["sensors"] + k["charges"]} | \
+                   {d["device_code"] for d in k["rigs"] if d not in ride}
+            stops, aboard, _left = self._passengers(k, car, devices, busy, keep)
+            if any(c in {d["device_code"] for d in k["rigs"]} for c, _ in aboard):
+                tour, _at = fl.pickup_tour(cc, car.get("location"), stops)
+                steps += tour + [step(f"{cc} → {belt}", f"/devices/{cc}", {"command": "travel", "destination": belt}),
+                                 fl._wait_arrive(cc, belt)] + self._arrive_steps(k, aboard, cc, belt, res)
+                codes |= {cc} | {c for c, _ in aboard}
+        if not steps:
+            return []
+        job = await self.create_job("rock_chaser", f"{f['name']}: rigs mine {res} at {belt} until a rock comes in",
+                                    sorted(codes)[0], steps, {"devices": sorted(codes), "fleet": f["id"]})
+        if not job:
+            return []
+        busy.update(codes)
+        run["belt"] = {"at": belt, "res": res, "job": job["id"], "since": now_iso(), "dry": dry}
+        run["note"] = (run.get("note") or "") + f"; meanwhile the rigs mine {res} at {belt}"
+        return [f"no rock to work: rigs mine {res} at {belt}"]
 
     async def _chase_gather(self, f: dict, cfg: dict, run: dict, ctx: dict, k: dict, ms: list[dict]) -> list[str]:
         """No target: members away from home come home, so the fleet sets out together next time (Joe 2026-11-14,
@@ -1005,6 +1088,16 @@ class ChaseMixin:
             run["inbound"] = inbound
         else:
             run.pop("inbound", None)
+        if not at and cfg.get("auto_launch"):   # Joe 2026-11-23: blank launch-at: the lowest-numbered body without life
+            at = rc.default_body(f["home"], ctx["scans"].get(f["home"]), run.get("refused")) or ""
+            if at:
+                run["launch_body"] = at
+            else:
+                run.pop("launch_body", None)
+                run["launch_note"] = (f"auto launch needs a launch-at body: no planet without life in {f['home']}'s scan"
+                                      + (" (refused: " + ", ".join(sorted(run.get("refused") or {})) + ")" if run.get("refused") else ""))
+        elif cfg.get("launch_at"):
+            run.pop("launch_body", None)
         if not req and cfg.get("auto_launch") and at:
             mine = f"fleet {f['name']}"
             flying = [d for d, v in (await self.db.kv_get(rc.LAUNCHED_KV, {}) or {}).items()
@@ -1034,6 +1127,9 @@ class ChaseMixin:
                                             f"auto: rock chaser launches {des}")
             if not ok:
                 req["note"] = f"launch failed: {err}"
+                if req.get("by") == "auto" and body == run.get("launch_body") and not cfg.get("launch_at") \
+                        and re.search(rf"inhabit|destination|target|{re.escape(body)}", str(err or ""), re.I):
+                    run.setdefault("refused", {})[body] = str(err or "?")[:200]   # the next pass aims at the next body
                 run.pop("launch", None)
                 run.setdefault("launch_log", []).append({"rock": des, "at": body, "error": err, "when": now_iso()})
                 return [f"launching {des} at {body} failed: {err}"]
