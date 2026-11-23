@@ -274,6 +274,22 @@ class DB:
         perf.note_query((time.perf_counter() - t0) * 1000)
         return rows
 
+    async def side_fetchall(self, queries: list[tuple[str, tuple]]) -> list[list[dict]]:
+        """Run long reads (whole-table counts and scans for diagnostics) on a connection of their own: on the shared
+        read connection they queued every page behind them for minutes on a slow disk (2026-11-23)."""
+        if not self.rconn:     # tests that never opened the read connection
+            return [await self.fetchall(q, p) for q, p in queries]
+        conn = await aiosqlite.connect(f"file:{self.path}?mode=ro", uri=True)
+        try:
+            conn.row_factory = aiosqlite.Row
+            out = []
+            for q, p in queries:
+                async with conn.execute(q, tuple(p)) as cur:
+                    out.append([dict(r) for r in await cur.fetchall()])
+            return out
+        finally:
+            await conn.close()
+
     async def fetchone(self, sql: str, params: Iterable[Any] = ()) -> dict | None:
         t0 = time.perf_counter()
         async with self._reader().execute(sql, tuple(params)) as cur:

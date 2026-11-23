@@ -300,31 +300,40 @@ def _table(d: dict) -> list[dict]:
                    for k, v in d.items()), key=lambda x: -x["avg_ms"])
 
 
+_storage: dict = {}
+STORAGE_TTL = 900   # seconds: the counts scan whole tables (over a minute on a slow disk with a 1.3 GB database)
+
+
 async def storage(db) -> dict:
-    """Rows per table, the database file size, and the largest saved values."""
-    tables = {}
-    for t in ("events", "inventory_history", "hub_inventory_history", "metric_history", "systems", "actions", "notifications", "timers", "kv"):
-        try:
-            tables[t] = (await db.fetchone(f"SELECT COUNT(*) AS n FROM {t}"))["n"]
-        except Exception:
-            tables[t] = None
+    """Rows per table, the database file size, and the largest saved values. Worked out on a connection of its own (it
+    never holds up a page) and kept STORAGE_TTL seconds."""
+    if _storage.get("db") == db.path and time.time() - _storage.get("t", 0) < STORAGE_TTL:
+        return _storage["v"]
+    tables_q = ("events", "inventory_history", "hub_inventory_history", "metric_history", "systems", "actions",
+                "notifications", "timers", "kv")
+    qs = [(f"SELECT COUNT(*) AS n FROM {t}", ()) for t in tables_q]
+    qs += [("SELECT kv.key, length(kv.value) + COALESCE(r.n, 0) AS bytes, kv.updated_at FROM kv LEFT JOIN "
+            "(SELECT key, SUM(length(data)) AS n FROM kv_rows GROUP BY key UNION ALL "
+            " SELECT key, SUM(length(data)) FROM device_rows GROUP BY key) r ON r.key = kv.key ORDER BY bytes DESC LIMIT 15", ()),
+           ("SELECT MIN(received_at) AS t FROM events", ()),
+           ("SELECT event, COUNT(*) AS n FROM events GROUP BY event ORDER BY n DESC LIMIT 30", ())]
+    res = await db.side_fetchall(qs)
+    tables = {t: (res[i][0]["n"] if res[i] else None) for i, t in enumerate(tables_q)}
+    big, oldest, kinds = res[len(tables_q)], (res[len(tables_q) + 1] or [{}])[0], res[len(tables_q) + 2]
     files = {}
     for suffix in ("", "-wal"):
         try:
             files["db" + suffix] = round(os.path.getsize(db.path + suffix) / 1048576, 1)
         except OSError:
             pass
-    big = await db.fetchall(
-        "SELECT kv.key, length(kv.value) + COALESCE(r.n, 0) AS bytes, kv.updated_at FROM kv LEFT JOIN "
-        "(SELECT key, SUM(length(data)) AS n FROM kv_rows GROUP BY key UNION ALL "
-        " SELECT key, SUM(length(data)) FROM device_rows GROUP BY key) r ON r.key = kv.key ORDER BY bytes DESC LIMIT 15")
-    oldest = await db.fetchone("SELECT MIN(received_at) AS t FROM events")
-    kinds = await db.fetchall("SELECT event, COUNT(*) AS n FROM events GROUP BY event ORDER BY n DESC LIMIT 30")
-    return {"tables": tables, "files_mb": files, "oldest_event": (oldest or {}).get("t"),
-            "events_by_kind": {r["event"]: r["n"] for r in kinds},   # what the history clean-up keeps or could drop
-            "history_pruned": await db.kv_get("history_pruned", None),
-            "history_compacted": await db.kv_get("history_compacted", None),
-            "kv_largest": [{"key": r["key"], "kb": round(r["bytes"] / 1024, 1), "updated_at": r["updated_at"]} for r in big]}
+    v = {"tables": tables, "files_mb": files, "oldest_event": oldest.get("t"),
+         "events_by_kind": {r["event"]: r["n"] for r in kinds},   # what the history clean-up keeps or could drop
+         "history_pruned": await db.kv_get("history_pruned", None),
+         "history_compacted": await db.kv_get("history_compacted", None),
+         "kv_largest": [{"key": r["key"], "kb": round(r["bytes"] / 1024, 1), "updated_at": r["updated_at"]} for r in big],
+         "as_of": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+    _storage.update(db=db.path, t=time.time(), v=v)
+    return v
 
 
 async def report(db) -> dict:
