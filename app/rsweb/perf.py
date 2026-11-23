@@ -51,6 +51,42 @@ def note_kv(key: str, size: int, ms: float) -> None:
         k[2] += ms
 
 
+# Saved values written, per key (db.kv_set): {key: [writes, bytes]} since the start, and per minute for the last hour.
+# A write of an unchanged value only moves its timestamp (0 bytes). Database overhead (pages, the write-ahead log and
+# its checkpoints) comes on top.
+writes: dict[str, list] = {}
+_write_min: dict[int, dict[str, list]] = {}
+_t_start = time.time()
+
+
+def note_write(key: str, nbytes: int) -> None:
+    m = int(time.time() // 60)
+    for d in (writes, _write_min.setdefault(m, {})):
+        w = d.setdefault(key, [0, 0])
+        w[0] += 1
+        w[1] += nbytes
+    if len(_write_min) > 61:
+        for k in sorted(_write_min)[:-61]:
+            del _write_min[k]
+
+
+def writes_report(n: int = 20) -> dict:
+    cut = int(time.time() // 60) - 60
+    hour: dict[str, list] = {}
+    for m, d in _write_min.items():
+        if m >= cut:
+            for k, (c, b) in d.items():
+                h = hour.setdefault(k, [0, 0])
+                h[0] += c
+                h[1] += b
+    mins = max(1.0, min(60.0, (time.time() - _t_start) / 60))
+    rows = sorted(({"key": k, "n": c, "mb": round(b / 1048576, 1), "mb_per_min": round(b / 1048576 / mins, 2),
+                    "total_mb": round(writes.get(k, [0, 0])[1] / 1048576, 1)} for k, (c, b) in hour.items()),
+                  key=lambda r: (-r["mb"], -r["n"]))
+    return {"minutes": round(mins), "mb": round(sum(b for _, b in hour.values()) / 1048576, 1),
+            "mb_per_min": round(sum(b for _, b in hour.values()) / 1048576 / mins, 2), "rows": rows[:n]}
+
+
 def note_api(ms: float) -> None:
     m = _cur.get()
     if m is not None:
@@ -278,7 +314,10 @@ async def storage(db) -> dict:
             files["db" + suffix] = round(os.path.getsize(db.path + suffix) / 1048576, 1)
         except OSError:
             pass
-    big = await db.fetchall("SELECT key, length(value) AS bytes, updated_at FROM kv ORDER BY bytes DESC LIMIT 15")
+    big = await db.fetchall(
+        "SELECT kv.key, length(kv.value) + COALESCE(r.n, 0) AS bytes, kv.updated_at FROM kv LEFT JOIN "
+        "(SELECT key, SUM(length(data)) AS n FROM kv_rows GROUP BY key UNION ALL "
+        " SELECT key, SUM(length(data)) FROM device_rows GROUP BY key) r ON r.key = kv.key ORDER BY bytes DESC LIMIT 15")
     oldest = await db.fetchone("SELECT MIN(received_at) AS t FROM events")
     kinds = await db.fetchall("SELECT event, COUNT(*) AS n FROM events GROUP BY event ORDER BY n DESC LIMIT 30")
     return {"tables": tables, "files_mb": files, "oldest_event": (oldest or {}).get("t"),
@@ -295,7 +334,7 @@ async def report(db) -> dict:
                            "avg_ms": round(waits["total_ms"] / max(waits["n"], 1), 1)},
             "loop_lag": {"max_ms": lag["max_ms"], "stalls_over_1s": lag["stalls"], "stalled_s": round(lag["stalled_ms"] / 1000, 1),
                          "by_stage": sorted(({"stage": k, **v} for k, v in lag["by_stage"].items()), key=lambda x: -x["total_ms"])[:15]},
-            "hot": hot_report(), "reads": reads_report(), "requests_seen": len(requests), "storage": await storage(db)}
+            "hot": hot_report(), "reads": reads_report(), "writes": writes_report(), "requests_seen": len(requests), "storage": await storage(db)}
 
 
 class Middleware:

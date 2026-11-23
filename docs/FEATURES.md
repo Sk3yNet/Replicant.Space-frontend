@@ -1034,8 +1034,9 @@ again. Trips you start yourself go as they are. A trip leaving the Delta sector 
 game's preview says it's faster.
 
 **Performance** (Diagnostics): pages slowest on average, the slowest requests with their queries, game API calls,
-engine lock waits and saved values decoded; engine stage timings and lock holds; table sizes and the largest saved
-values (also in the snapshot). Every page answer carries a Server-Timing header, and requests over 1 s are logged.
+engine lock waits and saved values decoded; engine stage timings and lock holds; **Saved values written** (MB per key
+over the last hour, to trace disk writes); table sizes and the largest saved values (also in the snapshot). The
+largest dictionaries (`surveyed`, `others`) are stored one row per entry, so a change writes only what changed. Every page answer carries a Server-Timing header, and requests over 1 s are logged.
 
 **Console presets**: every player endpoint of the live API (including equipment-locker retrieve), grouped and each with
 a one-line description, with fill-in blanks (replicant, device, location … with suggestions) that build the path and

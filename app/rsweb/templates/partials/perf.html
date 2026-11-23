@@ -35,6 +35,11 @@
 <table class="small"><tr><th>Holder</th><th class="num">Times</th><th class="num">Avg ms</th><th class="num">Max ms</th></tr>
   {% for s in perf.lock_holds %}<tr><td class="mono">{{ s.name }}</td><td class="num">{{ s.n }}</td><td class="num">{{ s.avg_ms }}</td>
     <td class="num">{{ s.max_ms }}</td></tr>{% endfor %}</table>
+<h3>Saved values written</h3>
+{% set wr = perf.writes %}
+<p class="small muted">What the app wrote to its saved values over the last {{ wr.minutes }} min: {{ wr.mb }} MB ({{ wr.mb_per_min }} MB/min). Writes of an unchanged value only move its timestamp (0 MB). The database adds its own overhead on top (pages, write-ahead log, checkpoints).</p>
+{% if wr.rows %}<table class="small"><tr><th>Key</th><th class="num">Writes</th><th class="num">MB</th><th class="num">MB/min</th><th class="num">MB since start</th></tr>
+  {% for k in wr.rows %}<tr><td class="mono">{{ k.key }}</td><td class="num">{{ k.n }}</td><td class="num">{{ k.mb }}</td><td class="num">{{ k.mb_per_min }}</td><td class="num">{{ k.total_mb }}</td></tr>{% endfor %}</table>{% endif %}
 <h3>Storage</h3>
 <p class="small">Database {{ perf.storage.files_mb.db }} MB{% if perf.storage.files_mb['db-wal'] is defined %} (+ {{ perf.storage.files_mb['db-wal'] }} MB write-ahead log){% endif %}.
   {% for t, n in perf.storage.tables.items() %}{{ t }}: {{ n }} rows{{ ', ' if not loop.last }}{% endfor %}.

@@ -126,6 +126,15 @@ CREATE TABLE IF NOT EXISTS device_rows (
     PRIMARY KEY (key, code)
 );
 
+-- Large dictionaries (DICT_ROWS), one row per entry: a change rewrites only the entries that changed, not megabytes
+-- (2026-11-23: "surveyed", 8.9 MB, was written whole after every finished scan, ~13 a minute). See DB._drows_write.
+CREATE TABLE IF NOT EXISTS kv_rows (
+    key TEXT NOT NULL,
+    code TEXT NOT NULL,
+    data TEXT NOT NULL,
+    PRIMARY KEY (key, code)
+);
+
 CREATE TABLE IF NOT EXISTS systems (
     star TEXT PRIMARY KEY,
     data TEXT NOT NULL,
@@ -157,6 +166,12 @@ CACHED = {"stars"}
 SPLIT_KEYS = ("devices", "inventory", "stars")   # their VIRT… (simulated) part goes to sim:<key>
 ROW_KEYS = {"devices"}   # lists of devices stored one row each (device_rows) instead of one JSON value
 ROWS_MARK = "__device_rows__"
+# dictionaries stored one row per entry (kv_rows): key -> the name of one part whose own entries are rows too (None:
+# only the top level). kv_get / kv_set behave as before for every caller.
+DICT_ROWS: dict[str, str | None] = {"surveyed": None, "others": "stars"}
+DICT_MARK = "__kv_rows__"
+_SEP = "\t"
+_MISSING = object()
 PACK_MAX = 8_000_000   # (2 MB until 1.407.0: four values read every tick had grown just past it)
 # saved values up to this many characters of JSON are also kept decoded in memory (kv_get)
 
@@ -178,6 +193,7 @@ class DB:
         self._packed: dict[str, bytes] = {}   # key -> the decoded value, marshaled (see kv_get)
         self._ver: dict[str, int] = {}        # key -> writes seen, so a read racing a write isn't kept
         self._digest: dict[str, bytes] = {}   # key -> digest of the JSON last written (see _kv_write)
+        self._drows: dict[str, dict] = {}     # DICT_ROWS key -> {"obj": {code: entry}, "all": marshaled whole or None}
         self._rows: dict[str, dict] = {}      # ROW_KEYS key -> {"order": [codes], "raw": {code: bytes}, "obj": {code: bytes}}
         self.gen: dict[str, int] = {"systems": 0, "scans": 0, "all": 0}   # bumped on writes; memo keys for readers of those rows
         self.star_gen: dict[str, int] = {}    # star -> bumped when an event, a location detail or a scan of it is stored
@@ -302,6 +318,9 @@ class DB:
         if key in ROW_KEYS and await self._rows_write(key, value):
             self._ver[key] = self._ver.get(key, 0) + 1
             return
+        if key in DICT_ROWS and await self._drows_write(key, value):
+            self._ver[key] = self._ver.get(key, 0) + 1
+            return
         text = json.dumps(value)
         digest = hashlib.blake2b(text.encode(), digest_size=16).digest()
         try:
@@ -310,6 +329,7 @@ class DB:
                 # of it megabytes): only the timestamp moves. A row deleted meanwhile is written in full.
                 cur = await self.execute("UPDATE kv SET updated_at=? WHERE key=?", (now_iso(), key))
                 if cur.rowcount:
+                    perf.note_write(key, 0)
                     return
             self._digest.pop(key, None)
             await self.execute(
@@ -317,6 +337,7 @@ class DB:
                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
                 (key, text, now_iso()),
             )
+            perf.note_write(key, len(text))
             self._digest[key] = digest
         finally:
             self._ver[key] = self._ver.get(key, 0) + 1
@@ -379,6 +400,7 @@ class DB:
             self._rows[key]["all"] = old["all"]     # nothing a reader sees changed
         t0 = time.perf_counter()
         try:
+            perf.note_write(key, sum(len(t) for _, _, t in changed))
             if changed:
                 await self.conn.executemany(
                     "INSERT INTO device_rows(key, code, data) VALUES(?,?,?) "
@@ -404,8 +426,122 @@ class DB:
         perf.note_query((time.perf_counter() - t0) * 1000)
         return True
 
+    # --- dictionary rows -----------------------------------------------------------------------------------------
+    @staticmethod
+    def _flatten(key: str, value: Any) -> dict | None:
+        """{row code: entry} for a DICT_ROWS value, or None when it can't be stored that way (stored as one value)."""
+        if not isinstance(value, dict):
+            return None
+        deep, out = DICT_ROWS.get(key), {}
+        for k, v in value.items():
+            if not isinstance(k, str) or _SEP in k:
+                return None
+            if k == deep and isinstance(v, dict):
+                out[k] = {}
+                for k2, v2 in v.items():
+                    if not isinstance(k2, str):
+                        return None
+                    out[k + _SEP + k2] = v2
+            else:
+                out[k] = v
+        return out
+
+    @staticmethod
+    def _assemble(obj: dict) -> dict:
+        out: dict = {}
+        for c, v in obj.items():
+            if _SEP in c:
+                top, sub = c.split(_SEP, 1)
+                part = out.setdefault(top, {})
+                if isinstance(part, dict):
+                    part[sub] = v
+            else:
+                out[c] = v if not isinstance(v, dict) or v else {}
+        return out
+
+    async def _drows_load(self, key: str) -> dict | None:
+        """The entries of `key` from the database, or None when it is (still) stored as one value."""
+        if key in self._drows:
+            return self._drows[key]
+        ver = self._ver.get(key, 0)
+        row = await self.fetchone("SELECT value FROM kv WHERE key=?", (key,))
+        if not row or not row["value"].startswith('{"' + DICT_MARK):
+            return None
+        rows = await self.fetchall("SELECT code, data FROM kv_rows WHERE key=? ORDER BY rowid", (key,))
+        st = {"obj": {r["code"]: json.loads(r["data"]) for r in rows}, "all": None}
+        if key in self._drows:      # written while this was read
+            return self._drows[key]
+        if self._ver.get(key, 0) == ver:
+            self._drows[key] = st
+        return st
+
+    async def _drows_write(self, key: str, value: Any) -> bool:
+        """Store a DICT_ROWS dictionary by entry, writing only the entries that changed. False: not such a dictionary
+        (stored as one value, as any other key)."""
+        flat = self._flatten(key, value)
+        old = self._drows.get(key) or await self._drows_load(key)
+        if flat is None:
+            if old is not None:
+                self._drows.pop(key, None)
+                await self.conn.execute("DELETE FROM kv_rows WHERE key=?", (key,))
+                await self.conn.commit()
+            return False
+        before = old["obj"] if old else {}
+        obj, changed = {}, []
+        for c, v in flat.items():
+            o = before.get(c, _MISSING)
+            if o is not _MISSING and o == v:
+                obj[c] = o
+                continue
+            text = json.dumps(v)
+            nv = json.loads(text)       # what a reader gets: as JSON gives it back
+            if o is not _MISSING and o == nv:
+                obj[c] = o
+                continue
+            changed.append((key, c, text))
+            obj[c] = nv
+        gone = [c for c in before if c not in obj]
+        self._drows[key] = {"obj": obj, "all": old["all"] if old and not changed and not gone else None}
+        t0 = time.perf_counter()
+        try:
+            if old is None:             # first write this way (or the rows were dropped): start from nothing
+                await self.conn.execute("DELETE FROM kv_rows WHERE key=?", (key,))
+            if changed:
+                await self.conn.executemany(
+                    "INSERT INTO kv_rows(key, code, data) VALUES(?,?,?) "
+                    "ON CONFLICT(key, code) DO UPDATE SET data=excluded.data", changed)
+            if gone:
+                await self.conn.executemany("DELETE FROM kv_rows WHERE key=? AND code=?", [(key, c) for c in gone])
+            cur = await self.conn.execute("UPDATE kv SET updated_at=? WHERE key=? AND value=?",
+                                          (now_iso(), key, json.dumps({DICT_MARK: True})))
+            if not cur.rowcount:   # first write this way, or the mark row was deleted meanwhile
+                await self.conn.execute(
+                    "INSERT INTO kv(key, value, updated_at) VALUES(?,?,?) "
+                    "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+                    (key, json.dumps({DICT_MARK: True}), now_iso()))
+            await self.conn.commit()
+        except Exception:
+            self._drows.pop(key, None)  # memory no longer matches the database: read it again next time
+            try:
+                await self.conn.rollback()
+            except Exception:
+                pass
+            raise
+        self._digest.pop(key, None)
+        perf.note_write(key, sum(len(t) for _, _, t in changed))
+        perf.note_query((time.perf_counter() - t0) * 1000)
+        return True
+
     async def kv_get(self, key: str, default: Any = None) -> Any:
         t0 = time.perf_counter()
+        if key in DICT_ROWS:
+            st = await self._drows_load(key)
+            if st is not None:
+                if st["all"] is None:
+                    st["all"] = marshal.dumps(self._assemble(st["obj"]))
+                value = marshal.loads(st["all"])
+                perf.note_kv(key, 0, (time.perf_counter() - t0) * 1000)
+                return value
         if key in self._cache:
             value = _copy(self._cache[key])
             perf.note_kv(key, 0, (time.perf_counter() - t0) * 1000)

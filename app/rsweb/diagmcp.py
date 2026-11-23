@@ -422,7 +422,10 @@ async def call(app, name: str, args: dict) -> Any:
         from . import perf
         return {"perf": await perf.report(db), "game_budget": app.state.api.rate_status(), "reads": perf.reads_report()}
     if name == "kv_keys":
-        rows = await db.fetchall("SELECT key, LENGTH(value) AS size, updated_at FROM kv ORDER BY key")
+        rows = await db.fetchall(   # values stored by row (devices, kv_rows dictionaries) count their rows
+            "SELECT kv.key, LENGTH(kv.value) + COALESCE(r.n, 0) AS size, kv.updated_at FROM kv LEFT JOIN "
+            "(SELECT key, SUM(LENGTH(data)) AS n FROM kv_rows GROUP BY key UNION ALL "
+            " SELECT key, SUM(LENGTH(data)) FROM device_rows GROUP BY key) r ON r.key = kv.key ORDER BY kv.key")
         return {"keys": [r for r in rows if not KV_HIDDEN.search(r["key"])
                          and (not args.get("text") or _s(args["text"]) in _s(r["key"]))]}
     if name == "kv_get":
