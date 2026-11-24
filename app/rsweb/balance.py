@@ -109,12 +109,50 @@ def plan(fleets: list[dict], devices: list[dict], jobs: list[dict], hosts: dict,
          commandable: set[str], reach: float, demand: dict, idle_since: dict[str, float], now: float,
          keep: set[str] = frozenset(), leeway: float = LEEWAY_PCT) -> dict:
     """{"hubs", "weights", "classes": {cls: {"targets", "counts"}}, "moves": [{code, cls, from, to}]}. A carrier on a job
-    counts at the hub nearest where the job takes it; `idle_since` (epoch seconds) is updated in place."""
+    counts at the hub nearest where the job takes it; `idle_since` (epoch seconds) is updated in place.
+    With several logistics fleets (Logistics at FALQUORYX, Delta Logistics at ISOLITHOR) each balances its own carriers
+    over the hubs nearest its home: pooled, Delta's plates raised the home sector's shares (1.549.0, NIO got none)."""
+    from .logistics import logistics_fleets
+    logi = [f for f in logistics_fleets(fleets) if f.get("id") and f.get("home")]
+    if len(logi) < 2:
+        return _plan(fleets, None, devices, jobs, hosts, busy, pos, commandable, reach, demand, idle_since, now, keep,
+                     leeway)
+    hub_list = hubs(fleets, pos, commandable, reach)
+    near = {h: min(logi, key=lambda f: (_dist(f["home"], h, pos), f["id"]))["id"] for h in hub_list}
+    out: dict = {"hubs": [], "weights": {}, "classes": {}, "moves": []}
+    idle_all: dict[str, float] = {}
+    for f in logi:
+        own = [h for h in hub_list if near[h] == f["id"]]
+        idle = dict(idle_since)
+        p = _plan(fleets, f, devices, jobs, hosts, busy, pos, commandable, reach, demand, idle, now, keep, leeway,
+                  only=own)
+        idle_all.update(idle)
+        out["hubs"] += p["hubs"]
+        out["weights"].update(p["weights"])
+        for cls, v in p["classes"].items():
+            c = out["classes"].setdefault(cls, {"targets": {}, "counts": {}})
+            c["targets"].update(v["targets"])
+            c["counts"].update(v["counts"])
+        out["moves"] += p["moves"]
+    out["hubs"].sort()
+    for cls, v in out["classes"].items():
+        for h in out["hubs"]:
+            v["targets"].setdefault(h, 0)
+            v["counts"].setdefault(h, 0)
+    idle_since.clear()
+    idle_since.update(idle_all)
+    return out
+
+
+def _plan(fleets: list[dict], fleet: dict | None, devices: list[dict], jobs: list[dict], hosts: dict, busy: set[str],
+          pos: dict, commandable: set[str], reach: float, demand: dict, idle_since: dict[str, float], now: float,
+          keep: set[str] = frozenset(), leeway: float = LEEWAY_PCT, only: list[str] | None = None) -> dict:
+    """One logistics fleet's balance (`fleet`, or every logistics fleet's carriers when None) over `only` hubs."""
     from .fleets import fleet_tag
     from .logistics import logistics_fleets
-    hub_list = hubs(fleets, pos, commandable, reach)
+    hub_list = hubs(fleets, pos, commandable, reach) if only is None else sorted(only)
     out: dict = {"hubs": hub_list, "weights": {}, "classes": {}, "moves": []}
-    tags = {fleet_tag(f["id"]) for f in logistics_fleets(fleets) if f.get("id")}
+    tags = {fleet_tag(f["id"]) for f in ([fleet] if fleet else logistics_fleets(fleets)) if f.get("id")}
     going: dict[str, str] = {}
     by_code = {d.get("device_code"): d for d in devices}
     flying: set[tuple[str, str, str | None]] = set()   # (from, to, class) of rebalance trips underway
@@ -144,7 +182,9 @@ def plan(fleets: list[dict], devices: list[dict], jobs: list[dict], hosts: dict,
             continue
         # out of comms range it can't be commanded: neither counted nor moved (live 2026-11-14: freighter 137A4E1A,
         # stranded at MENKUNT, was sent SOLARES → FALQUORYX every pass, "Device is out of comms range")
-        if d.get("in_control_range") is False or str(d.get("status") or "").lower() == "out_of_range":
+        # one on a job still counts where it's going (a carrier in flight without a replicant is out of comms too)
+        if (d.get("in_control_range") is False or str(d.get("status") or "").lower() == "out_of_range") \
+                and code not in busy:
             continue
         here = star_of(d.get("location"))
         where = going.get(code) if code in busy else here

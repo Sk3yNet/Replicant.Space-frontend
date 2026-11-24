@@ -107,3 +107,26 @@ def test_a_carrier_out_of_comms_range_is_never_moved():
     devices.append(mf("M3", "FAL-BELT-1"))
     p = bal.plan(FLEETS, devices, [], {}, set(), POS, CMD, 1728, {}, {"M2": 0.0, "M3": 0.0}, 3600.0)
     assert [m["code"] for m in p["moves"]] == ["M2"]
+
+
+def test_each_logistics_fleet_balances_its_own_sector():
+    """Delta Logistics' plates at ISOLITHOR no longer raise the home sector's shares (NIO got none, 2026-11-24)."""
+    pos = {**POS, "NIO": {"x": 250, "y": 0, "z": 0}}
+    fleets = FLEETS + [{"id": "delta-logistics", "role": "logistics", "home": "DEL"},
+                       {"id": "gamma-hub", "role": "mining", "home": "NIO", "station": True, "materials": "self"}]
+
+    def plate(code, loc, fleet="logistics", **kw):
+        return {"device_code": code, "device_type": "surge_plate", "location": loc, "status": "idle",
+                "tags": [f"fleet:{fleet}"], "features": ["surge", "cruise"], **kw}
+    devices = [plate(f"D{i}", "DEL-1", "delta-logistics") for i in range(5)] + \
+        [plate("P1", "FAL-1"), plate("P2", "FAL-1"), plate("P3", "FAL-1"),
+         plate("T1", "SOL-1", status="travelling", in_control_range=False)]   # in flight on a job: still counted
+    idle = {}
+    p = bal.plan(fleets, devices, [], {}, {"T1"}, pos, CMD | {"NIO"}, 1728, {}, idle, 0.0)
+    assert p["hubs"] == ["DEL", "FAL", "NIO", "SOL"]
+    t = p["classes"]["plate"]["targets"]
+    assert t["FAL"] + t["NIO"] + t["SOL"] == 4 and t["NIO"] == 1
+    assert p["classes"]["plate"]["counts"]["SOL"] == 1
+    p = bal.plan(fleets, devices, [], {}, {"T1"}, pos, CMD | {"NIO"}, 1728, {}, idle, 31 * 60.0)
+    assert [(m["from"], m["to"]) for m in p["moves"]] == [("FAL", "NIO")]
+    assert set(idle) == {"P1", "P2", "P3"}   # a one-hub sector keeps no idle clock
