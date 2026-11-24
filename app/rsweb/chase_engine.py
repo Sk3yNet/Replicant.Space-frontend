@@ -1054,6 +1054,26 @@ class ChaseMixin:
                 run.get("sensor_moves", {}).pop(code, None)
                 ok, _, err = await self.send("POST", f"/devices/{code}", {"command": "detect_object"},
                                              f"auto: rock chaser {code} searches {star}")
+                stuck = run.setdefault("detecting", {})
+                if not ok and rc.ALREADY_DETECTING_RE.search(str(err or "")):
+                    # live 2026-11-22: three sensor arrays started a 30-minute sweep at 22:16-22:41Z and stayed
+                    # `detecting` for two days ("Already detecting" every hour): switch a stuck one off, search again
+                    first = stuck.setdefault(code, now_iso())
+                    if _now() - (_ts(first) or _now()) > rc.DETECT_STUCK_H * 3600:
+                        ok2, _, err2 = await self.send("POST", f"/devices/{code}", {"command": "deactivate"},
+                                                       f"auto: rock chaser {code} stuck detecting since {first}")
+                        if ok2:
+                            stuck.pop(code, None)
+                            searched.pop(star, None)
+                            out.append(f"{code} stuck detecting at {star} since {first}: switched off to search again")
+                            await self.log("rock_chaser", f"{f['name']}: sensor array {code} stuck detecting at {star} "
+                                                          f"since {first}: switched off, searching again")
+                            continue
+                        out.append(f"{code} stuck detecting at {star} since {first}; deactivate failed: {err2}")
+                        searched[star] = now_iso()
+                        continue
+                else:
+                    stuck.pop(code, None)
                 searched[star] = now_iso()
                 out.append(f"{code} searches the {star} Kuiper belt" if ok else f"{code} search at {star} failed: {err}")
             elif _now() - last > rc.SEARCH_MINUTES * 60 and (_ts(read.get(star)) or 0) < last:

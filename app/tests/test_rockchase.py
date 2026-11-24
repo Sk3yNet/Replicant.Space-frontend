@@ -128,6 +128,37 @@ def test_engine_marks_kuiper_objects_and_launches_one(client):  # noqa: F811
     assert any("SOL-KUIPER-001 at SOL-3" in x for x in out)   # auto launch: the charge is already there
 
 
+def test_stuck_sensor_array_is_switched_off_and_searches_again(client):  # noqa: F811
+    """Live 2026-11-22: Chaser_1's sensor array started a 30-minute sweep and stayed `detecting` for two days; every
+    hourly detect_object answered "Already detecting", so nothing was marked and the fleet sat idle."""
+    sensor = {"device_code": "SENS", "device_type": "sensor_array", "location": "SOL-KUIPER", "status": "detecting",
+              "tags": ["fleet:rc"], "features": ["cruise"], "available_commands": ["deactivate", "detect_object"]}
+    db, e = _setup(client, [rig("RIG1", "SOL-1"), sensor], {})
+    sent = []
+
+    async def send(method, path, body=None, *a, **k):
+        sent.append(body)
+        if body == {"command": "detect_object"}:
+            return False, None, "Already detecting"
+        return True, {}, None
+    e.send = send
+    f = client.portal.call(e.fleets)
+    f[0]["chase_run"] = {"searched": {"SOL": iso(-300)}}
+    client.portal.call(e.save_fleets, f)
+    out = client.portal.call(e.rock_chase_pass)
+    assert any("search at SOL failed" in x for x in out) and {"command": "deactivate"} not in sent
+    f = client.portal.call(e.fleets)
+    assert "SENS" in f[0]["chase_run"]["detecting"]
+    f[0]["chase_run"]["detecting"]["SENS"] = iso(-180)
+    f[0]["chase_run"]["searched"]["SOL"] = iso(-300)
+    client.portal.call(e.save_fleets, f)
+    out = client.portal.call(e.rock_chase_pass)
+    assert any("switched off to search again" in x for x in out), out
+    assert sent[-1] == {"command": "deactivate"}
+    run = client.portal.call(e.fleets)[0]["chase_run"]
+    assert "SOL" not in run["searched"] and not run["detecting"]
+
+
 def test_sensor_array_goes_to_the_kuiper_belt_before_detecting(client):  # noqa: F811
     """Joe 2026-11-16: a sensor array detects only from the Kuiper belt (Chaser_1's sat at RENGRELOR-3-L4)."""
     sensor = {"device_code": "SENS", "device_type": "sensor_array", "location": "SOL-3-L4", "status": "idle",

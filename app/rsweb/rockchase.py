@@ -143,6 +143,8 @@ def can_launch(charge: dict, des: str) -> bool:
     return charge.get("location") in (des, launch_spot(des)) and not charge.get("stowed_in_device_code") \
         and not charge.get("attached_to_device_code")
 SEARCH_MINUTES = 65     # a detect_object sweep takes about an hour
+DETECT_STUCK_H = 2.0    # "Already detecting" this long after the first such answer: the sweep is stuck (live 2026-11-22)
+ALREADY_DETECTING_RE = re.compile(r"already detecting", re.I)
 SEARCH0 = "chase_search0"   # fleet flag: moved to search_hours 0 once (1.532.0)
 
 
