@@ -32,6 +32,7 @@ from .relaynet import RELAY_TYPES
 from .shapes import as_amounts
 
 SPARE = "spare"
+COMPONENT_TAG = "component"
 STOCK = "stock"     # a keep-in-stock print (stock.py); dropped with `spare` once it's reserved for a system
 GATHER = "gather"   # on its way to the spare depot (stays spare on arrival)
 # with an `at:` pin: a carrier takes it to that spot, as it would cruise too far there itself (a trip refused over
@@ -1659,6 +1660,9 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                    if not dest else f"left alone while it's {d.get('status') or 'busy'}")
             misplaced.append({"code": code, "type": t, "location": loc, "target": dest, "why": f"{pl.WHY[pl.rule_for(t)]}; {why}"})
 
+    for code, add in tag_add.items():   # a print's component is never made spare here: component_pass releases it
+        if SPARE in add and is_component(by_code_all.get(code) or {}) and COMPONENT_TAG not in tag_remove.get(code, ()):
+            add.discard(SPARE)   # once no print needs it (Joe 2026-11-24: spare + component devices were recruited)
     if pool and len(stale) > len(pool) / 2:
         # most positions unknown (e.g. mid-surge snapshot): report, but act on nothing this pass
         unmet.append({"star": "", "type": "data", "n": len(stale),

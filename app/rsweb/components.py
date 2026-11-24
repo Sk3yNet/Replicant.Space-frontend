@@ -414,10 +414,58 @@ def surplus(devices: list[dict], bps: dict[str, dict], pos: dict | None = None) 
     return out
 
 
+ORPHAN_KV = "component_orphans"   # {device code: when it was first seen as a component no print needs}
+ORPHAN_MINUTES = 30
+ORPHANS_PER_PASS = 40   # PATCHes a pass sends at most (the game allows about 60 commands a minute)
+
+
+def needs(devices: list[dict], bps: dict[str, dict]) -> dict[tuple[str, str], int]:
+    """(factory location, component type) -> how many the prints queued or printing there take."""
+    from . import printqueue as pq
+    from .loadouts import is_factory
+    need: dict[tuple[str, str], int] = {}
+    for f in devices:
+        loc = f.get("location")
+        if not loc or not is_factory(f):
+            continue
+        pr = f.get("printing") if isinstance(f.get("printing"), dict) else None
+        for it in list(pq.items(f)) + ([{"device_type": pr.get("device_type"), "quantity": 1}] if pr else []):
+            for t, n in components(bps.get(it.get("device_type"))).items():
+                need[(loc, t)] = need.get((loc, t), 0) + n * max(1, int(it.get("quantity") or 1))
+    return need
+
+
+def orphans(devices: list[dict], bps: dict[str, dict]) -> list[tuple[dict, dict]]:
+    """Components no print needs any more (Joe 2026-11-24: 100+ devices kept `component` + `prio:` after their print
+    was done or dropped, among them a sensor array working in a rock chaser fleet): no print queued or printing at
+    their pinned factory location (or where they are, unpinned) takes their type. [(device, PATCH configuration)]:
+    the print's tags go (component, prio:, its pins, the contract: it inherited, gather) and a fleetless device that
+    isn't deployed at work becomes a spare. Only with blueprints known (else every need would look like none)."""
+    from .loadouts import GATHER, SPARE, is_component, pinned_at, placed
+    if not bps:
+        return []
+    need = needs(devices, bps)
+    by = {d.get("device_code"): d for d in devices}
+    out = []
+    for d in devices:
+        if not is_component(d) or not d.get("device_type") or not d.get("device_code"):
+            continue
+        host = by.get(d.get("stowed_in_device_code") or d.get("attached_to_device_code")) or {}
+        loc = pinned_at(d) or d.get("location") or host.get("location")
+        if not loc or need.get((loc, d["device_type"]), 0) > 0:
+            continue
+        tags = d.get("tags") or []
+        rem = [t for t in tags if t in (COMPONENT, GATHER) or t.startswith(("prio:", "to:", "at:", "contract:"))]
+        fleet = any(str(t).startswith("fleet:") for t in tags)
+        add = [SPARE] if not fleet and not placed(d) and SPARE not in tags else []
+        out.append((d, {**({"add_tags": add} if add else {}), "remove_tags": rem}))
+    return out
+
+
 def release(d: dict) -> dict:
     """The PATCH configuration that makes a component a plain spare again: its component tag and pins go."""
     return {"add_tags": ["spare"], "remove_tags": [t for t in d.get("tags") or [] if t == COMPONENT
-                                                   or t.startswith(("to:", "at:"))]}
+                                                   or t.startswith(("to:", "at:", "prio:"))]}
 
 
 def backfill(devices: list[dict], bps: dict[str, dict]) -> list[dict]:

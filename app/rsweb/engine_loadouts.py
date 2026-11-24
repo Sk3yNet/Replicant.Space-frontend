@@ -142,6 +142,37 @@ class LoadoutMixin:
                 await self.log("components", out[-1])
         return out
 
+    async def release_orphans(self, devices: list[dict], bps: dict, busy: set) -> list[str]:
+        """Components no print needs any more (components.orphans) lose the print's tags once they've been so for
+        ORPHAN_MINUTES (a print is pinned spares just before it's queued); kv component_orphans keeps when each was
+        first seen."""
+        from . import components as comp
+        seen = await self.db.kv_get(comp.ORPHAN_KV, {}) or {}
+        found = comp.orphans(devices, bps)
+        now_ = _now()
+        keep, n, types = {}, 0, {}
+        for d, cfg in found:
+            code = d["device_code"]
+            first = _ts(seen.get(code)) or now_
+            keep[code] = seen.get(code) or now_iso()
+            if code in busy or n >= comp.ORPHANS_PER_PASS or (now_ - first).total_seconds() < comp.ORPHAN_MINUTES * 60:
+                continue
+            ok, _, _ = await self.send("PATCH", f"/devices/{code}", {"configuration": cfg},
+                                       f"components: {code} released (no print needs it)")
+            if ok:
+                n += 1
+                keep.pop(code, None)
+                t = str(d.get("device_type")).replace("_", " ")
+                types[t] = types.get(t, 0) + 1
+                d["tags"] = [t_ for t_ in d.get("tags") or [] if t_ not in cfg["remove_tags"]] + cfg.get("add_tags", [])
+        if keep != seen:
+            await self.db.kv_set(comp.ORPHAN_KV, keep)
+        if not n:
+            return []
+        out = [f"{n} component(s) no print needs any more released: " + ", ".join(f"{k} {t}" for t, k in sorted(types.items()))]
+        await self.log("components", out[-1])
+        return out
+
     async def component_pass(self) -> list[str]:
         """Factories waiting for component devices (components.py): spares are pinned to the factory's location, the
         rest printed at another autofactory, with the waiting item's tags. Every 5 minutes."""
@@ -204,6 +235,7 @@ class LoadoutMixin:
         from .shapes import normalize_blueprints as _nb
         bps_ = {b["device_type"]: b for b in _nb(await self.db.kv_get("blueprints", []))}
         busy_ = self.busy_devices(await self.jobs())
+        out += await self.release_orphans(devices, bps_, busy_)
         for g in comp.surplus(devices, bps_, await self.star_lookup("pos")):   # more coming than needed
             left = g["excess"]   # pins are never released here: Joe pins spares by hand too (2026-11-13)
             for f, it in g["prints"]:   # spares beat prints: a print not started yet comes off first

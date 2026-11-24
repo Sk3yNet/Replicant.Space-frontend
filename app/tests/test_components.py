@@ -412,3 +412,48 @@ def test_print_ranks_contracts_behind_fleets_and_components_just_ahead_of_their_
         assert vqm.priority(parent) - 0.5 < p < vqm.priority(parent)
         assert vqm.label(p) == "component"
     assert vqm.priority({"tags": ["component", "at:sol-belt-1"]}) == 1   # queued before ranks: as before
+
+
+def test_components_no_print_needs_are_released_after_a_while(client):  # noqa: F811
+    # Joe 2026-11-24: E7B258A4 (sensor array) kept component + prio:3.25 while working in fleet:chaser-5
+    db, e = client.app.state.db, client.app.state.worker.automations
+    client.portal.call(db.kv_set, "blueprints", BPS)
+    devs = client.portal.call(db.kv_get, "devices")
+    af = next(d for d in devs if d["device_code"] == "AF00BEEF")
+    pin = ["component", "to:sol", "at:sol-3-l4", "prio:3.25"]
+    devs = [d for d in devs if d["device_code"] != "AF00BEEF"] + [
+        {**af, "print_queue": [{"device_type": "biosphere_cultivator"}]},
+        {"device_code": "HB000001", "device_type": "hydroponic_bay", "location": "SOL-3-L4", "status": "idle", "tags": list(pin)},
+        {"device_code": "FA000001", "device_type": "orbital_farm", "location": "SOL-3-L4", "status": "idle",
+         "tags": ["component", "at:sol-3-l4", "contract:tp:x"]},
+        {"device_code": "SA000001", "device_type": "sensor_array", "location": "SOL-KUIPER", "status": "detecting",
+         "tags": ["component", "fleet:chaser-5", "prio:3.25"]},
+        {"device_code": "RL000001", "device_type": "ftl_relay", "location": "SOL-3-L4", "status": "relaying", "tags": ["component"]},
+        {"device_code": "SB000001", "device_type": "service_bot", "location": "SOL-3-L4", "status": "idle",
+         "tags": ["component", "spare", "prio:3.75"]}]
+    bps = {b["device_type"]: b for b in BPS}
+    got = {d["device_code"]: cfg for d, cfg in comp.orphans(devs, bps)}
+    assert set(got) == {"SA000001", "RL000001", "SB000001"}   # the bay and the farm go into the queued cultivator
+    assert got["SA000001"] == {"remove_tags": ["component", "prio:3.25"]}   # in a fleet: no spare
+    assert got["RL000001"] == {"remove_tags": ["component"]}                # relaying: no spare
+    assert got["SB000001"] == {"remove_tags": ["component", "prio:3.75"]}   # already spare
+    devs[-6]["print_queue"] = []   # the cultivator print is gone: its bay and farm become spares
+    got = {d["device_code"]: cfg for d, cfg in comp.orphans(devs, bps)}
+    assert got["HB000001"] == {"add_tags": ["spare"], "remove_tags": ["component", "to:sol", "at:sol-3-l4", "prio:3.25"]}
+    assert got["FA000001"] == {"add_tags": ["spare"], "remove_tags": ["component", "at:sol-3-l4", "contract:tp:x"]}
+    assert comp.orphans(devs, {}) == []   # no blueprints: nothing judged
+    out = client.portal.call(e.release_orphans, devs, bps, set())
+    assert out == [] and set(client.portal.call(db.kv_get, comp.ORPHAN_KV)) == set(got)   # first seen: waits
+    client.portal.call(db.kv_set, comp.ORPHAN_KV, {c: "2026-01-01T00:00:00+00:00" for c in got} | {"GONE0001": "x"})
+    sent = []
+
+    async def send(method, path, body, why):
+        sent.append((path, body))
+        return True, {}, None
+    e.send = send
+    out = client.portal.call(e.release_orphans, devs, bps, {"RL000001"})
+    del e.send
+    assert len(sent) == 4 and ("/devices/SA000001", {"configuration": got["SA000001"]}) in sent
+    assert out and out[0].startswith("4 component(s) no print needs any more released"), out
+    assert client.portal.call(db.kv_get, comp.ORPHAN_KV) == {"RL000001": "2026-01-01T00:00:00+00:00"}   # busy: later
+    assert "component" not in next(d for d in devs if d["device_code"] == "SA000001")["tags"]

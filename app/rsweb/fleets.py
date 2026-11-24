@@ -908,8 +908,8 @@ def gather_plan(fleet: dict, devices: list[dict], stars: dict, busy: set[str], r
     recruit = []
     short = {row["type"]: row["short"] for row in r["rows"] if row["short"]}
     if short:
-        cands = [d for d in devices if "spare" in (d.get("tags") or []) and not fleet_of(d) and d["device_code"] not in busy
-                 and not d.get("controller_device_code") and d.get("location")
+        cands = [d for d in devices if "spare" in (d.get("tags") or []) and "component" not in (d.get("tags") or [])
+                 and not fleet_of(d) and d["device_code"] not in busy and not d.get("controller_device_code") and d.get("location")
                  and str(d.get("status") or "").startswith(("idle", "stowed")) and short.get(d.get("device_type"), 0) > 0
                  and not too_far(star_of(d.get("location")))]
         cands.sort(key=lambda d: (_dist(base, star_of(d.get("location")), pos), d["device_code"]))
@@ -949,7 +949,8 @@ def gather_steps(fleet: dict, plan: dict, stars: dict, radii: dict[str, float] |
     tag = fleet_tag(fleet["id"])
     steps = []
     for d in plan["recruit"]:  # spares join the fleet: fleet tag in, spare/home/to out
-        rem = [t for t in d.get("tags") or [] if (t == "spare" or t.startswith(("home:", "to:"))) and t != tag]
+        rem = [t for t in d.get("tags") or [] if (t in ("spare", "component") or t.startswith(("home:", "to:", "prio:")))
+               and t != tag]
         steps.append(step(f"{d['device_code']} ({d.get('device_type')}) joins {fleet['name']}", f"/devices/{d['device_code']}",
                           {"configuration": {"add_tags": [tag], **({"remove_tags": rem} if rem else {})}}, method="PATCH"))
     carrier, here_loc = plan["carrier"], plan.get("carrier_loc")
@@ -1014,7 +1015,8 @@ def fill_plan(fleet: dict, devices: list[dict], stars: dict, busy: set[str], rad
         far = 0
         for d in sorted(devices, key=lambda d: (_dist(here, star_of(d.get("location")), pos), d["device_code"])):
             t = d.get("device_type")
-            if (short.get(t, 0) > 0 and "spare" in (d.get("tags") or []) and not fleet_of(d) and d["device_code"] not in busy
+            if (short.get(t, 0) > 0 and "spare" in (d.get("tags") or []) and "component" not in (d.get("tags") or [])
+                    and not fleet_of(d) and d["device_code"] not in busy
                     and not d.get("controller_device_code") and str(d.get("status") or "").startswith(("idle", "stowed"))
                     and (star_of(d.get("location")) == here or flies_itself(d))):
                 if beyond_reach(here, star_of(d.get("location")), pos, reach):
