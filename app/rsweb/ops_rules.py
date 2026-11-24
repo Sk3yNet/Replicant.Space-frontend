@@ -251,6 +251,32 @@ class OpsRules:
         await self.log("wards", msg, "warning")
         return msg
 
+    async def ward_tidy_pass(self) -> list[str]:
+        """Every 10 minutes: the one ward working in a system isn't spare, other wards working there are switched off
+        and made spare (wardhub.ward_tidy)."""
+        from . import wardhub as wh
+        last = _ts(await self.db.kv_get("ward_tidy_last", None))
+        if last and (_now() - last).total_seconds() < 600:
+            return []
+        await self.db.kv_set("ward_tidy_last", now_iso())
+        unspare, off = wh.ward_tidy(await self.devices(), self.busy_devices(await self.jobs()))
+        out = []
+        for d in unspare:
+            ok, _, _ = await self.send("PATCH", f"/devices/{d['device_code']}", {"configuration": {"remove_tags": ["spare"]}},
+                                       f"wards: {d['device_code']} works at {d.get('location')}, not spare")
+            if ok:
+                out.append(f"{d['device_code']} (system ward) warding at {d.get('location')}: no longer tagged spare")
+        for d in off:
+            ok, _, _ = await self.send("POST", f"/devices/{d['device_code']}", {"command": "deactivate"},
+                                       f"wards: {d['device_code']} is a second ward in {wh.star_of(d.get('location'))}")
+            if ok:
+                await self.send("PATCH", f"/devices/{d['device_code']}", {"configuration": {"add_tags": ["spare"]}},
+                                f"wards: {d['device_code']} spare")
+                out.append(f"{d['device_code']} (system ward) at {d.get('location')}: a second ward in its system, switched off and spare")
+        for line in out:
+            await self.log("wards", line)
+        return out
+
     async def ward_orders_pass(self) -> list[str]:
         """Ward / relay / beacon orders: one of yours deployed and idle in the ordered system is switched on (a ward
         within the cap and never beside a hub of yours; a relay only at an L4/L5 point — placement takes it there)."""
@@ -259,7 +285,7 @@ class OpsRules:
         from . import wardhub as wh
         from .automations import step
         from .placement import is_lagrange
-        out: list[str] = []
+        out: list[str] = await self.ward_tidy_pass()
         devices = busy = None
         for kind, dtype in wo.KINDS.items():
             label = wo.LABELS[kind]

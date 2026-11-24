@@ -457,3 +457,16 @@ def test_components_no_print_needs_are_released_after_a_while(client):  # noqa: 
     assert out and out[0].startswith("4 component(s) no print needs any more released"), out
     assert client.portal.call(db.kv_get, comp.ORPHAN_KV) == {"RL000001": "2026-01-01T00:00:00+00:00"}   # busy: later
     assert "component" not in next(d for d in devs if d["device_code"] == "SA000001")["tags"]
+
+
+def test_one_ward_per_system_stays_on_and_isnt_spare():
+    # Joe 2026-11-24: 10 wards were warding but tagged spare; a second ward in a system goes off and spare
+    from rsweb import wardhub as wh
+    w = lambda c, loc, tags, st="warding": {"device_code": c, "device_type": "system_ward", "location": loc,  # noqa: E731
+                                            "status": st, "tags": tags}
+    devs = [w("A1", "AAA-5-L4", ["spare"]), w("B1", "BBB-5-L4", ["spare"]), w("B2", "BBB-6-L4", []),
+            w("B3", "BBB-OORT", ["spare"]), w("C1", "CCC-1", ["spare"], "inactive"), w("D1", "DDD-5-L4", [])]
+    unspare, off = wh.ward_tidy(devs)
+    assert [d["device_code"] for d in unspare] == ["A1"]           # B2 is BBB's primary already
+    assert [d["device_code"] for d in off] == ["B1", "B3"]
+    assert wh.ward_tidy(devs, {"A1", "B3"}) == ([], [devs[1]])

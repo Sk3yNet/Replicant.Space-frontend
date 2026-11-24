@@ -67,6 +67,25 @@ def active(d: dict) -> bool:
     return deployed(d) and st not in ("inactive", "idle", "") and not st.startswith(("travel", "cruis", "surg", "unfurl"))
 
 
+def ward_tidy(devices: list[dict], busy: set[str] | frozenset = frozenset()) -> tuple[list[dict], list[dict]]:
+    """One working ward per system (Joe 2026-11-24): the primary stays on and isn't spare, any other ward working in
+    the same system is switched off and made spare. The primary is the one already not tagged spare, else the
+    lowest code. Returns (primaries tagged spare: drop the tag, secondary wards: deactivate + spare)."""
+    by_star: dict[str, list[dict]] = defaultdict(list)
+    for d in devices:
+        if d.get("device_type") == "system_ward" and active(d) and d.get("device_code"):
+            by_star[star_of(d.get("location"))].append(d)
+    unspare, off = [], []
+    for star, ws in sorted(by_star.items()):
+        if not star:
+            continue
+        ws.sort(key=lambda d: ("spare" in (d.get("tags") or []), d["device_code"]))
+        if "spare" in (ws[0].get("tags") or []) and ws[0]["device_code"] not in busy:
+            unspare.append(ws[0])
+        off += [d for d in ws[1:] if d["device_code"] not in busy]
+    return unspare, off
+
+
 def _payload(row: dict) -> dict:
     try:
         return json.loads(row.get("payload") or "{}") or {}

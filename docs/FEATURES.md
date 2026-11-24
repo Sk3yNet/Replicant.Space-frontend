@@ -369,7 +369,8 @@ Unverified live: the scan's field name for broadcasts and the `device.commented`
 Your wards (against the 25 cap), hub shield and upkeep with warnings, the `evicted_miners` log. Other players' warded
 systems are left alone by every mining rule and mission. No ward goes to a system with a hub (anyone's) or a space
 station, since the game won't switch one on there: an open order is dropped and its ward marked spare, and a refusal from
-the game is remembered for that system.
+the game is remembered for that system. One ward per system works: every 10 minutes the one warding there loses a
+spare tag, and a second ward working in the same system is switched off and made spare (1.548.0).
 
 ### Defense
 
