@@ -1709,12 +1709,13 @@ class FleetsMixin:
                         await self.log("fleets", f"{fleet['name']}: stalled before leaving: {'; '.join(board_problems)}"
                                        + again, "alert", notify=not quiet)
                         break
-                    if loose and not board_steps and not ros["carriers"] and m.get("homing"):
+                    if loose and not board_steps and not ros["carriers"] and m.get("homing") and fleet.get("station") \
+                            and ((m.get("recall") or {}).get("dest") or m.get("drop_star")) == fleet.get("home"):
                         # a recall of a fleet with no carrier to board: nothing can ever take them aboard, and while the
                         # mission runs the loadout pass leaves its members alone (live 2026-11-22..23: Miner_9's recall
                         # to ALPHARDAN stalled 26 h with 12 of 18 members already there and 6 at MARKOB, only a cargo
                         # freighter in the fleet). The recall ends here: the loadout pass brings the others home.
-                        dest = (m.get("recall") or {}).get("dest") or m.get("drop_star") or fleet.get("home")
+                        dest = fleet.get("home")
                         away = [d["device_code"] for d in ros["loose"] if fl.star_of(d.get("location")) != dest]
                         m["status"], m["job"] = "done", None
                         m.pop("auto_retry", None)

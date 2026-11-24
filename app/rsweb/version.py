@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.536.1"
+VERSION = "1.536.2"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.536.2", "2026-11-24", "The carrierless recall shortcut applies only to a stationed fleet recalled to its own station (the loadout pass brings only those members home); a recall to another receiving point still stalls so you hear about it."),
     ("1.536.1", "2026-11-24", "A recall of a fleet with no carrier to board (only freighters or drones) no longer stalls: members already home stay, and the loadout pass brings the rest home once the recall ends. Miner_9 had stalled 26 h recalling to ALPHARDAN with 6 members at MARKOB, and while it was on that recall nothing would fetch them."),
     ("1.536.0", "2026-11-23", "Automation check fixes. A full device sync no longer undoes an order answered while it was paging (deposits answered with an empty hold came back full, and the next logistics pass sent the carrier to deposit again: five jobs stopped \"Cargo is empty\"); a deposit with nothing aboard now counts as done unless the same job loaded that hold. A mined-out rock (status depleted) is no threat: SOLARES-OBJ-1's two propulsors were told to activate every 5 minutes for 4 hours. Rock chasers skip an exhausted home belt for 12 h (Chaser_5 sent its rigs to FALQUORYX-BELT-1 every 90 s for two hours). The beacon pass logs only lines that changed, so its ~170 repeated lines no longer push everything else out of the automation log."),
     ("1.535.0", "2026-11-23", "Fewer disk writes, part 2 (from the write meter): automation jobs, the automation log and fleets are stored one row per item, and the star catalog one row per star (census stars and locations by entry), so a job step, a log line or a newly found star writes kilobytes instead of the whole value (jobs and the log were about 20 MB a minute)."),
