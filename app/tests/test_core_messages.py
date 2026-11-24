@@ -313,3 +313,14 @@ def test_a_switch_off_answered_before_its_action_row_raises_no_error(client):
     assert client.portal.call(notify.add_notification, db, ev) is None
     notify.SENT_OFF.pop("RACE0001", None)
     assert client.portal.call(notify.add_notification, db, {**ev, "id": "x2"})["level"] == "error"
+
+
+def test_dashboard_loads_the_digest_card_on_its_own(client):
+    """The digest decodes every event since the last visit (a night away: tens of thousands), so the Dashboard only
+    places the card and /partials/digest builds it (timeout 2026-11-24); a repeat ask within DIGEST_SECONDS is cached."""
+    page = client.get("/", headers=H).text
+    assert 'hx-get="/partials/digest?since=' in page and "While you were away" in page
+    since = page.split('hx-get="/partials/digest?since=')[1].split('"')[0]
+    r = client.get(f"/partials/digest?since={since}", headers=H)
+    assert r.status_code == 200 and "since" in r.text
+    assert len(notify._digests) >= 1

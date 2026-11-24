@@ -6,6 +6,7 @@ Each page answer carries a Server-Timing header (browser dev tools â†’ Network â
 are logged. The diagnostics page and the snapshot show the slowest recent requests and stages."""
 from __future__ import annotations
 
+import asyncio
 import contextvars
 import logging
 import os
@@ -301,14 +302,32 @@ def _table(d: dict) -> list[dict]:
 
 
 _storage: dict = {}
+STORAGE_WAIT = 15   # seconds the first ask waits for the counts
 STORAGE_TTL = 900   # seconds: the counts scan whole tables (over a minute on a slow disk with a 1.3 GB database)
 
 
 async def storage(db) -> dict:
-    """Rows per table, the database file size, and the largest saved values. Worked out on a connection of its own (it
-    never holds up a page) and kept STORAGE_TTL seconds."""
-    if _storage.get("db") == db.path and time.time() - _storage.get("t", 0) < STORAGE_TTL:
+    """Rows per table, the database file size, and the largest saved values, kept STORAGE_TTL seconds. Worked out in the
+    background on a connection of its own: the scans took over a minute live, so the diagnostics performance tool
+    waiting on them timed out (2026-11-24); the first ask waits STORAGE_WAIT seconds, then says pending."""
+    fresh = _storage.get("db") == db.path and time.time() - _storage.get("t", 0) < STORAGE_TTL
+    if not fresh and not (_storage.get("task") and not _storage["task"].done()):
+        _storage["task"] = asyncio.create_task(_storage_count(db))
+    if _storage.get("db") != db.path:   # nothing counted yet: wait a little for the first count
+        await asyncio.wait({_storage["task"]}, timeout=STORAGE_WAIT)
+    if _storage.get("db") == db.path:
         return _storage["v"]
+    return {"pending": "counting tables in the background, ask again in a few minutes"}
+
+
+async def _storage_count(db) -> None:
+    try:
+        await _storage_scan(db)
+    except Exception:   # noqa: BLE001 - diagnostics only; the next ask tries again
+        logging.getLogger(__name__).exception("storage counts failed")
+
+
+async def _storage_scan(db) -> None:
     tables_q = ("events", "inventory_history", "hub_inventory_history", "metric_history", "systems", "actions",
                 "notifications", "timers", "kv")
     qs = [(f"SELECT COUNT(*) AS n FROM {t}", ()) for t in tables_q]
@@ -333,7 +352,6 @@ async def storage(db) -> dict:
          "kv_largest": [{"key": r["key"], "kb": round(r["bytes"] / 1024, 1), "updated_at": r["updated_at"]} for r in big],
          "as_of": datetime.now(timezone.utc).isoformat(timespec="seconds")}
     _storage.update(db=db.path, t=time.time(), v=v)
-    return v
 
 
 async def report(db) -> dict:

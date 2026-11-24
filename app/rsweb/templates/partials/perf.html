@@ -41,8 +41,10 @@
 {% if wr.rows %}<table class="small"><tr><th>Key</th><th class="num">Writes</th><th class="num">MB</th><th class="num">MB/min</th><th class="num">MB since start</th></tr>
   {% for k in wr.rows %}<tr><td class="mono">{{ k.key }}</td><td class="num">{{ k.n }}</td><td class="num">{{ k.mb }}</td><td class="num">{{ k.mb_per_min }}</td><td class="num">{{ k.total_mb }}</td></tr>{% endfor %}</table>{% endif %}
 <h3>Storage</h3>
+{% if perf.storage.pending %}<p class="small muted">Counting tables in the background; reload in a few minutes.</p>{% else %}
 <p class="small">Database {{ perf.storage.files_mb.db }} MB{% if perf.storage.files_mb['db-wal'] is defined %} (+ {{ perf.storage.files_mb['db-wal'] }} MB write-ahead log){% endif %}.
   {% for t, n in perf.storage.tables.items() %}{{ t }}: {{ n }} rows{{ ', ' if not loop.last }}{% endfor %}.
   {% if perf.storage.oldest_event %}Oldest event {{ perf.storage.oldest_event | ago }}.{% endif %}</p>
 <table class="small"><tr><th>Largest saved values</th><th class="num">KB</th><th>Updated</th></tr>
   {% for k in perf.storage.kv_largest %}<tr><td class="mono">{{ k.key }}</td><td class="num">{{ k.kb }}</td><td>{{ k.updated_at | ago }}</td></tr>{% endfor %}</table>
+{% endif %}

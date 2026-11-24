@@ -1,6 +1,9 @@
 """Turn raw game events into human text, notifications and the since-last-visit digest."""
 from __future__ import annotations
 
+import asyncio
+import time
+
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -376,11 +379,31 @@ async def touch_visit(db: DB, email: str, gap_minutes: int) -> dict:
 
 # --- digest --------------------------------------------------------------------
 
+DIGEST_SECONDS = 300
+_digests: dict = {}   # {(db path, since): (monotonic time, digest)}: an overnight digest decodes tens of thousands of events
+
+
 async def build_digest(db: DB, since: str) -> dict:
-    """Summarize what happened and what was accomplished since `since` (ISO)."""
+    """Summarize what happened and what was accomplished since `since` (ISO). Kept DIGEST_SECONDS per `since`, and the
+    events are decoded and counted in a thread: after a night away that's tens of thousands of scans and AMI digests, and
+    doing it on the event loop at every Dashboard load held the page past its timeout (Joe 2026-11-24)."""
+    key = (db.path, since)
+    hit = _digests.get(key)
+    if hit and time.monotonic() - hit[0] < DIGEST_SECONDS:
+        return hit[1]
     rows = await db.fetchall(
         "SELECT * FROM events WHERE received_at > ? ORDER BY seq", (since,)
     )
+    s = await asyncio.to_thread(_digest_events, rows)
+    out = await _digest_finish(db, since, s)
+    if len(_digests) > 20:
+        _digests.clear()
+    _digests[key] = (time.monotonic(), out)
+    return out
+
+
+def _digest_events(rows: list[dict]) -> dict:
+    """The event half of build_digest (pure, run in a thread)."""
     events = [row_event(r) for r in rows]
     counts = Counter(e["event"] for e in events)
     printed: Counter = Counter()
@@ -417,7 +440,21 @@ async def build_digest(db: DB, since: str) -> dict:
             other_done.append(describe(e))
         if name in ALERT_EVENTS:
             alerts.append({"text": describe(e), "at": e.get("created_at") or e.get("received_at")})
+    notable: dict[str, dict] = {}
+    for e in events:
+        if e["event"] in NOTIFY_DONE:
+            t = describe(e)
+            n = notable.setdefault(t, {"text": t, "n": 0})
+            n["n"] += 1
+            n["at"] = e.get("created_at") or e.get("received_at")
+    return {"n": len(events), "counts": counts, "printed": printed, "mined": mined, "delivered": delivered,
+            "arrivals": arrivals, "scans": scans, "xp": xp, "directives": directives, "other_done": other_done,
+            "alerts": alerts, "notable": notable,
+            "ami": [{"code": k, "text": describe(v), "payload": v["payload"]} for k, v in ami_latest.items()]}
 
+
+async def _digest_finish(db: DB, since: str, s: dict) -> dict:
+    printed, xp, counts, arrivals, notable = s["printed"], s["xp"], s["counts"], s["arrivals"], s["notable"]
     # The card's short version (Joe 2026-11-16): what needs you (error notifications, the same filter the bell uses: no
     # switch-offs you sent, no warnings the automations handle), repeats folded into one line, and the few results
     # worth knowing; routine arrivals, scans, directives, switch-ons and AMI digests stay on the full /digest page.
@@ -427,13 +464,6 @@ async def build_digest(db: DB, since: str) -> dict:
         n = needs.setdefault(r["title"], {"text": r["title"], "link": r["link"], "n": 0})
         n["n"] += 1
         n["at"] = r["created_at"]
-    notable: dict[str, dict] = {}
-    for e in events:
-        if e["event"] in NOTIFY_DONE:
-            t = describe(e)
-            n = notable.setdefault(t, {"text": t, "n": 0})
-            n["n"] += 1
-            n["at"] = e.get("created_at") or e.get("received_at")
     inv_delta = await inventory_delta(db, since)
     unlocked = [u["device_type"] for u in await db.kv_get("blueprint_unlocks", []) or [] if u.get("at", "") > since]
     headline_bits = []
@@ -452,23 +482,23 @@ async def build_digest(db: DB, since: str) -> dict:
         "needs_you": sorted(needs.values(), key=lambda x: x["at"], reverse=True)[:10],
         "notable": sorted(notable.values(), key=lambda x: x["at"] or "", reverse=True)[:10],
         "since": since,
-        "total_events": len(events),
+        "total_events": s["n"],
         "headline": ", ".join(headline_bits) if headline_bits else "quiet, nothing notable happened",
         "printed": dict(printed),
-        "mined": {k: int(v) for k, v in mined.items()},
-        "delivered": {k: int(v) for k, v in delivered.items()},
+        "mined": {k: int(v) for k, v in s["mined"].items()},
+        "delivered": {k: int(v) for k, v in s["delivered"].items()},
         "inventory_delta": {k: int(v) for k, v in inv_delta.items() if v},
         # the card shows the 8 biggest changes (in either direction), the full page all of them
         "stock_top": dict(sorted(((k, int(v)) for k, v in inv_delta.items() if int(v)), key=lambda kv: -abs(kv[1]))[:8]),
         "arrivals": arrivals[-15:],
         "arrivals_total": len(arrivals),
-        "scans": scans[-10:],
+        "scans": s["scans"][-10:],
         "xp": xp,
         "unlocked": unlocked,
-        "directives": directives,
-        "other_done": other_done[-15:],
-        "alerts": alerts[-20:],
-        "ami": [{"code": k, "text": describe(v), "payload": v["payload"]} for k, v in ami_latest.items()],
+        "directives": s["directives"],
+        "other_done": s["other_done"][-15:],
+        "alerts": s["alerts"][-20:],
+        "ami": s["ami"],
         "top_events": counts.most_common(8),
     }
 

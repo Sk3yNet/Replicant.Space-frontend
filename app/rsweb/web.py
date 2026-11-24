@@ -17,9 +17,9 @@ async def dashboard(request: Request, user: str = Depends(current_user)):
     st = await load_state(request)
     visit = await notify.touch_visit(request.app.state.db, user, request.app.state.settings.visit_gap_minutes) \
         if not request.headers.get("hx-request") and not request.headers.get("x-live") else None
-    digest = None
-    if visit and not visit.get("digest_dismissed"):
-        digest = await notify.build_digest(request.app.state.db, visit["baseline_at"])
+    # the digest card loads on its own (/partials/digest): built from every event since the last visit, it held the page
+    # past its timeout after a night away (Joe 2026-11-24)
+    digest = {"since": visit["baseline_at"]} if visit and not visit.get("digest_dismissed") else None
     alerts = await request.app.state.db.fetchall(
         "SELECT * FROM notifications WHERE read=0 AND level IN ('error','warning','alert','mention') ORDER BY id DESC LIMIT 10")
     recent = [row_event(r) for r in await request.app.state.db.fetchall(
@@ -37,6 +37,12 @@ async def dashboard(request: Request, user: str = Depends(current_user)):
                          fleet=fleet_summary(st["devices"]), timers=await active_timers(request),
                          sync=sync, stock_piles=stock_piles(st.get("inventory"), cat), **st)
     return templates.TemplateResponse(request, "dashboard.html", ctx)
+
+
+@router.get("/partials/digest", response_class=HTMLResponse)
+async def p_digest(request: Request, since: str, user: str = Depends(current_user)):
+    digest = await notify.build_digest(request.app.state.db, since)
+    return partial(request, "partials/digest_body.html", digest=digest)
 
 
 @router.post("/digest/dismiss", response_class=HTMLResponse)

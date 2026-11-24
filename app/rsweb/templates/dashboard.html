@@ -8,7 +8,7 @@
   <div class="row between"><h2>While you were away</h2>
     <span class="row"><a class="small" href="/digest?hours=24">last 24h</a><a class="small" href="/digest?hours=168">last 7d</a>
     <button class="small ghost" hx-post="/digest/dismiss" hx-target="#digest" hx-swap="outerHTML">Got it</button></span></div>
-  {% include "partials/digest_body.html" %}
+  <div hx-get="/partials/digest?since={{ digest.since | urlencode }}" hx-trigger="load" hx-swap="innerHTML"><p class="muted small">Summing up since {{ digest.since | ago }}…</p></div>
 </div>
 {% endif %}
 
