@@ -467,7 +467,7 @@ def in_service(d: dict) -> bool:
     contract. Live 2026-11-17: autofactory 7C5D7A36, compacted at SOLARES-BELT-1 as payment for a RASTUBAN-2 contract,
     was given two contract prints that sat in its queue while its four neighbors stood idle."""
     st = str(d.get("status") or "")
-    return not (d.get("folded") or st.startswith(("compact", "stowed", "attach", "travel", "moving", "cruis", "surg"))
+    return not (d.get("folded") or st.startswith(("compact", "unfurl", "stowed", "attach", "travel", "moving", "cruis", "surg"))
                 or d.get("stowed_in_device_code") or d.get("attached_to_device_code") or for_contract(d))
 
 

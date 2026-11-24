@@ -8,6 +8,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timezone
+from typing import Any
 
 from .db import now_iso
 
@@ -47,6 +48,26 @@ def _born(o: dict):
 
 
 REDUNDANT_PER_PASS = 40   # redundant beacons tagged spare per pass
+
+
+def civ_prints(devices: list[dict], kept: list[dict]) -> dict[str, dict]:
+    """Beacon prints the civ beacon rule ordered (tag `civ`) that wait in a system's printers, by star: {"game": n in
+    the game's queues, "kept": [orders kept in the app's queue (vqueue.py), newest first]}. Live 2026-11-24: NIO's five
+    autofactories kept 9 for one body (NIO-2), as the rule ordered another every 3 hours while none came out."""
+    where = {d.get("device_code"): star_of_(d.get("location")) for d in devices if d.get("device_code") and d.get("location")}
+    out: dict[str, dict] = {}
+    for d in devices:
+        star = where.get(d.get("device_code"))
+        for it in d.get("print_queue") or []:
+            if (star and isinstance(it, dict) and not it.get("virtual") and it.get("device_type") == "ftl_beacon"
+                    and "civ" in (it.get("tags") or [])):
+                out.setdefault(star, {"game": 0, "kept": []})["game"] += max(1, int(it.get("quantity") or 1))
+    for o in sorted(kept, key=lambda o: -int(o.get("seq") or 0)):
+        b = o.get("body") or {}
+        star = where.get(o.get("factory"))
+        if star and b.get("device_type") == "ftl_beacon" and "civ" in (b.get("tags") or []):
+            out.setdefault(star, {"game": 0, "kept": []})["kept"].append(o)
+    return out
 
 WAKE_STOPS = 10   # dark relays: systems one trip visits
 
@@ -985,6 +1006,14 @@ class OpsRules:
         logistics = {d["device_code"] for f in await self.fleets() if f.get("role") == "logistics" for d in fl.members(f, devices)}
         # civilizations with no event yet, in systems the relay network covers (option quiet_in_range)
         in_range = await self.commandable(devices, networked=True) if cfg.get("quiet_in_range", True) else set()
+        vq = getattr(self.api, "vq", None)
+        queued = civ_prints(devices, await vq.orders() if vq is not None else [])
+        claimed: dict[str, int] = {}
+
+        def waiting(star: str) -> bool:
+            q = queued.get(star) or {}
+            return q.get("game", 0) + len(q.get("kept") or []) > claimed.get(star, 0)
+
         lines = []
         for row in rows:
             loc = row["location"]
@@ -1003,7 +1032,9 @@ class OpsRules:
                 continue
             p = tr.placement(loc, devices, reps, stowed, busy, use_replicant_vessel=manual, logistics=logistics,
                              keep=keep, bps=bps, vessel_print=manual)
-            if p["kind"] == "factory" and loc in orders:
+            if p["kind"] == "factory" and (loc in orders or waiting(row["star"])):
+                claimed[row["star"]] = claimed.get(row["star"], 0) + 1
+                orders.setdefault(loc, now_iso())   # a print already waits in that system: no second one
                 lines.append(f"{loc}: a beacon is being printed for it — a vessel picks it up once it's out"
                              + ("" if p.get("has_vessel") else f" (needs a vessel with a hold in {row['star']})"))
                 continue
@@ -1023,11 +1054,41 @@ class OpsRules:
                     wanted[loc] = now_iso()
                 if p["kind"] == "factory":
                     orders[loc] = now_iso()
+                    claimed[row["star"]] = claimed.get(row["star"], 0) + 1
+                    queued.setdefault(row["star"], {"game": 0, "kept": []})["game"] += 1
             lines.append(f"{loc}: {p['text']}" + ("" if job else " (dry run)"))
+        if not only_loc and vq is not None:
+            lines += await self.drop_extra_civ_prints(vq, queued, claimed)
         await self.db.kv_set("beacon_wanted", wanted)
         await self.db.kv_set("beacon_orders", orders)
         if not only_loc and (manual or cfg.get("spare_redundant", True)):
             lines += await self.spare_redundant_beacons(rows, manual)
+        return lines
+
+    async def drop_extra_civ_prints(self, vq: Any, queued: dict[str, dict], claimed: dict[str, int]) -> list[str]:
+        """Beacon prints kept in the app's queue for a system beyond the bodies there still waiting for one (`claimed`
+        this pass) are dropped, the newest first: each would come out as a spare beacon."""
+        from . import vqueue as vqm
+        extra = {}
+        for star, q in queued.items():
+            n = q.get("game", 0) + len(q.get("kept") or []) - claimed.get(star, 0)
+            if n > 0 and q.get("kept"):
+                extra[star] = {id(o) for o in q["kept"][:n]}
+        if not extra:
+            return []
+        gone = set().union(*extra.values())
+        async with vq.lock:
+            st = await vq.state()
+            seqs = {(o.get("factory"), o.get("seq")) for q in queued.values() for o in q.get("kept") or [] if id(o) in gone}
+            before = len(st["orders"])
+            st["orders"] = [o for o in st["orders"] if (o.get("factory"), o.get("seq")) not in seqs]
+            if len(st["orders"]) != before:
+                await self.db.kv_set(vqm.KV, st)
+        lines = []
+        for star in sorted(extra):
+            line = f"{star}: dropped {len(extra[star])} beacon print(s) kept in the app's queue that no body there needs"
+            lines.append(line)
+            await self.log("print queue", line)
         return lines
 
     async def spare_redundant_beacons(self, rows: list[dict] | None = None, manual: bool = False) -> list[str]:

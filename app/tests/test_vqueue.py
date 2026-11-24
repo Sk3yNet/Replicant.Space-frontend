@@ -520,3 +520,50 @@ def test_game_queue_holds_one_behind_the_current_print():
     assert vqueue.plan(real, kept) == (1, [], [])                       # printing: one waiting behind it is enough
     k, back, send = vqueue.plan(real, kept, keep=vqueue.KEEP + 1)       # waiting: the head is the current print
     assert k == 1 and [x[0] for x in send] == ["kept"]
+
+
+def test_a_refusal_about_the_printers_state_teaches_nothing(client):  # noqa: F811
+    """Live 2026-11-22: 11C05A70 at NIO-3-L4 answered "Device is unfurling" to a beacon print, noted as autofactories
+    refusing beacons: nine beacon prints then sat in the app's queue while all five NIO autofactories stood idle."""
+    db, e, world = setup(client)
+    client.portal.call(db.kv_set, vqueue.REFUSE_KV, {"autofactory": {
+        "ftl_beacon": {"err": "Device is unfurling", "at": "2026-11-22T23:43:23+00:00", "code": "AF00BEEF"},
+        "orbital_farm": {"err": "This printer can't make that", "at": "2026-11-22T23:43:23+00:00", "code": "AF00BEEF"}}})
+    next(d for d in world.devices if d["device_code"] == "AF00BEEF")["status"] = "idle"
+    vq = client.app.state.api.vq
+    client.portal.call(vq.add, "AF00BEEF", {"device_type": "ftl_beacon", "quantity": 1, "tags": ["civ"]}, 2)
+    out = feed(client)
+    assert out == ["AF00BEEF: 1 print(s) into the game's queue"] and client.portal.call(vq.orders, "AF00BEEF") == []
+    assert client.portal.call(db.kv_get, vqueue.REFUSE_KV) == {"autofactory": {"orbital_farm": {
+        "err": "This printer can't make that", "at": "2026-11-22T23:43:23+00:00", "code": "AF00BEEF"}}}
+    assert vqueue.TRANSIENT_RE.search("Device is unfurling") and vqueue.TRANSIENT_RE.search("Device is compacting")
+
+
+def test_prints_kept_for_a_printer_that_is_gone_are_dropped_after_an_hour(client):  # noqa: F811
+    """Live 2026-11-24: 8 relay prints kept since 11-17 for structural fabricator 94700A36, no longer in the list."""
+    db, e, world = setup(client)
+    vq = client.app.state.api.vq
+    client.portal.call(vq.add, "DEADBEEF", {"device_type": "ftl_relay", "quantity": 1, "tags": ["to:sol"]}, 2)
+    feed(client)
+    st = client.portal.call(vq.state)
+    assert len(st["orders"]) == 1 and "DEADBEEF" in st["gone"]          # noted, kept for now
+    st["gone"]["DEADBEEF"] = "2026-01-01T00:00:00+00:00"
+    client.portal.call(db.kv_set, vqueue.KV, st)
+    out = feed(client)
+    assert "DEADBEEF: dropped 1 kept print(s): that printer is gone" in out
+    st = client.portal.call(vq.state)
+    assert st["orders"] == [] and st["gone"] == {}
+
+
+def test_civ_beacon_prints_waiting_in_a_system_are_counted():
+    from rsweb.ops_rules import civ_prints
+    devs = [{"device_code": "A1", "location": "NIO-3-L4", "print_queue": [
+                {"device_type": "ftl_beacon", "quantity": 1, "tags": ["civ"]},
+                {"device_type": "ftl_beacon", "quantity": 1, "tags": ["civ"], "virtual": True}]},
+            {"device_code": "A2", "location": "NIO-3-L4"}]
+    kept = [{"factory": "A1", "seq": 5, "body": {"device_type": "ftl_beacon", "tags": ["civ"]}},
+            {"factory": "A2", "seq": 9, "body": {"device_type": "ftl_beacon", "tags": ["civ"]}},
+            {"factory": "A2", "seq": 7, "body": {"device_type": "ftl_relay", "tags": ["civ"]}},
+            {"factory": "ZZ", "seq": 8, "body": {"device_type": "ftl_beacon", "tags": ["civ"]}}]
+    q = civ_prints(devs, kept)
+    assert list(q) == ["NIO"] and q["NIO"]["game"] == 1 and [o["seq"] for o in q["NIO"]["kept"]] == [9, 5]

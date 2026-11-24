@@ -607,3 +607,30 @@ def test_stale_beacon_pins_in_other_systems():
             b("B4", "BADU-BELT-1", ["at:rastuban-3", "contract:x"])]
     assert [s["code"] for s in tr.stale_pins(devs)] == ["B1"]
     assert tr.stale_pins(devs, {"B1"}) == []
+
+
+def test_civ_beacon_print_waiting_in_the_app_is_not_ordered_again(client):
+    """Live 2026-11-24: NIO's autofactories kept 9 beacon prints for NIO-2, one ordered every 3 hours (the order's
+    memory) while none came out. A print waiting in the system now counts; the extra kept ones are dropped."""
+    from rsweb.vqueue import VirtualQueue
+    e = eng(client)
+    s = client.portal.call(e.settings)
+    s["rules"]["civ_beacons"]["enabled"] = True
+    client.portal.call(e.save_settings, s)
+    w = client.app.state.worker
+    client.portal.call(w.handle_event, {"id": "d1", "event": "event.discovered", "created_at": iso(datetime.now(timezone.utc)),
+                                        "payload": {"designation": "EV-9", "location": "SOL-3", "title": "First contact", "tier": 1}})
+    job = next(j for j in client.portal.call(e.jobs) if j["rule"] == "civ_beacons")
+    fac = job["steps"][0]["path"].split("/")[-1]
+    db = client.app.state.db
+    vq = client.app.state.api.vq = VirtualQueue(db)
+    for _ in range(3):
+        client.portal.call(vq.add, fac, {"device_type": "ftl_beacon", "quantity": 1, "tags": ["civ"]}, 2)
+    client.portal.call(db.kv_set, "beacon_orders", {})       # the 3-hour memory ran out
+    client.portal.call(db.kv_set, "civ_beacons_at", None)
+    n = len(client.portal.call(e.jobs))
+    lines = client.portal.call(e.civ_beacon_pass)
+    assert any(x.startswith("SOL-3: a beacon is being printed") for x in lines), lines
+    assert len(client.portal.call(e.jobs)) == n                                   # no new print
+    assert "SOL: dropped 2 beacon print(s) kept in the app's queue that no body there needs" in lines
+    assert len(client.portal.call(vq.orders, fac)) == 1

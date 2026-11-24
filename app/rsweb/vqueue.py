@@ -36,7 +36,9 @@ REFUSE_KV = "printer_refusals"
 # answers that say nothing about what the printer can make: no lesson learned from them
 TRANSIENT_RE = re.compile(r"queue space|busy|not yet unlocked|resource|component|service unavailable|bad gateway|"
                           r"gateway time-?out|timed? ?out|network|rate|too many|out of range|offline|not found|"
-                          r"compact|stowed|attached|travel", re.I)
+                          r"compact|stowed|attached|travel|unfurl|deploying|folded|moving|cruis|surg|"
+                          r"device is \w+ing\b", re.I)   # "Device is unfurling" (live 2026-11-22) taught every autofactory to refuse beacons
+GONE_SECONDS = 3600   # prints kept for a printer missing from the device list this long are dropped
 KEEP = 1   # prints each factory holds in the game's queue behind its current one (1.499.0; 2 before)
 CHUNK = 3  # the most of one order sent at a time (live 2026-11-02: "Not enough queue space (10 available, 28
            # requested)": a print's quantity takes that many of the queue's slots)
@@ -302,6 +304,17 @@ def shared(kept: list[dict], code: str, waiting: dict[str, int], keep: int | Non
 
 def refused(refusals: dict, printer_type: str | None, print_type: str | None) -> bool:
     return bool(print_type) and print_type in ((refusals or {}).get(printer_type or "") or {})
+
+
+def learned(refusals: dict) -> dict:
+    """The refusals that say what a kind of printer can't make: one noted from an answer about the printer's state
+    (before 1.538.0, "Device is unfurling" from 11C05A70 at NIO-3-L4 kept every autofactory off beacons) is forgotten."""
+    out = {}
+    for ptype, by in (refusals or {}).items():
+        keep = {t: r for t, r in (by or {}).items() if not TRANSIENT_RE.search(str((r or {}).get("err") or ""))}
+        if keep:
+            out[ptype] = keep
+    return out
 
 
 def takeable(orders: list[dict], refusals: dict, printer_type: str | None) -> list[dict]:

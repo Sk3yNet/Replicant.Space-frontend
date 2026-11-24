@@ -283,6 +283,9 @@ class LoadoutMixin:
         lom.EXOTIC_CLASS_ONLY[0] = bool(await self.db.kv_get("exotic_class_only", False))
         bpd = {b.get("device_type"): b for b in await self.db.kv_get("blueprints", []) or [] if isinstance(b, dict)}
         refusals = await self.db.kv_get(vqm.REFUSE_KV, {}) or {}
+        if vqm.learned(refusals) != refusals:
+            refusals = vqm.learned(refusals)
+            await self.db.kv_set(vqm.REFUSE_KV, refusals)
         # the app's own prints kept for a printer that can't make them (an epitaxy printer: exotic blueprints only) are
         # dropped: the ward / relay / beacon orders then find them lost and print elsewhere; prints queued by hand stay
         printers = {d["device_code"] for d in devs if d.get("device_code") and lom.is_printer(d)}
@@ -291,7 +294,19 @@ class LoadoutMixin:
             st = await vq.state()
             drop = [o for o in st["orders"] if o.get("factory") in by_code and o.get("prio") != 0
                     and not lom.can_make(by_code[o["factory"]], bpd.get((o.get("body") or {}).get("device_type")))]
-            if drop:
+            # prints kept for a printer that left the device list (decommissioned, given away) wait for nothing: after
+            # an hour gone they're dropped, and the ward / relay / beacon orders find them lost and print elsewhere
+            # (live 2026-11-24: 8 relay prints kept since 11-17 for structural fabricator 94700A36)
+            known = {d.get("device_code") for d in devs}
+            had = dict(st.get("gone") or {})
+            gone = {c: at for c, at in had.items() if c not in known and any(o.get("factory") == c for o in st["orders"])}
+            for o in st["orders"]:
+                if devs and o.get("factory") not in known:
+                    gone.setdefault(o["factory"], now_iso())
+            lost = {c for c, at in gone.items() if not _ts(at) or (_now() - _ts(at)).total_seconds() > vqm.GONE_SECONDS}
+            drop += [o for o in st["orders"] if o.get("factory") in lost]
+            st["gone"] = {c: at for c, at in gone.items() if c not in lost}
+            if drop or st["gone"] != had:
                 st["orders"] = [o for o in st["orders"] if not any(o is x for x in drop)]
                 await self.db.kv_set(vqm.KV, st)
             # relay prints the rollout ordered before 1.444.0 carry no `rollout` tag: mark the kept ones so they wait last
@@ -341,7 +356,11 @@ class LoadoutMixin:
             line = f"{src} {why}: {n} kept print(s) handed to {to}"
             out.append(line)
             await self.log("print queue", line)
-        for code in sorted({o["factory"] for o in drop}):
+        for code in sorted({o["factory"] for o in drop if o["factory"] not in by_code}):
+            line = f"{code}: dropped {sum(o['factory'] == code for o in drop)} kept print(s): that printer is gone"
+            out.append(line)
+            await self.log("print queue", line, "warning")
+        for code in sorted({o["factory"] for o in drop if o["factory"] in by_code}):
             n = sum(o["factory"] == code for o in drop)
             line = f"{code}: dropped {n} kept print(s) it can't make" + \
                 (" (exotic blueprints only)" if lom.print_class(by_code[code]) else " (exotic: an epitaxy printer's)")

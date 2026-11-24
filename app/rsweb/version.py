@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.537.0"
+VERSION = "1.538.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.538.0", "2026-11-24", "Beacon prints waiting in the app's queue at NIO now reach the game (Joe). A print sent to an autofactory that was still unfurling (\"Device is unfurling\") had been noted as autofactories refusing beacons, so no autofactory anywhere was offered a beacon again: answers about a printer's state no longer count as refusals, the bad note is forgotten, and an unfurling printer isn't fed. The civ beacon rule counts beacon prints already waiting in a system's printers instead of ordering another every 3 hours (NIO kept 9 for one body) and drops the extra ones. Prints kept for a printer gone from the device list for an hour are dropped (8 relay prints for structural fabricator 94700A36 since 11-17); the relay and ward orders print those elsewhere."),
     ("1.537.0", "2026-11-24", "A recall brings a fleet back whether or not it has a carrier (Joe). When nothing can board the members, the recall ends at once: a stationed fleet's members are brought home by the loadout pass, and an unstationed fleet's members away from the recall's hub are pinned to it (to:<hub>) and delivered by logistics, or fly there themselves if they can surge. Hold roles (prospectors, rock chasers ...) then wait at the hub for Resume as before."),
     ("1.536.2", "2026-11-24", "The carrierless recall shortcut applies only to a stationed fleet recalled to its own station (the loadout pass brings only those members home); a recall to another receiving point still stalls so you hear about it."),
     ("1.536.1", "2026-11-24", "A recall of a fleet with no carrier to board (only freighters or drones) no longer stalls: members already home stay, and the loadout pass brings the rest home once the recall ends. Miner_9 had stalled 26 h recalling to ALPHARDAN with 6 members at MARKOB, and while it was on that recall nothing would fetch them."),
