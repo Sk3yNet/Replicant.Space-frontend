@@ -577,7 +577,9 @@ rock chaser / trade post / terraformer / bootstrap), a home and a loadout (its o
   work at its current target, or the job a member is on), then does the same. Back means its station (a stationed
   fleet's home), else the nearest hub fleet's home (never a mining fleet's home, 1.455.0), else its
   home; cargo is unloaded there. Logistics, prospector, rock chaser and bootstrap fleets are then held (their own work
-  pauses) until *Resume*. *Cancel recall* calls it off.
+  pauses) until *Resume*. *Cancel recall* calls it off. A fleet with no carrier to board (only freighters or drones)
+  is recalled all the same (1.537.0): members already there stay, the rest are delivered by logistics (pinned
+  `to:<hub>` unless it is the fleet's own station) or fly there themselves.
 - **Auto-retry**: a stalled mission retries the stalled phase by itself after 15 min, doubling the wait each time up to
   6 h, eight tries in all (then it waits for *Retry*). One stalled out of comms range resumes once back in range
   instead. Only the first stall at a spot notifies.

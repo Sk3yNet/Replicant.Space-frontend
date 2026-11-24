@@ -165,3 +165,34 @@ def test_recall_without_a_carrier_ends_and_leaves_the_rest_to_loadouts(client):
     m = client.portal.call(e.fleets)[0]["mission"]
     assert m["status"] == "done", m["log"]
     assert "RG2" in m["log"][-1]["text"]
+
+
+def test_unstationed_recall_without_a_carrier_pins_members_to_the_hub(client):
+    """Joe 2026-11-24: a recall brings a fleet back to the hub whether it has a carrier or not."""
+    e = client.app.state.worker.automations
+    sent = []
+
+    async def fake_send(method, path, body, label):
+        sent.append((path, body))
+        return True, {"status": "ok"}, None
+    e.send = fake_send
+    fleet = {"id": "p9", "name": "Prospector 9", "role": "explore", "home": "AAA", "station": False, "wants": {},
+             "mission": {"status": "stalled", "homing": True, "phase": "recall", "departed": True, "targets": [],
+                         "idx": 0, "log": [], "drop_star": "HUB", "recall": {"mode": "now", "dest": "HUB"},
+                         "auto_retry": {"spot": [0, "recall"], "n": 8, "at": None}, "job": None}}
+    devices = [{"device_code": "SD1", "device_type": "survey_drone", "location": "BBB-BELT-1", "status": "idle",
+                "tags": ["fleet:p9", "at:bbb-belt-1"]},
+               {"device_code": "SD2", "device_type": "survey_drone", "location": "HUB-BELT-1", "status": "idle",
+                "tags": ["fleet:p9"]}]
+    client.portal.call(client.app.state.db.kv_set, "devices", devices)
+    client.portal.call(e.save_fleets, [fleet])
+    client.portal.call(e.run_fleets)
+    m = client.portal.call(e.fleets)[0]["mission"]
+    assert m["status"] == "done" and m["carried_to"] == "HUB", m["log"]
+    assert sent == [("/devices/SD1", {"configuration": {"add_tags": ["to:hub"], "remove_tags": ["at:bbb-belt-1"]}})]
+    # the loadout planner now sees SD1 (pinned to:hub) and moves it; SD2 (no pin) stays the fleet's
+    from rsweb import loadouts as lo
+    cfg = lo.normalize({"fleets": client.portal.call(e.fleets)})
+    devices[0]["tags"] = ["fleet:p9", "to:hub"]
+    p = lo.plan(cfg, devices, [], {}, {"HUB": {}, "BBB": {}}, {}, set(), [], {})
+    assert p["moves"] == {"SD1": "HUB"}

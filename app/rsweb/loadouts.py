@@ -501,6 +501,11 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
 
     groups = stationed_fleets(cfg)           # fleets kept at their loadout in their home system, by (home, id)
     by_tag = {fl.fleet_tag(f["id"]): f for f in groups}
+    # members of an unstationed fleet whose recall had no carrier to board (Joe 2026-11-24): pinned to:<hub>, they're
+    # the planner's to deliver until they're there (engine_fleets._end_carrierless_recall)
+    carried = {fl.fleet_tag(f["id"]): (f.get("mission") or {})["carried_to"] for f in cfg["fleets"]
+               if f.get("id") and f not in groups and (f.get("mission") or {}).get("status") == "done"
+               and (f.get("mission") or {}).get("carried_to")}
     # logistics fleets (logistics.py) carry everyone's devices: their carriers join the delivery pool, and are picked first
     logistics_tags = {fl.fleet_tag(f["id"]) for f in cfg["fleets"] if f.get("role") == "logistics" and f.get("id")}
 
@@ -533,7 +538,8 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
         f = fleet_tag_of(d)
         if placed(d) and not (f in by_tag and by_tag[f]["home"] == star_of(d.get("location"))):
             return False   # a beacon / relay at work where it is: not the planner's to count, spare or move
-        return not (ignore & tags) and d.get("device_code") not in replicant_hosts and (not f or f in by_tag)
+        return not (ignore & tags) and d.get("device_code") not in replicant_hosts and (
+            not f or f in by_tag or (f in carried and to_tag(carried[f]) in tags))
     # A stationed fleet's device tagged to:<old home> (e.g. printed before the fleet moved) goes to its current home.
     # Seen live 2026-10-07: Miner 1's observatory still tagged to:kelmornea after the fleet moved to LARSELAN.
     retag: dict[str, tuple[str, str]] = {}
