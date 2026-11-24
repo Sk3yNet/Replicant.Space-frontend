@@ -355,6 +355,41 @@ def test_idle_chaser_gathers_members_from_other_systems_at_home(client):  # noqa
     assert "can't fetch: RIG3" in f["chase_run"]["note"] and any("gathers" in x or "home" in x for x in out)
 
 
+def test_charges_no_fleet_carrier_can_seat_come_by_logistics(client, monkeypatch):  # noqa: F811
+    """Live 2026-11-24: Chaser_5's two vector charges sat at FALQUORYX-1-L4 (its old home) for days, "can't fetch":
+    a charge only stows and its surge carriers have attach points only, so its launches waited with "no seat". Charges
+    at home (Chaser_1's at RENGRELOR-3-L4) cruise to the Kuiper belt by themselves."""
+    vc = {"device_type": "vector_charge", "status": "idle", "tags": ["fleet:rc"], "features": ["cruise", "stow", "weapon"],
+          "available_commands": ["detonate", "stow", "travel"]}
+    devs = [rig("RIG1", "SOL-KUIPER"), carrier("PLAT", "SOL-KUIPER"), {**vc, "device_code": "VCF", "location": "NEAR-1-L4"},
+            {**vc, "device_code": "VCH", "location": "SOL-3-L4"}]
+    db, e = _setup(client, devs, {})
+    _scan(client, db)
+    from rsweb import fleets as fl
+    monkeypatch.setattr(fl, "NO_ATTACH_TYPES", fl.NO_ATTACH_TYPES | {"vector_charge"})
+    f = client.portal.call(e.fleets)
+    f[0]["wants"] = {"mining_rig": 1, "surge_platform": 1, "vector_charge": 2}
+    f[0]["chase_run"] = {"searched": {"SOL": iso(0)}}
+    client.portal.call(e.save_fleets, f)
+    pos = {"SOL": {"x": 0, "y": 0, "z": 0}, "NEAR": {"x": 10, "y": 0, "z": 0}}
+    orig = e.star_lookup
+
+    async def lookup(kind, *a, **k):
+        return pos if kind == "pos" else await orig(kind, *a, **k)
+
+    async def commandable(devices, *a, **k):
+        return {"SOL", "NEAR"}
+    e.star_lookup, e.commandable = lookup, commandable
+    try:
+        out = client.portal.call(e.rock_chase_pass)
+    finally:
+        e.__dict__.pop("star_lookup", None), e.__dict__.pop("commandable", None)
+    assert any("VCF (vector_charge) is in NEAR: logistics brings it to" in x for x in out), out
+    assert "VCH flies home to SOL-KUIPER" in " ".join(out), out
+    run = client.portal.call(e.fleets)[0]["chase_run"]
+    assert "VCF" in run["fetch"] and run["unseated"] == ["VCF"]
+
+
 def test_every_next_target_exists_after_its_form():
     """Live 2026-11-16: the rock chaser Save (and Launch, Call off) targeted "next .chase-out" with no such element after
     them, so htmx never sent the request and Chaser_1's settings never saved."""

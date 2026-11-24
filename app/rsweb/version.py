@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.545.1"
+VERSION = "1.546.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.546.0", "2026-11-24", "Rock chasers fetch members their own carriers can't seat (Joe asked about Chaser_5). Chaser_5's two vector charges had sat at FALQUORYX-1-L4, its old home, for days: a vector charge only rides in a hold and the fleet's surge carriers have attach points only, so the gather listed them as can't fetch and the auto launch of SARKARUS-KUIPER-5 waited with no seat while 12 rocks were marked. Such members now come by logistics to the home drop and join on arrival, and a charge already in the home system cruises to the Kuiper belt by itself (Chaser_1's two at RENGRELOR-3-L4)."),
     ("1.545.1", "2026-11-24", "Trade posts unload a vessel for sale correctly: devices attached to it are let go by the vessel (detach), stowed ones deployed, before it is listed."),
     ("1.545.0", "2026-11-24", "Relay orders whose relay never comes are sent again (Joe: SOL and ALGOLUM waited days with no tagged relay on the way). SOL's order named a relay that ended up relaying at ACHERNARON and ALGOLUM's one that sat spare at FALQUORYX without its to: tag; a send order only expired after 3 days. Now a send order whose device lost its tag, works in another system or is out of reach is sourced again after 20 minutes (a relay already bound for it, a spare, else a print). Trade posts never list a vessel with devices aboard: the cargo is deployed at the shop first, and a listing that escrowed one is taken down (relays for ULGRELIIL and CAELOARAX were locked in a racing vessel and a heaven vessel on sale since 11-22). Relays inside a vessel in escrow no longer count as on their way."),
     ("1.544.0", "2026-11-24", "Rock chasers notice a stuck Kuiper search (Joe: Chaser_1 stuck for two days). On 11-22 the sensor arrays of Chaser_1, Chaser_2 and Chaser_3 started a 30-minute sweep and never finished it: they stayed detecting, every hourly search was refused with Already detecting, nothing new was marked and no rock was launched. A sensor array still refused two hours after the first such answer is now switched off and searches again on the next pass."),

@@ -354,12 +354,15 @@ class ChaseMixin:
                 if not fetch:
                     run.pop("fetch", None)
                 return []
-        if not fetch and not fl.short_list(f, ctx["devices"]):
+        by = {d["device_code"]: d for d in ctx["devices"]}
+        tag = fl.fleet_tag(f["id"])
+        ms = [by[c] for c in run.get("unseated") or [] if c in by and tag in (by[c].get("tags") or [])]
+        if not fetch and not ms and not fl.short_list(f, ctx["devices"]):
             run.pop("fetch", None)
             run.pop("fetch_at", None)
             return []
         steps: list[dict] = []
-        out = await self._tf_fetch(f, spot, run, ctx, [], fetch, steps)
+        out = await self._tf_fetch(f, spot, run, ctx, ms, fetch, steps)
         if fetch:
             run["fetch_at"] = spot
         else:
@@ -648,7 +651,7 @@ class ChaseMixin:
         free = {cc: fl.seats(c, devices) for cc, c in carriers.items()}
         aboard: dict[str, list[tuple[str, str]]] = {cc: [] for cc in carriers}
         stops: dict[str, dict[str, list[tuple[str, str]]]] = {cc: {} for cc in carriers}
-        fly, left = [], []
+        fly, left, unseated = [], [], []
         for d in ms:
             code = d["device_code"]
             if code in carriers:
@@ -665,8 +668,8 @@ class ChaseMixin:
                 continue   # at a rock: _chase_off_rocks moves it; working: left alone
             if not near(st):
                 left.append(code)
-            elif fl.flies_itself(d):
-                fly.append(d)
+            elif fl.flies_itself(d) or (st == home and rm_can_fly(d)):
+                fly.append(d)   # a cruiser at home (a vector charge: no hold seat on surge carriers) cruises over itself
             else:
                 cand = sorted((cc for cc in carriers if cc not in busy and near(star(carriers[cc].get("location")))),
                               key=lambda cc: (star(carriers[cc].get("location")) != st,
@@ -682,6 +685,10 @@ class ChaseMixin:
                     aboard[cc].append((code, mode))
                 else:
                     left.append(code)
+                    unseated.append(code)
+        # live 2026-11-24: Chaser_5's vector charges sat at FALQUORYX-1-L4 (its old home) for days: they only stow, and
+        # its surge carriers have attach points only. Members no fleet carrier can seat come by logistics (_chase_refill)
+        run["unseated"] = unseated
         out = []
         for cc, c in carriers.items():
             if cc in busy or not near(star(c.get("location"))):
