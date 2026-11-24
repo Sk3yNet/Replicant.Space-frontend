@@ -47,7 +47,7 @@ def test_job_rows_go_to_logistics_as_urgent():
                 hosts={"HV": "R1"}, busy=set(), reach=100, contracts=[], trades=[], incoming={},
                 replicants={"R1": {"location": "A-1"}}, drop=lambda s: f"{s}-1", upkeep=rows)
     r = next(r for r in p["requests"] if r["id"] == "job:job7")
-    assert r["need"] == {"carbon": 50} and r["category"] == "urgent" and r["urgent"] == "station job"
+    assert r["need"] == {"carbon": 50} and r["category"] == "stations" and r["urgent"] == "station job"
     assert "station job" in r["label"] and "due 11-18 10:00" in r["label"]
     assert next(x for x in p["runs"] if x["req"] == "job:job7")["to"] == "A-OBJ-2"
 
@@ -152,3 +152,58 @@ def test_station_job_prints_go_first():
                              fleets=FLEETS, gather={}, busy_stars=set())
     r = next(r for r in reqs if r["id"] == "print:A-1")
     assert r["tier"] == 0 and r["urgent"] == "station job print"
+
+
+def _station_plan(station_carriers=frozenset(), upkeep=None, inv=None, lanes=None):
+    from rsweb import logistics as lg
+    devs = [dev("F1", "cargo_freighter", "A-1", cargo_capacity=100, **SURGE),
+            dev("F2", "cargo_freighter", "A-1", cargo_capacity=100, **SURGE),
+            dev("HV", "heaven_vessel", "A-1", **SURGE)]
+    rows = upkeep if upkeep is not None else [
+        {"code": "job7", "location": "B-OBJ-1", "target": {"carbon": 50}, "kind": "job", "urgent": True, "station": True,
+         "source": "A-OBJ-2", "label": "station job"}]
+    return lg.plan(fleets=FLEETS, devices=devs, bps=BPS, inventory=inv or {"A-OBJ-2": {"carbon": 50}, "A-1": {"carbon": 500}},
+                   pos=POS, commandable={"A", "B"}, hosts={"HV": "R1"}, busy=set(), reach=100, contracts=[], trades=[],
+                   incoming={}, replicants={"R1": {"location": "A-1"}}, drop=lambda s: f"{s}-1", upkeep=rows,
+                   station_carriers=set(station_carriers), lanes=lanes)
+
+
+def test_station_jobs_are_a_category_their_carriers_take_first():
+    """Joe 2026-11-24: one heaven vessel and one cargo ship work station jobs first, other categories after."""
+    p = _station_plan({"HV", "F2"})
+    r = next(x for x in p["requests"] if x["id"] == "job:job7")
+    assert r["category"] == "stations"
+    run = next(x for x in p["runs"] if x["req"] == "job:job7")
+    assert "F2" in [c["code"] for c in run["cargos"]] and "F1" not in [c["code"] for c in run["cargos"]]
+    # the handed-over pile at the station (a STAR-OBJ-n spot, not a rock) is the source, never a stockpile return
+    assert [leg["pile"] for c in run["cargos"] for leg in c["legs"]] == ["A-OBJ-2"]
+    assert not any(x["id"] == "return:A-OBJ-2" for x in p["requests"])
+    assert p["lanes"]["F2"] == "stations" and p["lanes"].get("F1") != "stations"
+    # no station work: the same carriers take other categories
+    p = _station_plan({"HV", "F2"}, upkeep=[], lanes={"F2": "stations"})
+    assert p["lanes"].get("F2") != "stations"
+
+
+def test_auto_accept_skips_jobs_outside_the_systems_you_command():
+    """Job 96 (2026-11-18): 199 conductive for Novgorod Station at ARUCALIS, out of reach, never went and the job failed."""
+    sts = STATIONS + [{"slug": "novgorod", "name": "Novgorod Station", "location": "Z-OBJ-1"}]
+    boards = {"new_havana": {"jobs": [
+        {"id": 5, "faction": "trader", "tier": 1, "reputation_reward": 10, "station_slug": "new_havana",
+         "objectives": {"type": "deliver_resources", "destination": "Z-OBJ-1", "resource": "carbon", "quantity": 9}},
+        {"id": 6, "faction": "trader", "tier": 1, "reputation_reward": 10, "station_slug": "new_havana",
+         "objectives": {"type": "gather_resources", "station_location": "A-OBJ-2", "resource": "carbon", "quantity": 9}}]}}
+    rows = sj.board_rows(sts, boards, {"jobs": []})
+    assert sj.pick(rows, {**sj.DEFAULT_RUNNER}, sts, {"A"})["id"] == 6
+    assert sj.pick(rows, {**sj.DEFAULT_RUNNER}, sts, {"A", "Z"})["id"] == 5
+    mine = {"jobs": [{"id": 5, "status": "accepted", "station_slug": "new_havana", **boards["new_havana"]["jobs"][0]}]}
+    row = sj.logistics_rows(mine, {"run": ["5"]}, sts)[0]
+    assert row["location"] == "Z-OBJ-1" and row["source"] == "A-OBJ-2" and row["station"]
+
+
+def test_station_carriers_are_picked_from_the_logistics_fleet_and_kept():
+    pool = [dev("HV", "heaven_vessel", "A-1"), dev("HV2", "heaven_vessel", "A-1"), dev("CV", "cargo_vessel", "A-1"),
+            dev("F1", "cargo_freighter", "A-1")]
+    hosts = {"HV": "R1", "HV2": "R2", "CV": "R3"}
+    assert sj.pick_carriers({}, pool, hosts, {"R2"}) == {"vessel": "HV2", "cargo": "CV"}
+    assert sj.pick_carriers({"carriers": {"vessel": "HV", "cargo": "F1"}}, pool, hosts) == {"vessel": "HV", "cargo": "F1"}
+    assert sj.pick_carriers({"carriers": {"vessel": "GONE"}}, pool[2:], {"CV": "R3"}) == {"cargo": "CV"}

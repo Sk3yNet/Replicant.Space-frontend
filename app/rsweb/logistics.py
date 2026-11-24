@@ -174,10 +174,10 @@ TIERS = {0: "urgent", 1: "queued prints", 2: "local delivery", 3: "long-range tr
          6: "shop listing", 7: "repair patrol"}
 # task categories (owner 2026-10-23): each free logistics carrier works one category until it runs dry, so a small
 # category isn't starved by a big one; stockpile returns (reallocations) get no carrier of their own and come last
-CATEGORIES = {"devices": "device moves", "prints": "queued prints", "deals": "trades & contracts", "rescues": "rescues", "shop": "shop listings",
+CATEGORIES = {"stations": "station jobs", "devices": "device moves", "prints": "queued prints", "deals": "trades & contracts", "rescues": "rescues", "shop": "shop listings",
               "repairs": "repair patrols", "upkeep": "hub upkeep", "returns": "stockpile returns",
               "urgent": "urgent: evacuations, awaited devices, station jobs, Sol trades, stalled prints"}
-LANES = ("devices", "prints", "deals", "rescues", "shop", "repairs", "upkeep")
+LANES = ("stations", "devices", "prints", "deals", "rescues", "shop", "repairs", "upkeep")
 PATROL_LOAD = 6                # worn devices one patrolling repair device looks after (upkeep.report's "covered")
 KEPT_OUT = ("system_ward", "system_hub")   # at work where they stand, like placed relays and beacons: never "rescued"
 REPAIR_ALONE_BELOW = 70.0     # a repair patrol goes to a system with one worn device only when it is below this %
@@ -552,6 +552,7 @@ def requests(*, devices: list[dict], bps: dict[str, dict], inventory: dict[str, 
             kind = u.get("kind") or "upkeep"   # "job": a station job's resources (stations.logistics_rows)
             out.append({"id": f"{kind}:{u['code']}", "kind": kind, "to": u["location"], "need": need, "price": u["target"],
                         "tier": 1 if u.get("urgent") else 2, "hub": u["code"], "due": u.get("due"),
+                        "station": bool(u.get("station")), "source": u.get("source"),
                         "label": u.get("label") or f"hub upkeep for {u['code']} at {u['location']}"})
             if kind == "job":   # a station job must be done within its deadline (Joe 2026-11-17): urgent
                 out[-1].update(tier=0, urgent="station job")
@@ -572,7 +573,8 @@ def requests(*, devices: list[dict], bps: dict[str, dict], inventory: dict[str, 
             out.append({"id": f"evacuate:{loc}", "kind": "return", "to": to, "from": loc, "tier": 0,
                         "need": {r: q for r, q in items.items() if q >= 1},
                         "label": f"evacuate the {loc} stockpile to {to} before impact"})
-    asked = {r["to"] for r in out} | set(costs) | set(evacuate or {}) | {u["location"] for u in upkeep}
+    asked = {r["to"] for r in out} | set(costs) | set(evacuate or {}) | {u["location"] for u in upkeep} \
+        | {u["source"] for u in upkeep if u.get("source")}   # a station job's handed-over pile stays for its delivery
     # a trade post's home isn't one (tradepost.py): the proceeds piling up at its shop are brought to a printing hub
     homes = {f.get("home") for f in fleets if f.get("home") and (f.get("station") or f.get("materials") == "self")
              and f.get("role") != "trade_post"}
@@ -675,7 +677,10 @@ def _batch_deals(out: list[dict], stock: dict, incoming: dict) -> None:
 
 
 def category(r: dict) -> str:
-    """A request's task category (CATEGORIES). Priority 0 (evacuations, or bumped there) goes before every category."""
+    """A request's task category (CATEGORIES). Station jobs' resources and devices (Joe 2026-11-24) are their own category
+    with its own carriers; otherwise priority 0 (evacuations, or bumped there) goes before every category."""
+    if r.get("kind") == "job" or r.get("station"):
+        return "stations"
     if r.get("tier") == 0:
         return "urgent"
     return {"print": "prints", "contract": "deals", "trade": "deals", "rescue": "rescues", "listing": "shop",
@@ -825,7 +830,7 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
          lanes: dict[str, str] | None = None, upkeep: list[dict] | None = None,
          rescue_pause: dict | None = None, moves: tuple[list[dict], Any] | None = None,
          device_escorts: set[str] | frozenset = frozenset(), rescue_since: dict[str, str] | None = None,
-         serving: dict[str, set[str]] | None = None) -> dict:
+         serving: dict[str, set[str]] | None = None, station_carriers: set[str] | frozenset = frozenset()) -> dict:
     """What the logistics devices do this pass, and (`moves`) which carriers take the devices bound somewhere:
     `moves` is (batches, carry) from loadouts.plan — each batch of devices is a request here (kind `devices`), taken in
     its turn with the carriers of that turn; carriers outside the logistics fleets (spare ones, a fleet's own) are
@@ -838,7 +843,8 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
     when one of them is back for the rest sooner).
     Returns {"requests", "runs", "unmet", "spare", "reserve", "fleet_devices", "lanes"}."""
     from .rockchase import is_rock   # Joe 2026-11-21: never a pick-up at a rock (STAR-OBJ-n, -KUIPER-n, -OORT-n): it may
-    inventory = {l: i for l, i in inventory.items() if not is_rock(l)}   # be gone before a carrier from afar arrives
+    sources = {u["source"] for u in upkeep or [] if u.get("source")}   # a station job's pile (a station is no rock)
+    inventory = {l: i for l, i in inventory.items() if not is_rock(l) or l in sources}   # be gone before a carrier from afar arrives
     from . import cargo as cg
     from .loadouts import _carrier_cap, can_surge
     gather = {f["home"]: drop(f["home"]) for f in fleets or [] if f.get("materials") == "self" and f.get("home")}
@@ -1080,7 +1086,7 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
             if r.get("_piles"):   # a system's stray piles: body by body, so a cargo device's stops stay near each other
                 piles.sort(key=lambda l: (round(_dist(star_of(l), star_of(r.get("from")), pos), 3), _body_order(l)))
             else:
-                piles.sort(key=lambda l: (star_of(l) != dstar, not covers[star_of(l)], _dist(star_of(l), dstar, pos),
+                piles.sort(key=lambda l: (l != r.get("source"), star_of(l) != dstar, not covers[star_of(l)], _dist(star_of(l), dstar, pos),
                                           -sum(spare[l].get(x, 0) for x in need), l))
             if not piles:
                 if not assigned:
@@ -1529,6 +1535,8 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
         req["base_tier"] = req["tier"]
         if b["urgent"]:
             req["urgent"] = "awaited devices"
+        if b.get("job"):   # devices a running station job needs: the station jobs category
+            req["station"] = True
         if rid in ((prefs or {}).get("bump") or {}):
             req["tier"] = int(prefs["bump"][rid])
         req["skipped"] = rid in set((prefs or {}).get("skip") or [])
@@ -1572,6 +1580,8 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
 
     def fits(d: dict, cat: str) -> bool:
         c, s = d["device_code"], fl.seats(d, devices)
+        if cat == "stations":   # resources, devices or the replicant that completes the job
+            return room(d) >= 1 or c in hosts or can_surge(d)
         if cat in ("prints", "deals", "upkeep"):   # cargo, a ride for haulers, or an escort
             return room(d) >= 1 or bool(held(d)) or c in hosts or (can_surge(d) and s["attach"] > 0)
         if cat == "shop":
@@ -1583,17 +1593,25 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
             count[prev[d["device_code"]]] += 1
     lane: dict[str, str] = {}
     open_ = sorted(c for c in every if c not in used)
+    # the station jobs carriers (Joe 2026-11-24) work station jobs while there are any, other categories after
+    dedicated = {c for c in open_ if c in station_carriers} if "stations" in pending else set()
+    for c in sorted(dedicated):
+        lane[c] = "stations"
+        count["stations"] += 1
     for c in open_:
-        if prev.get(c) in pending and fits(every[c], prev[c]):
+        if c in lane:
+            continue
+        if prev.get(c) in pending and fits(every[c], prev[c]) and (prev[c] != "stations" or c in station_carriers):
             lane[c] = prev[c]
             count[lane[c]] += 1
     for c in open_:
-        opts = [k for k in LANES if k in pending and fits(every[c], k)]
+        opts = [k for k in LANES if k in pending and fits(every[c], k) and (k != "stations" or not station_carriers)]
         if c not in lane and opts:
             lane[c] = min(opts, key=lambda k: (count[k], LANES.index(k)))
             count[lane[c]] += 1
     for k in LANES:   # a category with work and no carrier at all takes one from the biggest
-        donors = [c for c in lane if k in pending and not count[k] and count[lane[c]] > 1 and fits(every[c], k)]
+        donors = [c for c in lane if k in pending and not count[k] and count[lane[c]] > 1 and fits(every[c], k)
+                  and c not in dedicated]
         if donors:
             c = min(donors, key=lambda c: (-count[lane[c]], c))
             count[lane[c]] -= 1
@@ -1610,7 +1628,8 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
         tried.add(r["id"])
         fn()
         give_back()
-    view(None)
+    free.clear()   # evacuations and the other urgent requests: every free carrier but the station jobs' own
+    free.update({c: d for c, d in every.items() if c not in dedicated})
     for r, fn in tasks:
         if r["category"] == "urgent":
             attempt(r, fn)
@@ -1622,6 +1641,11 @@ def plan(*, fleets: list[dict], devices: list[dict], bps: dict[str, dict], inven
             view(k)
             for r, fn in tasks:
                 if r["category"] == k:
+                    attempt(r, fn)
+        if k == "stations":   # a job has a deadline: what its own carriers can't take, any free carrier does (as before)
+            view(None)
+            for r, fn in tasks:
+                if r["category"] == k and (r.get("_rest") or any(u["req"] == r["id"] for u in unmet)):
                     attempt(r, fn)
     view(None)
     for k in cats:

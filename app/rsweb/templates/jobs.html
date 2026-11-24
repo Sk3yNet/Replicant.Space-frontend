@@ -80,10 +80,15 @@
       {% for s in stations %}<label style="text-transform:none"><input type="checkbox" name="stations" value="{{ s.slug }}" {{ 'checked' if s.slug in cfg.stations }}> {{ s.name }}</label> {% endfor %}</div>
     <div>Factions: {% for r in roles %}<label style="text-transform:none"><input type="checkbox" name="factions" value="{{ r }}" {{ 'checked' if r in cfg.factions }}> {{ r }}</label> {% endfor %}</div>
     <div>Kinds: {% for k in runnable %}<label style="text-transform:none"><input type="checkbox" name="kinds" value="{{ k }}" {{ 'checked' if k in cfg.kinds }}> {{ kind_label(k) }}</label> {% endfor %}</div>
+    <div>Station jobs carriers (logistics fleet; they work station jobs first, other logistics after):
+      {% for k, label in (('vessel', 'heaven vessel'), ('cargo', 'cargo ship')) %}<label style="text-transform:none">{{ label }}
+        <select name="carrier_{{ k }}">{% for c, n, loc in carrier_opts[k] %}<option value="{{ c }}" {{ 'selected' if (cfg.carriers or {}).get(k) == c }}>{{ c }}{{ ' · ' ~ n if n }} · {{ loc }}</option>{% else %}<option value="">none in the logistics fleet</option>{% endfor %}</select></label> {% endfor %}</div>
     <button class="small">Save</button> <span class="jb-s"></span>
   </form>
   <p class="muted small">The runner brings resources by logistics (gather, deliver), sends or prints devices (deploy) and pins
-    a courier device to its destination; once the objective is met and a replicant of yours is there it completes the job.
+    a courier device to its destination; once the objective is met and a replicant of yours is there it completes the job,
+    else it sends the station jobs heaven vessel there. A delivery's resources are picked up where the station hands them over.
+    Auto accept only takes jobs in systems you can command (relay coverage or a replicant there).
     Scan jobs are by hand: Scan and return. It warns an hour before a deadline.</p>
 </div>
 <script>

@@ -1459,6 +1459,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                                                            (by_code.get(x) or {}).get("device_type")) in awaited_types
                    for x in codes_)
     prio = priority_devices(devices, job_pins)
+    job_devs = prio - priority_devices(devices) if job_pins else set()   # a running station job's devices
 
     def carry(b: dict, allow: Any = None) -> None:
         """Give the devices of one batch still waiting (b["left"]) to carriers: b["deliveries"] grows, b["left"] keeps
@@ -1593,7 +1594,7 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
                           "n": len(stuck), "why": f"can't leave {here}: it neither stows nor flies, so no carrier can "
                                                   "take it (move it by hand or drop its to: tag)"})
         todo.append({"key": key, "from": here, "to": dest, "codes": sorted(codes), "left": sorted(codes),
-                     "urgent": awaited(codes) or bool(prio & set(codes)),
+                     "urgent": awaited(codes) or bool(prio & set(codes)), "job": bool(job_devs & set(codes)),
                      "types": dict(Counter((by_code.get(x) or {}).get("device_type") or "device" for x in codes)),
                      "deliveries": [], "why": []})
     if dispatch is None:

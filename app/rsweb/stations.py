@@ -38,7 +38,12 @@ KINDS = {"gather_resources": "gather", "deliver_resources": "deliver", "deploy_d
          "scan_body": "scan", "courier": "courier"}
 RUNNABLE = ("gather", "deliver", "deploy", "courier")   # what the runner can do by itself
 DEFAULT_RUNNER = {"auto": False, "stations": [], "factions": list(ROLES), "kinds": list(RUNNABLE), "tier2": True,
-                  "run": [], "warned": {}, "notes": {}, "supplied": {}, "tries": {}, "accept_fail_at": None}
+                  "run": [], "warned": {}, "notes": {}, "supplied": {}, "tries": {}, "accept_fail_at": None,
+                  "carriers": {}, "sent": {}}
+# The station jobs carriers (Joe 2026-11-24): one replicant heaven vessel and one cargo ship of the logistics fleet work the
+# "stations" logistics category first and other categories when no station work is open (logistics.plan
+# `station_carriers`); the vessel also flies to wherever a ready job completes. Picked once, kept in job_runner "carriers".
+CARRIER_TYPES = {"vessel": ("heaven_vessel",), "cargo": ("cargo_vessel", "cargo_freighter")}
 KEYS_DEST = ("destination_location", "destination", "target_location", "to_location", "deliver_to", "delivery_location")
 KEYS_DEST_STATION = ("destination_station", "destination_station_slug", "target_station", "to_station")
 KEYS_TYPE = ("device_type", "device", "type_needed")
@@ -233,14 +238,23 @@ def board_rows(stations: list[dict], boards: dict, mine: dict | None) -> list[di
     return out
 
 
-def pick(rows: list[dict], cfg: dict) -> dict | None:
+def work_stars(job: dict, stations: list[dict]) -> set[str]:
+    """The systems a job sends carriers to: the station and where the objective is done (a delivery's destination)."""
+    ob = objective(job, stations)
+    return {star_of(x) for x in (ob["station"] or job.get("location"), ob["at"], ob["dest"]) if x}
+
+
+def pick(rows: list[dict], cfg: dict, stations: list[dict] | None = None, reach: set[str] | None = None) -> dict | None:
     """The job Auto accept takes: an open one at a chosen station (all when none chosen), from a chosen faction, of a
-    kind the runner does, tier 2 only when allowed; best reputation first, then faction order, then the shortest."""
+    kind the runner does, tier 2 only when allowed; best reputation first, then faction order, then the shortest.
+    `reach`: the systems you can command (relay coverage or a replicant there); a job sending carriers elsewhere is left (job 96, 2026-11-18: 199
+    conductive for Novgorod Station at ARUCALIS, outside the network, was never delivered and failed)."""
     sts = set(cfg.get("stations") or [])
     fac = [role(f) for f in cfg.get("factions") or ROLES]
     kinds = set(cfg.get("kinds") or RUNNABLE) & set(RUNNABLE)
     ok = [r for r in rows if not r["blocked"] and (not sts or r["station_slug"] in sts) and r["role"] in fac
-          and r["kind"] in kinds and (cfg.get("tier2", True) or r["tier"] == 1)]
+          and r["kind"] in kinds and (cfg.get("tier2", True) or r["tier"] == 1)
+          and (reach is None or work_stars(r, stations or []) <= reach)]
     ok.sort(key=lambda r: (-(float(r.get("reputation_reward") or 0)), fac.index(r["role"]), int(r.get("deadline_hours") or 99), r.get("id") or 0))
     return ok[0] if ok else None
 
@@ -255,11 +269,41 @@ def logistics_rows(mine: dict | None, cfg: dict, stations: list[dict]) -> list[d
         ob = objective(j, stations)
         if ob["kind"] in ("gather", "deliver") and ob["resource"] and ob["qty"] and ob["at"]:
             exp = _ts(j.get("expires_at"))
+            # a delivery's resources are handed over at the posting station (live 2026-11-19, job 96: 199 conductive
+            # in the ADHARA-OBJ-2 pile): that pile is the source, never a stockpile to return
+            src = ob["station"] if ob["kind"] == "deliver" and ob["station"] and ob["station"] != ob["at"] else None
             out.append({"code": f"job{j.get('id')}", "location": ob["at"], "target": {ob["resource"]: ob["qty"]},
-                        "kind": "job", "urgent": True, "due": exp.isoformat(timespec="seconds") if exp else None,
+                        "kind": "job", "urgent": True, "station": True, "source": src, "due": exp.isoformat(timespec="seconds") if exp else None,
                         "label": f"station job {j.get('title') or j.get('id')}: {int(ob['qty'])} {ob['resource']} to {ob['at']}"
                                  + (f" (due {exp:%m-%d %H:%M} UTC)" if exp else "")})
     return out
+
+
+def pick_carriers(cfg: dict, pool: list[dict], hosts: dict[str, str], prefer: set[str] | frozenset = frozenset()) -> dict:
+    """The station jobs carriers ({"vessel": code, "cargo": code}) among the logistics fleet's devices (`pool`): the chosen
+    ones while they're still in it, else a heaven vessel hosting a replicant and a cargo vessel hosting one (else a cargo
+    freighter), a replicant who has worked for a station (`prefer`, station contributors) first."""
+    by = {d.get("device_code"): d for d in pool}
+    old = cfg.get("carriers") or {}
+    out: dict[str, str] = {}
+    for role_, types in CARRIER_TYPES.items():
+        c = old.get(role_)
+        if c in by and by[c].get("device_type") in types and (role_ != "vessel" or c in hosts):
+            out[role_] = c
+            continue
+        cands = [d for d in pool if d.get("device_type") in types and d.get("device_code") not in out.values()
+                 and (role_ != "vessel" or d.get("device_code") in hosts)]
+        cands.sort(key=lambda d: (types.index(d["device_type"]), d["device_code"] not in hosts,
+                                  hosts.get(d["device_code"]) not in prefer, d["device_code"]))
+        if cands:
+            out[role_] = cands[0]["device_code"]
+    return out
+
+
+def contributors(detail: dict) -> set[str]:
+    """Replicant codes that have completed jobs at any station (station_detail contributors)."""
+    return {c.get("replicant_code") for s in (detail or {}).values() if isinstance(s, dict)
+            for c in s.get("contributors") or [] if isinstance(c, dict) and c.get("replicant_code")}
 
 
 def urgent_pins(mine: dict | None, cfg: dict, stations: list[dict]) -> set[str]:
@@ -352,14 +396,15 @@ async def run_pass(eng) -> list[str]:
         keep = [x for x in cfg.get(k) or [] if str(x) in live]
         if keep != (cfg.get(k) or []):
             cfg[k], changed = keep, True
-    for k in ("warned", "notes", "supplied", "tries"):
+    for k in ("warned", "notes", "supplied", "tries", "sent"):
         keep = {x: v for x, v in (cfg.get(k) or {}).items() if x in live}
         if keep != (cfg.get(k) or {}):
             cfg[k], changed = keep, True
     if not jobs and cfg.get("auto") and not cooldown_until(mine):
         failed = _ts(cfg.get("accept_fail_at"))
         if not failed or (now - failed).total_seconds() > 30 * 60:
-            j = pick(board_rows(stations, await db.kv_get(KV_BOARDS, {}) or {}, mine), cfg)
+            reach = await eng.commandable(await eng.devices())
+            j = pick(board_rows(stations, await db.kv_get(KV_BOARDS, {}) or {}, mine), cfg, stations, reach)
             if j:
                 ok, body, err = await eng.send("POST", f"/jobs/{j['id']}/accept", None, f"accept station job {j.get('title')}")
                 if ok:
@@ -430,6 +475,11 @@ async def run_pass(eng) -> list[str]:
         cfg.setdefault("tries", {})[jid] = now.isoformat(timespec="seconds")
         changed = True
         if not here:
+            sent = await send_vessel(eng, cfg, j, ob, devices, reps)
+            if sent:
+                cfg.setdefault("sent", {})[jid] = sent
+                await eng.log("station_jobs", f"{j.get('title')} is ready: {sent}")
+                continue
             await eng.log("station_jobs", f"{j.get('title')} is ready: send a replicant to {' or '.join(ob['complete_at'])} "
                                           "to complete it", "warning", notify=not last)
             continue
@@ -444,3 +494,28 @@ async def run_pass(eng) -> list[str]:
     if changed:
         await db.kv_set(KV_RUNNER, cfg)
     return out
+
+
+async def send_vessel(eng, cfg: dict, j: dict, ob: dict, devices: list[dict], reps: dict) -> str | None:
+    """The station jobs vessel (job_runner "carriers") flies its replicant to the nearest place the ready job completes
+    (Joe 2026-11-24); the runner completes the job once it's there. None when it can't go (busy, gone, already sent)."""
+    code = (cfg.get("carriers") or {}).get("vessel")
+    d = next((x for x in devices if x.get("device_code") == code), None)
+    rep = ((d or {}).get("hosting_replicant") or {}).get("replicant_code")
+    if not d or not rep or not ob["complete_at"]:
+        return None
+    jid = str(j.get("id"))
+    if code in eng.busy_devices(await eng.jobs()):
+        return None
+    st = str(d.get("status") or "").lower()
+    if d.get("stowed_in_device_code") or d.get("attached_to_device_code") or st.startswith(("travel", "surg", "cruis")):
+        return None
+    here = star_of(d.get("location"))
+    to = next((x for x in ob["complete_at"] if star_of(x) == here), ob["complete_at"][0])
+    from .automations import step
+    s = step(f"{rep} → {to} (complete station job {j.get('title')})", f"/replicants/{rep}/travel", {"destination": to},
+             wait=["travel.arrived"], match={"destination": to}, timeout=12 * 3600, critical=True)
+    s["wait_device"] = code
+    job = await eng.create_job("station_jobs", f"station job {j.get('title')}: {code} → {to} to complete it", code, [s],
+                               {"devices": [code], "station_job": jid})
+    return f"{code} ({(reps.get(rep) or {}).get('name') or rep}) flies to {to} to complete it" if job else None

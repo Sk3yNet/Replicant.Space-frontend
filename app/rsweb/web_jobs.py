@@ -45,10 +45,15 @@ async def jobs_ctx(request: Request) -> dict:
                                             "rep": sj.reputation(mine, slug, r)} for r in sj.ROLES],
                              "board": boards.get(slug) or {}, "open": sum(1 for x in rows if x["station_slug"] == slug)})
     reps = [(c, r.get("name") or c, r.get("location") or r.get("current_location")) for c, r in st["replicants"].items()]
+    from .logistics import fleet_devices   # the station jobs carriers: picked among the logistics fleet's devices
+    pool = fleet_devices(await request.app.state.worker.automations.fleets(), st["devices"])
+    carrier_opts = {k: [(d["device_code"], (d.get("hosting_replicant") or {}).get("name") or "", d.get("location") or "")
+                        for d in sorted(pool, key=lambda d: d["device_code"]) if d.get("device_type") in types]
+                    for k, types in sj.CARRIER_TYPES.items()}
     return {"my_jobs": active, "rows": rows, "stations": station_rows, "stats": mine.get("stats") or {},
             "mine_at": mine.get("at"), "boards_at": sts.get("at"), "cooldown": sj.cooldown_until(mine), "cfg": cfg,
             "roles": sj.ROLES, "runnable": sj.RUNNABLE, "kind_label": sj.kind_label, "reps": reps,
-            "kinds": sorted({r["kind"] for r in rows})}
+            "kinds": sorted({r["kind"] for r in rows}), "carrier_opts": carrier_opts}
 
 
 @router.get("/jobs", response_class=HTMLResponse)
@@ -117,6 +122,10 @@ async def jobs_settings(request: Request, user: str = Depends(current_user)):
     cfg["stations"] = [s for s in form.getlist("stations") if sj.valid_slug(str(s))]
     cfg["factions"] = [r for r in form.getlist("factions") if r in sj.ROLES] or list(sj.ROLES)
     cfg["kinds"] = [k for k in form.getlist("kinds") if k in sj.RUNNABLE] or list(sj.RUNNABLE)
+    for k in sj.CARRIER_TYPES:   # a carrier chosen by hand (the dispatch pass picks one when none is set)
+        v = str(form.get(f"carrier_{k}") or "").strip().upper()
+        if v and v.isalnum() and len(v) <= 16:
+            cfg.setdefault("carriers", {})[k] = v
     await db.kv_set(sj.KV_RUNNER, cfg)
     return HTMLResponse('<span class="result ok">Saved.</span>')
 

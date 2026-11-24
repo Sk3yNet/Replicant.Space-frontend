@@ -674,7 +674,7 @@ From a bare heaven vessel (three mining drones and a replicant aboard) to an aut
 Logistics fleets (Fleets › Logistics) have no missions: their devices deliver materials and devices on demand.
 
 ### Task categories
-- Each request has a category: queued prints, trades & contracts, rescues, shop listings, repair patrols, hub upkeep,
+- Each request has a category: station jobs, queued prints, trades & contracts, rescues, shop listings, repair patrols, hub upkeep,
   stockpile returns. Every free carrier is given one category that has work and keeps it until that category runs dry, so a small
   category isn't starved by a big one (a category with work and no carrier takes one from the biggest).
 - **One carrier assignment** (1.410.0): devices bound for another place (tagged `to:`/`at:`, fleet members going home,
@@ -687,6 +687,11 @@ Logistics fleets (Fleets › Logistics) have no missions: their devices deliver 
   waiting for and of devices paying a Sol trade (their jobs are marked *(priority)*), then trades at Sol (its shops
   cycle and sell out), then prints a factory is stalled on. A carrier takes the part of a batch it can board (stowable devices, and fly-capable ones on attach points); a device that neither stows nor flies is listed as one no carrier can take. Carriers left over after each category's turn help any
   category; stockpile returns (reallocations) only get leftovers, last. The Devices card shows each carrier's category.
+- **Station jobs** (1.540.0) are a category of their own: the resources and devices of the job the runner works. Two
+  logistics carriers belong to it, a heaven vessel hosting a replicant and a cargo ship (a cargo vessel, else a cargo
+  freighter), picked once (a replicant who has worked for a station first) and changeable under Economy › Jobs › Runner.
+  They take station work first, before the urgent requests, and other categories when there is none; what they can't
+  take goes to any free carrier, since a job has a deadline.
 
 ### Where they wait
 - Idle logistics devices inside the relay network gather at the nearest printing hub (a fleet that takes materials in):
@@ -928,11 +933,13 @@ Station jobs (Season 4, game v4.0.0): the twelve colony stations post jobs for t
 - **Stations**: each station's factions with their influence and your reputation; opening one reads its contributors.
 - **Runner**: for a job handed to it, logistics brings the resources to the station's pile (gather) or the destination
   (deliver) like a contract, spare devices are sent or printed to the location (deploy), and a courier device is pinned to
-  its destination. All of it is urgent logistics (priority 0, right after evacuations and ahead of Sol trades), since a
-  job must be done within its deadline; its prints (tag `stationjob`) go ahead of every print but those you queue by
+  its destination. All of it is the *station jobs* logistics category with its own two carriers (see Task categories),
+  and any free carrier helps, since a job must be done within its deadline. A delivery's resources are picked up
+  where the station hands them over (its pile at the station), which is never returned as a stray stockpile; its prints (tag `stationjob`) go ahead of every print but those you queue by
   hand. Once the objective is met and a replicant of yours is where the job completes, it completes it
-  (otherwise it tells you to send one). It warns an hour before a deadline. **Auto accept** (off by default) takes the
-  best open job at the stations, factions and kinds you tick whenever you hold none and no cooldown runs.
+  (otherwise it sends the station jobs heaven vessel, or tells you to send one). It warns an hour before a deadline.
+  **Auto accept** (off by default) takes the best open job at the stations, factions and kinds you tick whenever you
+  hold none and no cooldown runs, and only one whose station and destination are in systems you can command.
 
 ### Lockers
 Equipment lockers are NPC devices that hand out a set loadout once per account (e.g. SOL-OORT, TWAFFY-OORT).

@@ -334,8 +334,16 @@ class FleetsMixin:
         upkeep = (wh.upkeep_rows(devices, {l: as_amounts(i) for l, i in inv.items()})
                   if mcfg.get("hub_upkeep", True) and mcfg else [])
         from . import stations as stj   # station jobs the runner works: their resources, stocked like hub upkeep
-        upkeep = upkeep + stj.logistics_rows(await self.db.kv_get(stj.KV_MINE, {}), await stj.runner_cfg(self.db),
+        jcfg = await stj.runner_cfg(self.db)
+        upkeep = upkeep + stj.logistics_rows(await self.db.kv_get(stj.KV_MINE, {}), jcfg,
                                              ((await self.db.kv_get(stj.KV_STATIONS, {})) or {}).get("stations") or [])
+        # the station jobs carriers (Joe 2026-11-24): a heaven vessel and a cargo ship of the logistics fleet
+        jcar = stj.pick_carriers(jcfg, lg.fleet_devices(items, devices), hosts,
+                                 stj.contributors(await self.db.kv_get(stj.KV_DETAIL, {}) or {}))
+        if jcar != (jcfg.get("carriers") or {}):
+            cur = await self.db.kv_get(stj.KV_RUNNER, {}) or {}
+            cur["carriers"] = jcar
+            await self.db.kv_set(stj.KV_RUNNER, cur)
         plan_args = dict(fleets=items, devices=devices, bps=bps, inventory=inv, pos=pos, commandable=commandable, hosts=hosts,
                     busy=busy, reach=lg.SECTOR_RANGE_LY, contracts=contracts, trades=trades, incoming=incoming,
                     serving=serving, replicants=reps, drop=lambda s_: lo.destination(s_, stars) if drop_raw(s_) in evac else drop_raw(s_),
@@ -350,7 +358,8 @@ class FleetsMixin:
                     repair_stars=(await self.commandable(devices, stars, networked=True)) | (homes_now & commandable),
                     lanes=(await self.db.kv_get(lg.KV_STATE, {}) or {}).get("lanes"), upkeep=upkeep,
                     rescue_pause=lg.rescue_pauses(await self.db.kv_get(lg.KV_RESCUE_PAUSE, {})),
-                    rescue_since=await self.db.kv_get(lg.KV_RESCUE_SINCE, {}) or {})
+                    rescue_since=await self.db.kv_get(lg.KV_RESCUE_SINCE, {}) or {},
+                    station_carriers=set(jcar.values()))
         if devices_on:
             box: dict = {}
             result["plan"] = await self.loadout_plan(only, routes=full, dispatch=lambda batches, carry: box.update(
