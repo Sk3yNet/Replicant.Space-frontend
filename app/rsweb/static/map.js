@@ -74,12 +74,13 @@ const WAVE_S = 2.4;          // seconds per survey wave
 const waves = [];            // survey-wave sprites (rebuilt with the markers)
 const hazes = [];            // hazard-haze sprites (rebuilt with the markers): systems an incoming object threatens
 const HAZE_S = 3.2;          // seconds per haze pulse
+const COVER_SPHERE = new THREE.SphereGeometry(1, 24, 16);   // a relay's or hub's reach, scaled to its range
 const waveEdge = () => (MARK_SHAPE.prospected.size + 0.6) * ringScale;   // where a survey wave fades out
 // Markers shrink (to MARK_MIN) and fade with distance from the point the view is centered on, gone by FADE_FAR:
 // placed again whenever the camera moves or a marker checkbox changes.
 const MARK_MIN = 0.4;
 function placeMarks() {
-  for (const sp of mineGroup.children) {
+  for (const sp of [...mineGroup.sprites, ...animGroup.sprites]) {
     const u = sp.userData;
     if (!u.mark) continue;
     const f = fadeAt(sp.position, ringScale), k = MARK_MIN + (1 - MARK_MIN) * f;
@@ -88,6 +89,7 @@ function placeMarks() {
     sp.material.opacity = u.op * f;
     if (u.size) sp.scale.set(u.size * k, u.size * k, 1);
   }
+  mineGroup.sync();
 }
 function resizeMarks() { lastCamKey = ""; }   // the next frame places them
 const el = $("map");
@@ -262,6 +264,107 @@ const glowTex = (() => {
   g.fillStyle = grd; g.fillRect(0, 0, 64, 64);
   return new THREE.CanvasTexture(c);
 })();
+// Sprites in batches: every sprite of one texture in a layer is one instanced draw. A THREE.Sprite per marker cost a
+// draw call each (thousands on a big account, the main cost of a frame). A batched sprite is a stand-in with the
+// fields the map sets on a Sprite (position, scale, center, visible, renderOrder, material.{color, opacity, rotation,
+// visible}); the layer copies them to the graphics card on sync(). The shader is three's own sprite shader, reading
+// those fields per instance, so a batched sprite draws exactly like a Sprite.
+const QUAD_POS = new THREE.Float32BufferAttribute([-.5, -.5, 0, .5, -.5, 0, .5, .5, 0, -.5, .5, 0], 3);
+const QUAD_UV = new THREE.Float32BufferAttribute([0, 0, 1, 0, 1, 1, 0, 1], 2);
+const QUAD_IDX = new THREE.Uint16BufferAttribute([0, 1, 2, 0, 2, 3], 1);
+const NO_CENTER = new THREE.Vector2(.5, .5);
+function batchMaterial(map) {
+  const m = new THREE.SpriteMaterial({ map, transparent: true, depthWrite: false });
+  m.onBeforeCompile = sh => {
+    sh.vertexShader = "attribute vec3 iPos;\nattribute vec2 iScale;\nattribute vec2 iCenter;\nattribute vec4 iColor;\nattribute float iRot;\nvarying vec4 vTint;\n" +
+      sh.vertexShader.replace("void main() {", "void main() {\n\tvTint = iColor;")
+        .replace("vec4( 0.0, 0.0, 0.0, 1.0 )", "vec4( iPos, 1.0 )")
+        .replace(/scale\.x = length\([^;]*;/, "scale.x = iScale.x;")
+        .replace(/scale\.y = length\([^;]*;/, "scale.y = iScale.y;")
+        .replace("( center - vec2( 0.5 ) )", "( iCenter - vec2( 0.5 ) )")
+        .replaceAll("( rotation )", "( iRot )");
+    sh.fragmentShader = "varying vec4 vTint;\n" +
+      sh.fragmentShader.replace("vec4( diffuse, opacity )", "vec4( diffuse * vTint.rgb, opacity * vTint.a )");
+  };
+  m.customProgramCacheKey = () => "spriteBatch";
+  return m;
+}
+class SpriteBatch extends THREE.Mesh {
+  constructor(map, renderOrder) {
+    super(new THREE.InstancedBufferGeometry(), batchMaterial(map));
+    this.geometry.setIndex(QUAD_IDX);
+    this.geometry.setAttribute("position", QUAD_POS);
+    this.geometry.setAttribute("uv", QUAD_UV);
+    this.center = NO_CENTER;   // the renderer sets a sprite material's center uniform from the object
+    this.renderOrder = renderOrder; this.frustumCulled = false;
+    this.items = []; this.cap = 0;
+  }
+  raycast() {}
+  grow() {
+    this.cap = Math.max(16, this.items.length * 2);
+    const g = this.geometry, n = this.cap;
+    for (const [name, k] of [["iPos", 3], ["iScale", 2], ["iCenter", 2], ["iColor", 4], ["iRot", 1]]) {
+      const a = new THREE.InstancedBufferAttribute(new Float32Array(n * k), k);
+      a.setUsage(THREE.DynamicDrawUsage);
+      if (g.getAttribute(name)) g.deleteAttribute(name);
+      g.setAttribute(name, a);
+    }
+    g.dispose();   // the old buffers: three makes new ones for the new attributes on the next draw
+  }
+  sync() {
+    if (this.items.length > this.cap) this.grow();
+    const g = this.geometry, P = g.attributes.iPos.array, S = g.attributes.iScale.array, C = g.attributes.iCenter.array,
+          K = g.attributes.iColor.array, R = g.attributes.iRot.array;
+    this.items.forEach((s, i) => {
+      const m = s.material, on = s.visible && m.visible;
+      P[i * 3] = s.position.x; P[i * 3 + 1] = s.position.y; P[i * 3 + 2] = s.position.z;
+      S[i * 2] = on ? s.scale.x : 0; S[i * 2 + 1] = on ? s.scale.y : 0;
+      C[i * 2] = s.center.x; C[i * 2 + 1] = s.center.y;
+      K[i * 4] = m.color.r; K[i * 4 + 1] = m.color.g; K[i * 4 + 2] = m.color.b; K[i * 4 + 3] = m.opacity;
+      R[i] = m.rotation;
+    });
+    for (const k of ["iPos", "iScale", "iCenter", "iColor", "iRot"]) g.attributes[k].needsUpdate = true;
+    g.instanceCount = this.items.length;
+  }
+}
+// A group of batches, one per texture (and draw order). sprite() makes a stand-in; clear() drops them all.
+class SpriteLayer extends THREE.Group {
+  sprite({ map, color = 0xffffff, opacity = 1 }) {
+    const s = { position: new THREE.Vector3(), scale: new THREE.Vector3(1, 1, 1), center: new THREE.Vector2(.5, .5),
+                visible: true, renderOrder: 0, userData: {},
+                material: { color: new THREE.Color(color), opacity, rotation: 0, visible: true }, map };
+    (this.pending ||= []).push(s);
+    return s;
+  }
+  // places every sprite made since the last sync in its batch (its renderOrder is final by then), then uploads them
+  sync() {
+    for (const s of this.pending || []) {
+      const key = s.map.uuid + ":" + s.renderOrder;
+      let b = this.children.find(c => c.key === key);
+      if (!b) { b = new SpriteBatch(s.map, s.renderOrder); b.key = key; this.add(b); }
+      b.items.push(s);
+    }
+    this.pending = null;
+    for (const b of this.children) b.sync();
+  }
+  get sprites() { return this.children.flatMap(b => b.items).concat(this.pending || []); }
+  clear() {
+    for (const b of this.children) { b.geometry.dispose(); b.material.dispose(); }
+    this.pending = null;
+    return super.clear();
+  }
+}
+// drops a group's objects and frees their graphics memory (textures are shared: kept)
+function clearGroup(g) {
+  for (const c of [...g.children]) {
+    if (c instanceof SpriteLayer) { c.clear(); continue; }   // a group's own sprite layer stays in it, emptied
+    c.traverse(o => {
+      if (o.geometry && o.geometry !== COVER_SPHERE) o.geometry.dispose();
+      if (o.material) [].concat(o.material).forEach(m => m.dispose());
+    });
+    g.remove(c);
+  }
+}
 // One color per region (by name, in order), clear of the markers' red haze, orange gem and magenta spiral.
 const REGION_COLORS = [0x3d7bff, 0x2ec4a6, 0x8bc34a, 0x7c5cff, 0x00b8ff, 0xc9c24b, 0x4f9d7a, 0x9fa8ff, 0x5c7cba, 0x6fd3ff];
 const REGION_OP = .09;        // each glow's opacity; where stars crowd they add up
@@ -304,14 +407,20 @@ scene.add(grid);
 
 let data = { stars: [], replicants: [] };
 const regionGroup = new THREE.Group(); scene.add(regionGroup);
-let starPoints, mineGroup = new THREE.Group(), coverGroup = new THREE.Group(), lineGroup = new THREE.Group();
+let starPoints, coverGroup = new THREE.Group(), lineGroup = new THREE.Group();
 const moveGroup = new THREE.Group(), fleetGroup = new THREE.Group(), supplyGroup = new THREE.Group();
 const prospectGroup = new THREE.Group();
 const othersGroup = new THREE.Group(), trafficGroup = new THREE.Group(), trailGroup = new THREE.Group();
 const relayGroup = new THREE.Group();   // your relay networks: one color per network, curved links
-scene.add(mineGroup, coverGroup, lineGroup, moveGroup, fleetGroup, supplyGroup, prospectGroup, othersGroup, trafficGroup, trailGroup, relayGroup);
+const mineGroup = new SpriteLayer();     // markers round your systems (placed with the camera)
+const animGroup = new SpriteLayer();     // survey waves and hazard hazes: they move every frame
+// the sprites of the groups that also hold lines: each its own layer
+const fleetSprites = new SpriteLayer(), supplySprites = new SpriteLayer(), relaySprites = new SpriteLayer(),
+      othersSprites = new SpriteLayer();
+fleetGroup.add(fleetSprites); supplyGroup.add(supplySprites); relayGroup.add(relaySprites); othersGroup.add(othersSprites);
+scene.add(mineGroup, animGroup, coverGroup, lineGroup, moveGroup, fleetGroup, supplyGroup, prospectGroup, othersGroup, trafficGroup, trailGroup, relayGroup);
 const supplyLines = [];   // {curve, dots: [sprite], el, v}
-const sparkGroup = new THREE.Group(); scene.add(sparkGroup);
+const sparkGroup = new SpriteLayer(); scene.add(sparkGroup);   // production sparkles (move every frame)
 const measureGroup = new THREE.Group(); scene.add(measureGroup);   // right-click measuring: its points and line
 const sparkles = [];      // {sp, c: center, r, a0, w, tilt}
 const fleetLabels = [];   // {el, v, dy}
@@ -431,8 +540,8 @@ function featureFilter(stars) {
 }
 
 function build() {
-  [starPoints].forEach(o => o && scene.remove(o));
-  mineGroup.clear(); coverGroup.clear(); waves.length = 0; hazes.length = 0;
+  if (starPoints) { scene.remove(starPoints); starPoints.geometry.dispose(); starPoints.material.dispose(); }
+  mineGroup.clear(); animGroup.clear(); clearGroup(coverGroup); waves.length = 0; hazes.length = 0;
   labels.forEach(l => l.el.remove()); labels.length = 0; lastCamKey = "";   // new labels: place them next frame
   const onlyMine = checked("opt-mine", !!OPTS.onlyMine);
   visible = data.stars.filter(s => !onlyMine || s.devices > 0 || data.replicants.some(r => r.star === s.designation));
@@ -459,7 +568,8 @@ function build() {
   starPoints = new THREE.Points(g, starMat);
   scene.add(starPoints);
 
-  const ring = color => new THREE.Sprite(new THREE.SpriteMaterial({ map: ringTex, color, transparent: true, opacity: .55, depthWrite: false }));
+  const ring = color => animGroup.sprite({ map: ringTex, color, opacity: .55 });
+  const covers = { hub: [], relay: [] };   // relay/hub reach spheres: [position, ly], drawn instanced below
   sparkGroup.clear(); sparkles.length = 0;
   for (const s of visible) {
     const v = pos(s);
@@ -478,46 +588,42 @@ function build() {
     if (tags.includes("anomaly")) marks.push("anomaly");
     if (s.station) marks.push("station");
     if (s.my_ward) {   // your own working ward: the same shield as other players' wards, in your color
-      const sh = new THREE.Sprite(new THREE.SpriteMaterial({ map: shieldTex, color: 0x6cb6ff, transparent: true, depthWrite: false }));
+      const sh = mineGroup.sprite({ map: shieldTex, color: 0x6cb6ff });
       sh.scale.set(1.4 * ringScale, 1.4 * ringScale, 1); sh.position.copy(v).add(new THREE.Vector3(0, 0, 2.2 * ringScale)); sh.userData.mark = "ward";
-      sh.userData.op = 1; sh.userData.size = 1.4 * ringScale; mineGroup.add(sh);
+      sh.userData.op = 1; sh.userData.size = 1.4 * ringScale;
     }
     if (s.mega) {   // a megastructure in the system: a violet hexagon below the star
-      const mg = new THREE.Sprite(new THREE.SpriteMaterial({ map: megaTex, color: 0xc792ff, transparent: true, depthWrite: false }));
+      const mg = mineGroup.sprite({ map: megaTex, color: 0xc792ff });
       mg.scale.set(1.6 * ringScale, 1.6 * ringScale, 1); mg.position.copy(v).add(new THREE.Vector3(0, 0, -2.2 * ringScale)); mg.userData.mark = "mega";
-      mg.userData.op = 1; mg.userData.size = 1.6 * ringScale; mineGroup.add(mg);
+      mg.userData.op = 1; mg.userData.size = 1.6 * ringScale;
     }
     if (s.hazard || s.hazardous) {   // the scan tags it hazardous, or an incoming object threatens it (Defence): a red haze, pulsing slowly (animate)
-      const hz = new THREE.Sprite(new THREE.SpriteMaterial({ map: dot, color: 0xff3b30, transparent: true, depthWrite: false }));
+      const hz = animGroup.sprite({ map: dot, color: 0xff3b30 });
       hz.position.copy(v); hz.renderOrder = -1;
       Object.assign(hz.userData, { mark: "hazard", size: 6.5 * ringScale, op: .45, haze: Math.random() * HAZE_S });
-      mineGroup.add(hz); hazes.push(hz);
+      hazes.push(hz);
     }
     if (s.surveying) {   // being surveyed: a wave running out from the star to the edge of its rings (animate)
       const w = ring(0x4fd18b); w.position.copy(v); w.userData.wave = Math.random() * WAVE_S; w.userData.mark = "survey";
-      w.userData.op = 1; mineGroup.add(w); waves.push(w);   // no size: animate grows it
+      w.userData.op = 1; waves.push(w);   // no size: animate grows it
     }
     for (const kind of marks) {
       const m = MARK_SHAPE[kind], badge = m.dx !== undefined;
-      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: MARK_TEX[kind], color: MARKS[kind], transparent: true, depthWrite: false }));
+      const sp = mineGroup.sprite({ map: MARK_TEX[kind], color: MARKS[kind] });
       sp.position.copy(v);
       if (badge) sp.center.set(0.5 - m.dx / m.size, 0.5 - m.dy / m.size);   // offset on screen, whatever the view angle
       Object.assign(sp.userData, { mark: kind, size: m.size * ringScale, op: badge ? .95 : .6 });
-      mineGroup.add(sp);
     }
     RES_ORDER.forEach((res, k) => {
       const n = Math.min(10, (s.mining || {})[res] || 0);
       for (let i = 0; i < n; i++) {
-        const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: sparkTex, color: RES_COLOR[res], transparent: true, depthWrite: false }));
-        sp.scale.set(.7, .7, 1); sparkGroup.add(sp);
+        const sp = sparkGroup.sprite({ map: sparkTex, color: RES_COLOR[res] });
+        sp.scale.set(.7, .7, 1);
         sparkles.push({ sp, c: v, r: 2.4 + k * .3, a0: i / n * Math.PI * 2 + k, w: .25 - k * .025, tilt: (k % 2 ? 1 : -1) * .35 });
       }
     });
     if (s.reach) {   // one sphere per system: its working relay or hub that reaches furthest (inactive ones don't count)
-      const m = new THREE.Mesh(new THREE.SphereGeometry(s.reach.ly, 24, 16),
-        new THREE.MeshBasicMaterial({ color: s.reach.hub ? 0xf0b64f : 0x6cb6ff, wireframe: true, transparent: true,
-                                      opacity: s.reach.hub ? .12 : .07 }));
-      m.position.copy(v); coverGroup.add(m);
+      covers[s.reach.hub ? "hub" : "relay"].push([v, s.reach.ly]);
     }
     if (s.devices > 0 || hasRep || s.has_hub || fresh) {
       const d = document.createElement("div");
@@ -527,8 +633,19 @@ function build() {
       el.appendChild(d); labels.push({ el: d, v, prio });
     }
   }
+  for (const [kind, list] of Object.entries(covers)) {   // one instanced draw per kind (was a sphere mesh per system)
+    if (!list.length) continue;
+    const m = new THREE.InstancedMesh(COVER_SPHERE,
+      new THREE.MeshBasicMaterial({ color: kind === "hub" ? 0xf0b64f : 0x6cb6ff, wireframe: true, transparent: true,
+                                    opacity: kind === "hub" ? .12 : .07 }), list.length);
+    m.renderOrder = 1;   // after the rest: their faint lines (which hide each other's far side) never cut into a star or link
+    const mx = new THREE.Matrix4();
+    list.forEach(([v, ly], i) => m.setMatrixAt(i, mx.makeScale(ly, ly, ly).setPosition(v)));
+    m.computeBoundingSphere(); coverGroup.add(m);
+  }
   coverGroup.visible = checked("opt-cover", OPTS.cover !== false);
   buildRegions();
+  sparkGroup.sync(); animGroup.sync();
   placeMarks(); placeRegions();
   buildPins();
 }
@@ -553,14 +670,14 @@ function flowingDash(opts) {
 const FLEET = 0x3fd0c9;
 const ROLE_ICON = { mining: "⛏", explore: "◎", trade: "⇄" };
 function buildFleets() {
-  fleetGroup.clear();
+  clearGroup(fleetGroup);
   fleetLabels.forEach(l => l.el.remove()); fleetLabels.length = 0;
   const perStar = {};
   for (const f of data.fleets || []) {
     const here = (f.stars || []).map(n => byName[n]).filter(Boolean);
     here.forEach((s, i) => {
-      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: ringTex, color: FLEET, transparent: true, opacity: i ? .45 : .8, depthWrite: false }));
-      const sz = i ? 2.0 : 3.8; sp.scale.set(sz, sz, 1); sp.position.copy(pos(s)); fleetGroup.add(sp);
+      const sp = fleetSprites.sprite({ map: ringTex, color: FLEET, opacity: i ? .45 : .8 });
+      const sz = i ? 2.0 : 3.8; sp.scale.set(sz, sz, 1); sp.position.copy(pos(s));
     });
     const at = here[0] || byName[f.home];
     if (!at) continue;
@@ -569,8 +686,8 @@ function buildFleets() {
       const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([pos(at), pos(to)]),
         flowingDash({ color: FLEET, dashSize: .35, gapSize: .7, transparent: true, opacity: .55 }));
       line.computeLineDistances(); fleetGroup.add(line);
-      const tg = new THREE.Sprite(new THREE.SpriteMaterial({ map: ringTex, color: FLEET, transparent: true, opacity: .45, depthWrite: false }));
-      tg.scale.set(3.4, 3.4, 1); tg.position.copy(pos(to)); fleetGroup.add(tg);
+      const tg = fleetSprites.sprite({ map: ringTex, color: FLEET, opacity: .45 });
+      tg.scale.set(3.4, 3.4, 1); tg.position.copy(pos(to));
     }
     const n = perStar[at.designation] = (perStar[at.designation] || 0) + 1;
     const doing = f.phase ? `${f.phase}${f.state === "stalled" ? " (stalled)" : ""}` : f.state;
@@ -584,6 +701,7 @@ function buildFleets() {
     el.appendChild(d);
     fleetLabels.push({ el: d, v: pos(at), dy: 8 + n * 14, more: d.querySelector(".fl-more") });
   }
+  fleetSprites.sync();
 }
 
 // supply lines between systems: an arc bowed above the galactic plane, amber for materials, blue for trade.
@@ -591,42 +709,65 @@ function buildFleets() {
 // something is traveling along it, dots flow from source to destination.
 const SUPPLY = { materials: 0xffb74d, trade: 0x6cb6ff };
 const SUPPLY_TEXT = { materials: "#ffd59a", trade: "#a9d3ff" };
+// Lines of one look in one draw: the arcs as line segments, each vertex its own color, and for dashes the distance
+// along its own arc (so the dashes run on along the curve as they did when each arc was a line of its own).
+class LineBatch {
+  constructor() { this.p = []; this.c = []; this.d = []; }
+  arc(points, color) {
+    let run = 0;
+    for (let i = 0; i < points.length - 1; i++) {
+      const a = points[i], b = points[i + 1], next = run + a.distanceTo(b);
+      this.p.push(a.x, a.y, a.z, b.x, b.y, b.z); this.c.push(color.r, color.g, color.b, color.r, color.g, color.b);
+      this.d.push(run, next); run = next;
+    }
+  }
+  line(mat) {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(this.p, 3));
+    g.setAttribute("color", new THREE.Float32BufferAttribute(this.c, 3));
+    if (mat.isLineDashedMaterial) g.setAttribute("lineDistance", new THREE.Float32BufferAttribute(this.d, 1));
+    mat.vertexColors = true;
+    return new THREE.LineSegments(g, mat);
+  }
+}
 function buildRelayNet() {
-  relayGroup.clear();
+  clearGroup(relayGroup);
   const rn = data.relay_net || { links: [], nodes: [], planned: [], suggested: [] };
-  const arc = (a, b, mat) => {
+  const active = new LineBatch(), dark = new LineBatch(), bridges = new LineBatch();
+  const arc = (a, b, batch, color) => {
     const pa = pos(a), pb = pos(b);
     const mid = pa.clone().lerp(pb, .5); mid.z += Math.max(1, pa.distanceTo(pb) * .3);
-    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(new THREE.QuadraticBezierCurve3(pa, mid, pb).getPoints(40)), mat);
-    if (mat.isLineDashedMaterial) line.computeLineDistances();
-    relayGroup.add(line);
+    batch.arc(new THREE.QuadraticBezierCurve3(pa, mid, pb).getPoints(40), color);
   };
   const ring = (s, color, size, opacity = 1) => {
-    const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: ringTex, color: new THREE.Color(color), transparent: true, opacity, depthWrite: false }));
-    sp.scale.set(size, size, 1); sp.position.copy(pos(s)); relayGroup.add(sp);
+    const sp = relaySprites.sprite({ map: ringTex, color: new THREE.Color(color), opacity });
+    sp.scale.set(size, size, 1); sp.position.copy(pos(s));
   };
   // active networks solid, ones without a replicant in reach dashed and dimmer
   for (const l of rn.links) {
     const a = byName[l.a], b = byName[l.b]; if (!a || !b) continue;
     const c = new THREE.Color(l.color);   // a hub's link to a relay: a darker shade of its network's color
     if (l.hub) c.multiplyScalar(.6);
-    arc(a, b, l.active ? new THREE.LineBasicMaterial({ color: c, transparent: true, opacity: .9 })
-                       : new THREE.LineDashedMaterial({ color: c, dashSize: .5, gapSize: .4, transparent: true, opacity: .55 }));
+    arc(a, b, l.active ? active : dark, c);
   }
   // suggested bridges: dashed gray through the new relay systems; relays on order: white rings
+  const gray = new THREE.Color(0x9aa4b2);
   for (const b of rn.suggested || []) {
     const chain = [b.from, ...b.stars, b.to].map(x => byName[x]);
     if (chain.some(x => !x)) continue;
-    for (let i = 0; i < chain.length - 1; i++)
-      arc(chain[i], chain[i + 1], new THREE.LineDashedMaterial({ color: 0x9aa4b2, dashSize: .3, gapSize: .5, transparent: true, opacity: .6 }));
+    for (let i = 0; i < chain.length - 1; i++) arc(chain[i], chain[i + 1], bridges, gray);
     for (const x of b.stars) ring(byName[x], 0x9aa4b2, 1.8, .7);
   }
+  if (active.p.length) relayGroup.add(active.line(new THREE.LineBasicMaterial({ transparent: true, opacity: .9 })));
+  if (dark.p.length) relayGroup.add(dark.line(new THREE.LineDashedMaterial({ dashSize: .5, gapSize: .4, transparent: true, opacity: .55 })));
+  if (bridges.p.length) relayGroup.add(bridges.line(new THREE.LineDashedMaterial({ dashSize: .3, gapSize: .5, transparent: true, opacity: .6 })));
   for (const x of rn.planned || []) { const s = byName[x]; if (s) ring(s, 0xffffff, 2.6, .95); }
   for (const x of rn.off || []) { const s = byName[x]; if (s) ring(s, 0xff5252, 2.2, .85); }   // a relay of yours switched off
+  relaySprites.sync();
   relayGroup.visible = checked("opt-relaynet", OPTS.relayNet === true);
 }
 function buildSupply() {
-  supplyGroup.clear();
+  clearGroup(supplyGroup);
   supplyLines.forEach(x => x.el.remove()); supplyLines.length = 0;
   const fromSame = {};   // labels of lines leaving the same system are stacked, not drawn over each other
   for (const l of data.supply || []) {
@@ -645,8 +786,8 @@ function buildSupply() {
     supplyGroup.add(line);
     const dots = [];
     if (l.state === "moving") for (let i = 0; i < 4; i++) {
-      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: dot, color, transparent: true, depthWrite: false }));
-      sp.scale.set(1.1, 1.1, 1); supplyGroup.add(sp); dots.push(sp);
+      const sp = supplySprites.sprite({ map: dot, color });
+      sp.scale.set(1.1, 1.1, 1); dots.push(sp);
     }
     const what = { moving: `${l.in_transit} in transit`, ferrying: `ferrying${l.freighters ? ` (${l.freighters})` : ""}`,
                    active: l.kind === "trade" ? "trade run" : "delivering", planned: "planned" }[l.state] || l.state;
@@ -659,6 +800,7 @@ function buildSupply() {
     const k = fromSame[l.from] = (fromSame[l.from] ?? -1) + 1;
     supplyLines.push({ curve, dots, el: d, v: curve.getPoint(.5), dy: -14 - 12 * k });
   }
+  supplySprites.sync();
 }
 
 // observatories prospecting: a wave (a spherical cap centered on the system, as wide as the scan's cone) running out
@@ -735,20 +877,21 @@ function label(text, color, title) {
 function ago(ms) { return fmt((Date.now() - ms) / 1000) + " ago"; }
 const othersBy = {};
 function buildOthers() {
-  othersGroup.clear(); trafficGroup.clear();
+  clearGroup(othersGroup); clearGroup(trafficGroup);
   faders.forEach(x => x.el?.remove()); faders.length = 0;
   for (const k in othersBy) delete othersBy[k];
+  lastCamKey = "";   // place the new ones next frame
   for (const o of data.others || []) {
     othersBy[o.star] = o;
     const v = pos(o), mats = [];
     if (o.n) {
-      const sp = new THREE.Sprite(new THREE.SpriteMaterial({ map: ringTex, color: OTHER, transparent: true, depthWrite: false }));
-      const sz = 2.6 + Math.min(2, o.n * .25); sp.scale.set(sz, sz, 1); sp.position.copy(v); othersGroup.add(sp);
+      const sp = othersSprites.sprite({ map: ringTex, color: OTHER });
+      const sz = 2.6 + Math.min(2, o.n * .25); sp.scale.set(sz, sz, 1); sp.position.copy(v);
       mats.push([sp.material, .8]);
     }
     if (o.ward) {
-      const sh = new THREE.Sprite(new THREE.SpriteMaterial({ map: shieldTex, color: OTHER, transparent: true, depthWrite: false }));
-      sh.scale.set(1.4, 1.4, 1); sh.position.copy(v).add(new THREE.Vector3(0, 0, 2.2)); othersGroup.add(sh);
+      const sh = othersSprites.sprite({ map: shieldTex, color: OTHER });
+      sh.scale.set(1.4, 1.4, 1); sh.position.copy(v).add(new THREE.Vector3(0, 0, 2.2));
       mats.push([sh.material, .9]);
     }
     const who = o.owners.map(w => w.name).join(", ");
@@ -768,9 +911,10 @@ function buildOthers() {
                               (a.guess ? ` · ${a.way === "in" ? "from" : "toward"} ≈ ${a.guess}` : "") });
   }
 }
-function placeOthers(now, showLabels, w, h) {
+function placeOthers(now, showLabels, w, h, camMoved) {
   othersGroup.visible = trafficGroup.visible = checked("opt-others", OPTS.others !== false);
   for (const x of faders) {
+    if (!camMoved && !x.born) continue;   // only the camera moves an ordinary one: nothing to do on a still frame
     let f = fadeAt(x.v);
     if (x.born) f *= Math.max(0, 1 - (now - x.born) / ARROW_MS);
     x.mats.forEach(([m, base]) => { m.opacity = base * f; m.visible = f > 0.01; });
@@ -780,10 +924,11 @@ function placeOthers(now, showLabels, w, h) {
     x.el.style.display = vis ? "block" : "none";
     if (vis) {
       if (x.text) x.el.textContent = x.text();
-      if (x.born) stackLabel(x.el, (tmp.x + 1) / 2 * w + 8, (1 - tmp.y) / 2 * h + x.dy, f);   // an arrow's label
+      if (x.born) stackLabel(x.el, (tmp.x + 1) / 2 * w + 8, (1 - tmp.y) / 2 * h + x.dy, f, x.el.textContent.length);   // an arrow's label
       else { x.el.style.opacity = f; x.el.style.left = ((tmp.x + 1) / 2 * w + 8) + "px"; x.el.style.top = ((1 - tmp.y) / 2 * h + x.dy) + "px"; }
     }
   }
+  if (camMoved || faders.some(x => x.born)) othersSprites.sync();
 }
 
 // the followed replicant's trail (Map › Trail): gold legs from each logged departure to the star its vector points
@@ -1133,8 +1278,11 @@ const TEXT_MIN_PX = 1.5, HALF_FOV = Math.tan(55 * Math.PI / 360);
 // around were worse than a hidden one), and fades back in once the spot is clear.
 const LABEL_FADE = "opacity .35s";
 let stacked = [];
-function stackLabel(e, x, y, f = 1) {
-  const wd = e.offsetWidth || 150;
+function stackLabel(e, x, y, f = 1, key = "") {
+  // measured once per look (key: what the label shows): reading offsetWidth after the last label's writes made the
+  // browser lay the page out again for every label, every frame
+  const ws = e._w ||= {};
+  const wd = ws[key] || (ws[key] = e.offsetWidth) || 150;
   const clash = stacked.some(p => x < p.x + p.w && p.x < x + wd && Math.abs(p.y - y) < 13);
   if (!clash) stacked.push({ x, y, w: wd });
   e.style.transition = LABEL_FADE;
@@ -1188,6 +1336,7 @@ function animate(t = 0) {
       hz.material.opacity = u.op * (u.f ?? 1) * (0.6 + 0.4 * ph);
     }
   }
+  if (waves.length || hazes.length) animGroup.sync();
   renderer.render(scene, camera);
   const w = el.clientWidth, h = el.clientHeight;
   const readable = h / (2 * camera.position.distanceTo(controls.target) * HALF_FOV) >= TEXT_MIN_PX;
@@ -1195,7 +1344,8 @@ function animate(t = 0) {
   // star labels and markers only move with the camera: skip them on frames where it stood still (dozens of DOM
   // writes a frame otherwise, which a phone feels)
   const camKey = camera.matrixWorld.elements.join(",") + w + "x" + h + showLabels + labels.length;
-  if (camKey !== lastCamKey) {
+  const camMoved = camKey !== lastCamKey;
+  if (camMoved) {
     lastCamKey = camKey;
     placeMarks(); placeRegions(); placePins();
     placeStarLabels(showLabels, w, h);
@@ -1208,8 +1358,9 @@ function animate(t = 0) {
     const vis = fleetGroup.visible && readable && f > 0.05 && tmp.z < 1 && Math.abs(tmp.x) < 1 && Math.abs(tmp.y) < 1;
     l.el.style.display = vis ? "block" : "none";
     if (!vis) continue;
-    if (l.more) l.more.style.display = f > 0.6 ? "" : "none";   // further out: just the name and what it's doing
-    stackLabel(l.el, (tmp.x + 1) / 2 * w + 8, (1 - tmp.y) / 2 * h - 6 + l.dy, f);
+    const full = f > 0.6;
+    if (l.more) l.more.style.display = full ? "" : "none";   // further out: just the name and what it's doing
+    stackLabel(l.el, (tmp.x + 1) / 2 * w + 8, (1 - tmp.y) / 2 * h - 6 + l.dy, f, full ? "full" : "short");
   }
   sparkGroup.visible = checked("opt-production", OPTS.production !== false);
   if (sparkGroup.visible) {
@@ -1222,20 +1373,22 @@ function animate(t = 0) {
       x.sp.material.opacity = (.55 + .45 * Math.sin(ts * 2.3 + x.a0 * 3)) * f;   // twinkle
       x.sp.material.rotation = ts * .6 + x.a0;
     }
+    sparkGroup.sync();
   }
   supplyGroup.visible = checked("opt-supply", OPTS.supply !== false);
   const flow = (Date.now() % 4000) / 4000;
   for (const x of supplyLines) {
-    x.dots.forEach((sp, i) => sp.position.copy(x.curve.getPoint((flow + i / x.dots.length) % 1)));
+    x.dots.forEach((sp, i) => x.curve.getPoint((flow + i / x.dots.length) % 1, sp.position));
     tmp.copy(x.v).project(camera);
     const vis = supplyGroup.visible && showLabels && tmp.z < 1 && Math.abs(tmp.x) < 1 && Math.abs(tmp.y) < 1;
     x.el.style.display = vis ? "block" : "none";
     if (vis) { x.el.style.left = ((tmp.x + 1) / 2 * w) + "px"; x.el.style.top = ((1 - tmp.y) / 2 * h + x.dy) + "px"; }
   }
+  if (supplyGroup.visible && supplyLines.some(x => x.dots.length)) supplySprites.sync();
   if (!REDUCED_MOTION.matches) flowDash.value = t / 1000 * .8;   // map units a second
   placeMovers(Date.now());
   if (OPTS.follow) follow();
-  placeOthers(Date.now(), showLabels, w, h);
+  placeOthers(Date.now(), showLabels, w, h, camMoved);
   placeTrail(showLabels, w, h);
   placeProspects(Date.now(), showLabels);
   moveGroup.visible = checked("opt-moving", OPTS.moving !== false);
@@ -1243,7 +1396,7 @@ function animate(t = 0) {
     tmp.copy(x.v).project(camera);
     const vis = moveGroup.visible && readable && tmp.z < 1 && Math.abs(tmp.x) < 1 && Math.abs(tmp.y) < 1;
     x.el.style.display = vis ? "block" : "none";
-    if (vis) stackLabel(x.el, (tmp.x + 1) / 2 * w + 10, (1 - tmp.y) / 2 * h + 6);
+    if (vis) stackLabel(x.el, (tmp.x + 1) / 2 * w + 10, (1 - tmp.y) / 2 * h + 6, 1, x.el.textContent.length);
   }
 }
 
