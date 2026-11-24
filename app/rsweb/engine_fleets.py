@@ -1474,13 +1474,23 @@ class FleetsMixin:
             m = fleet.get("mission") or {}
             if (m.get("homing") and m.get("status") in ("running", "stalled") and m.get("phase") and fleet.get("station")
                     and fleet.get("role") != "bootstrap" and m.get("drop_star") == fleet.get("home")
-                    and fl.roster(fleet, devices)["stars"] == [fleet.get("home")]
+                    and ((ros_ := fl.roster(fleet, devices))["stars"] == [fleet.get("home")] or not ros_["carriers"])
                     and not any(j_["status"] in ("running", "waiting") for j_ in self.fleet_jobs(fleet, devices, list(jobs.values())))):
                 # recalled to its own station while every member is already there: nothing to board or fly (live
-                # 2026-11-12: Miner_7 recalled at DOMBTAIRE, stalled for want of a carrier to put everyone aboard)
+                # 2026-11-12: Miner_7 recalled at DOMBTAIRE, stalled for want of a carrier to put everyone aboard).
+                # Likewise a fleet with no carrier to board at all: the loadout pass brings members elsewhere home once
+                # the mission is over (live 2026-11-22..23: Miner_9 stalled 26 h, 6 members at MARKOB, only a freighter)
+                away = [d["device_code"] for d in ros_["members"] if fl.star_of(d.get("location")) != fleet.get("home")]
                 m["status"], m["job"] = "done", None
-                self._mlog(m, f"recall: everyone is already at {fleet['home']}, its station — nothing to fly")
-                await self.log("fleets", f"{fleet['name']}: recall done, the fleet is already at {fleet['home']}")
+                m.pop("auto_retry", None)
+                m.pop("watch_note", None)
+                if away:
+                    note = (f"recall: no fleet carrier to board; members away from {fleet['home']} ({', '.join(away[:6])}"
+                            f"{' …' if len(away) > 6 else ''}) are brought home by the loadout pass")
+                else:
+                    note = f"recall: everyone is already at {fleet['home']}, its station — nothing to fly"
+                self._mlog(m, note)
+                await self.log("fleets", f"{fleet['name']}: " + (note if away else f"recall done, the fleet is already at {fleet['home']}"))
                 changed = True
                 continue
             if m.get("status") == "stalled" and m.get("comms_wait"):
@@ -1698,6 +1708,23 @@ class FleetsMixin:
                         self._mlog(m, note + again)
                         await self.log("fleets", f"{fleet['name']}: stalled before leaving: {'; '.join(board_problems)}"
                                        + again, "alert", notify=not quiet)
+                        break
+                    if loose and not board_steps and not ros["carriers"] and m.get("homing"):
+                        # a recall of a fleet with no carrier to board: nothing can ever take them aboard, and while the
+                        # mission runs the loadout pass leaves its members alone (live 2026-11-22..23: Miner_9's recall
+                        # to ALPHARDAN stalled 26 h with 12 of 18 members already there and 6 at MARKOB, only a cargo
+                        # freighter in the fleet). The recall ends here: the loadout pass brings the others home.
+                        dest = (m.get("recall") or {}).get("dest") or m.get("drop_star") or fleet.get("home")
+                        away = [d["device_code"] for d in ros["loose"] if fl.star_of(d.get("location")) != dest]
+                        m["status"], m["job"] = "done", None
+                        m.pop("auto_retry", None)
+                        m.pop("watch_note", None)
+                        fleet.pop("recall_hold", None)
+                        note = f"recalled: no fleet carrier to board, so the members fly or are carried home to {dest} " \
+                               f"by the loadout pass" + (f" ({len(away)} away: {', '.join(away[:6])})" if away else "")
+                        self._mlog(m, note)
+                        await self.log("fleets", f"{fleet['name']}: {note}")
+                        changed = True
                         break
                     if loose and (board_steps or not partial):
                         # Launch anyway sends it short, but still takes along members standing right there

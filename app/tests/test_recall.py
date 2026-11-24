@@ -143,3 +143,25 @@ def test_auto_scout_goes_beyond_relay_coverage_with_a_replicant_aboard(client):
     assert star is None and "inside relay coverage" in why
     star, _ = client.portal.call(e.scout_next, f, [f], [{**ves, "hosting_replicant": {"replicant_code": "R1"}}], None, {"HOMEA"})
     assert star == "FARB"
+
+
+def test_recall_without_a_carrier_ends_and_leaves_the_rest_to_loadouts(client):
+    """Live 2026-11-22..23: Miner_9's recall to ALPHARDAN (its station) stalled 26 h, out of retries: 6 of 18 members at
+    MARKOB, only a cargo freighter in the fleet, and the loadout pass leaves a fleet on a mission alone."""
+    e = client.app.state.worker.automations
+    fleet = {"id": "m9", "name": "Miner_9", "role": "mining", "home": "AAA", "station": True, "wants": {},
+             "mission": {"status": "stalled", "homing": True, "phase": "recall", "departed": True, "targets": [],
+                         "idx": 0, "log": [], "drop_star": "AAA", "recall": {"mode": "after", "dest": "AAA"},
+                         "auto_retry": {"spot": [0, "recall"], "n": 8, "at": None}, "job": None}}
+    devices = [{"device_code": "FR1", "device_type": "cargo_freighter", "location": "AAA-6-L4", "status": "idle",
+                "tags": ["fleet:m9"], "cargo_capacity": 500},
+               {"device_code": "RG1", "device_type": "mining_rig", "location": "AAA-BELT-1", "status": "idle",
+                "tags": ["fleet:m9"]},
+               {"device_code": "RG2", "device_type": "mining_rig", "location": "BBB-BELT-1", "status": "idle",
+                "tags": ["fleet:m9"]}]
+    client.portal.call(client.app.state.db.kv_set, "devices", devices)
+    client.portal.call(e.save_fleets, [fleet])
+    client.portal.call(e.run_fleets)
+    m = client.portal.call(e.fleets)[0]["mission"]
+    assert m["status"] == "done", m["log"]
+    assert "RG2" in m["log"][-1]["text"]
