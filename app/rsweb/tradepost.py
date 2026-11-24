@@ -711,7 +711,12 @@ class TradePostMixin:
                     claims.pop(t)
             unload = [c for c in pl.get("unload") or [] if c not in busy]
             if unload and not dry:   # cargo left aboard a vessel up for sale: put down at the shop, the loadout pass takes it on
-                steps = [step(f"deploy {c} at the trade post", f"/devices/{c}", {"command": "deploy"}) for c in unload]
+                steps = []
+                for c in unload:   # an attached device is let go by its carrier: `deploy` on it does nothing
+                    host = (by.get(c) or {}).get("attached_to_device_code")
+                    steps.append(step(f"{host}: detach {c} at the trade post", f"/devices/{host}",
+                                      {"command": "detach", "device": c}) if host
+                                 else step(f"deploy {c} at the trade post", f"/devices/{c}", {"command": "deploy"}))
                 if await self.create_job("trade_post", f"trade post {f.get('name')}: {len(unload)} device(s) unloaded from "
                                          "vessels for sale", None, steps, {"devices": unload}):
                     out.append(f"{f.get('name')}: unloaded {len(unload)}")

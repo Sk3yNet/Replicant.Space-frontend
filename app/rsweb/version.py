@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.545.0"
+VERSION = "1.545.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.545.1", "2026-11-24", "Trade posts unload a vessel for sale correctly: devices attached to it are let go by the vessel (detach), stowed ones deployed, before it is listed."),
     ("1.545.0", "2026-11-24", "Relay orders whose relay never comes are sent again (Joe: SOL and ALGOLUM waited days with no tagged relay on the way). SOL's order named a relay that ended up relaying at ACHERNARON and ALGOLUM's one that sat spare at FALQUORYX without its to: tag; a send order only expired after 3 days. Now a send order whose device lost its tag, works in another system or is out of reach is sourced again after 20 minutes (a relay already bound for it, a spare, else a print). Trade posts never list a vessel with devices aboard: the cargo is deployed at the shop first, and a listing that escrowed one is taken down (relays for ULGRELIIL and CAELOARAX were locked in a racing vessel and a heaven vessel on sale since 11-22). Relays inside a vessel in escrow no longer count as on their way."),
     ("1.544.0", "2026-11-24", "Rock chasers notice a stuck Kuiper search (Joe: Chaser_1 stuck for two days). On 11-22 the sensor arrays of Chaser_1, Chaser_2 and Chaser_3 started a 30-minute sweep and never finished it: they stayed detecting, every hourly search was refused with Already detecting, nothing new was marked and no rock was launched. A sensor array still refused two hours after the first such answer is now switched off and searches again on the next pass."),
     ("1.543.0", "2026-11-24", "Dashboard no longer times out after a night away (Joe). The While you were away card read and decoded every game event since your last visit while the page waited, tens of thousands of scans and AMI digests after a night, on the server's main loop; it now loads on its own after the page, works the events out in the background and is kept 5 minutes. The diagnostics Performance view no longer waits over a minute for its table counts: they are worked out in the background and shown once ready."),
