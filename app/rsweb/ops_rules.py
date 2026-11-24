@@ -329,16 +329,28 @@ class OpsRules:
                     out.append(f"{star}: {label} {here['device_code']} is up")
                     await self.log("wards", f"{star}: {label} {here['device_code']} is up")
                     continue
-                if not here and wo.lost_print(devices, star, o, jobs, dtype):
-                    # the print never got into a queue (a full one, or it failed): send a spare or print it again
+                lost_send = not here and wo.lost_send(devices, star, o, jobs, dtype)
+                if not here and (lost_send or wo.lost_print(devices, star, o, jobs, dtype)):
+                    # the print never got into a queue (a full one, or it failed), or the device sent isn't on its way
+                    # any more: send another (one already bound for it first), a spare, or print it again
                     o.pop("factory", None)
-                    how, msg = await self._outpost_source(kind, star, devices, busy, orders,
-                                                          at=(o.get("civ") or [None])[0] if civ else None,
-                                                          rollout=bool(o.get("rollout")), target=bool(o.get("target")))
+                    was = o.get("device")
+                    bound = wo.bound_to(devices, star, dtype)
+                    if bound and bound["device_code"] != was:
+                        how, msg = ({"how": "send", "device": bound["device_code"]},
+                                    f"{label} {bound['device_code']} is already on its way to {star}")
+                    else:
+                        how, msg = await self._outpost_source(kind, star, devices, busy, orders,
+                                                              at=(o.get("civ") or [None])[0] if civ else None,
+                                                              rollout=bool(o.get("rollout")), target=bool(o.get("target")))
                     if how:
                         o.update(how, at=now_iso())   # its 3 days start now: nothing was ever on its way
                         o.pop("factory" if how["how"] == "send" else "device", None)
-                        await self.log("wards", f"{star}: the {label} print never showed up — {msg}")
+                        await self.log("wards", f"{star}: {label} {was} isn't on its way any more — {msg}" if lost_send
+                                       else f"{star}: the {label} print never showed up — {msg}", "warning" if lost_send else "info")
+                    elif lost_send:
+                        o.pop("device", None)
+                        o["how"] = "print"   # nothing on its way: waits for a slot like a lost print
                     elif "prints are paused" not in msg:
                         msg = f"waiting for a free print slot ({msg})"
                     if msg != o.get("note"):

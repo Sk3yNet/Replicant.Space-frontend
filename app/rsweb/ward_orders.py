@@ -11,7 +11,9 @@ beacons' own): {star: {how: activate|send|print, device, factory,
 at, sourced, note}}; an order not done in 3 days is dropped. A print order whose print never showed up (no print
 queued or printing for it, nothing tagged for it, no job on it: live 2026-10-21/22, 73 relay orders on two autofactories
 with 10-slot queues, nothing ever printed and every one expired) is sourced again: a spare, else a factory with a free
-queue slot, else it waits for one (and doesn't expire while it waits).
+queue slot, else it waits for one (and doesn't expire while it waits). A send order whose device isn't on its way any
+more (its to: tag gone, working elsewhere, or out of reach in another player's hands: live 2026-11-24, SOL and ALGOLUM
+waited 2 days on relays that relayed at ACHERNARON or sat spare at FALQUORYX) is sourced again the same way.
 """
 from __future__ import annotations
 
@@ -44,6 +46,13 @@ def ward_here(devices: list[dict], star: str, dtype: str = "system_ward") -> dic
     return sorted(ws, key=lambda d: (not wh.active(d), d.get("device_code") or ""))[0] if ws else None
 
 
+def reachable(d: dict, devices: list[dict]) -> bool:
+    """Not stuck inside a host that's no longer in your device list (live 2026-11-24: relays for ULGRELIIL and CAELOARAX
+    rode in vessels a trade post put up for sale, held in escrow)."""
+    host = d.get("stowed_in_device_code") or d.get("attached_to_device_code")
+    return not host or any(x.get("device_code") == host for x in devices)
+
+
 def bound_to(devices: list[dict], star: str, dtype: str = "system_ward") -> dict | None:
     """One of yours of this type already tagged to:<star> (or pinned at: a spot there) and not working there yet (e.g.
     printed for an order that expired, live 2026-10-21: MOLURNA re-ordered while its relay still waited at the factory):
@@ -55,7 +64,7 @@ def bound_to(devices: list[dict], star: str, dtype: str = "system_ward") -> dict
     def bound(d: dict) -> bool:
         pin = lo.pinned_at(d)
         return tag in (d.get("tags") or []) or bool(pin and star_of(pin) == star and d.get("location") != pin)
-    ds = [d for d in devices if d.get("device_type") == dtype and bound(d)
+    ds = [d for d in devices if d.get("device_type") == dtype and bound(d) and reachable(d, devices)
           and not (wh.active(d) and star_of(d.get("location")) == star)]
     return sorted(ds, key=lambda d: d.get("device_code") or "")[0] if ds else None
 
@@ -215,6 +224,25 @@ def lost_print(devices: list[dict], star: str, order: dict, jobs: list[dict], dt
         return False
     return not any(j["status"] in ("running", "waiting") and ((j.get("meta") or {}).get("outpost") == star
                                                               or str(j.get("title") or "").endswith(f" for {star}"))
+                   for j in jobs)
+
+
+def lost_send(devices: list[dict], star: str, order: dict, jobs: list[dict], dtype: str = "system_ward",
+              now: datetime | None = None) -> bool:
+    """A send order whose device isn't on its way any more: gone, out of reach (in escrow), working in another system,
+    or no longer tagged for `star` (live 2026-11-24: SOL's relay relayed at ACHERNARON, ALGOLUM's sat spare at
+    FALQUORYX), with no job still on it, past LOST_MINUTES."""
+    if order.get("how") != "send" or _age_min(order, now or datetime.now(timezone.utc)) < LOST_MINUTES:
+        return False
+    code = order.get("device")
+    d = next((x for x in devices if x.get("device_code") == code), None) if code else None
+    if d and reachable(d, devices) and d.get("device_type") == dtype:
+        pin = lo.pinned_at(d)
+        tagged = lo.to_tag(star) in (d.get("tags") or []) or bool(pin and star_of(pin) == star)
+        elsewhere = wh.active(d) and star_of(d.get("location")) not in ("", star)
+        if tagged and not elsewhere:
+            return False
+    return not any(j["status"] in ("running", "waiting") and code in ((j.get("meta") or {}).get("devices") or [])
                    for j in jobs)
 
 

@@ -634,3 +634,24 @@ def test_civ_beacon_print_waiting_in_the_app_is_not_ordered_again(client):
     assert len(client.portal.call(e.jobs)) == n                                   # no new print
     assert "SOL: dropped 2 beacon print(s) kept in the app's queue that no body there needs" in lines
     assert len(client.portal.call(vq.orders, fac)) == 1
+
+
+def test_send_order_whose_relay_went_elsewhere_is_sourced_again():
+    """Live 2026-11-24: SOL's order sent a relay that ended up relaying at ACHERNARON, ALGOLUM's a relay that sat spare
+    at FALQUORYX without its to: tag, and both waited for days; relays inside a vessel held in escrow don't count."""
+    from rsweb import ward_orders as wo
+    order = {"how": "send", "device": "R1", "at": "2026-11-22T05:35:37+00:00"}
+    gone = {"device_code": "R1", "device_type": "ftl_relay", "location": "ACH-5-L4", "status": "relaying", "tags": ["rollout"]}
+    assert wo.lost_send([gone], "SOL", order, [], "ftl_relay")
+    spare = dict(gone, location="FAL-BELT-1", status="inactive", tags=["spare"])
+    assert wo.lost_send([spare], "SOL", order, [], "ftl_relay")
+    going = dict(spare, tags=["to:sol"])
+    assert not wo.lost_send([going], "SOL", order, [], "ftl_relay")
+    job = {"status": "running", "meta": {"devices": ["R1"]}}
+    assert not wo.lost_send([spare], "SOL", order, [job], "ftl_relay")   # its tag job hasn't run yet
+    escrowed = dict(going, location=None, status="stowed", stowed_in_device_code="V1")
+    assert wo.lost_send([escrowed], "SOL", order, [], "ftl_relay")
+    assert wo.bound_to([escrowed], "SOL", "ftl_relay") is None
+    assert wo.bound_to([escrowed, {"device_code": "V1", "location": "X-1"}], "SOL", "ftl_relay")["device_code"] == "R1"
+    assert not wo.lost_send([], "SOL", dict(order, at="2999-01-01T00:00:00+00:00"), [], "ftl_relay")   # just sent
+

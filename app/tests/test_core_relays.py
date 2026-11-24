@@ -1851,3 +1851,29 @@ def test_no_ward_in_hub_or_station_systems(client):
                                   "tags": ["fleet:f1"], "features": ["surge"], "hold_capacity": 5}]
     cmds = lambda nw: [(s.get("body") or {}).get("command") for s in unload_steps(fleet, crew, no_ward=nw)]  # noqa: E731
     assert "activate" in cmds(set()) and "activate" not in cmds({"ALKA"}) and "deploy" in cmds({"ALKA"})
+
+
+def test_ward_pass_resends_a_relay_that_went_elsewhere(client):
+    """Live 2026-11-24: ALGOLUM's relay order named a relay that sat spare without its to: tag: the order sends
+    another (here the same spare, tagged again) instead of waiting out its 3 days."""
+    from rsweb import ward_orders as wo
+    db = client.app.state.db
+    eng = client.app.state.worker.automations
+    client.portal.call(db.kv_set, "stars", {"stars": [{"designation": "ALG", "position": {"x": 0, "y": 0, "z": 0}},
+                                                      {"designation": "FAL", "position": {"x": 1, "y": 0, "z": 0}}]})
+    relay = {"device_code": "R1", "device_type": "ftl_relay", "location": "FAL-BELT-1", "status": "inactive",
+             "tags": ["spare"], "in_control_range": True}
+    devs = [relay]
+    client.portal.call(db.kv_set, "devices", devs)
+
+    async def devices():
+        return devs
+    eng.devices = devices
+    client.portal.call(db.kv_set, wo.kv_key("relay"), {"ALG": {"at": "2026-11-22T20:13:41+00:00", "how": "send",
+                                                                "device": "R1", "target": True}})
+    client.portal.call(eng.ward_orders_pass)
+    o = client.portal.call(db.kv_get, wo.kv_key("relay"), {})["ALG"]
+    assert o["how"] == "send" and o["device"] == "R1" and o["at"] > "2026-11-23" and o.get("target")
+    jobs = client.portal.call(eng.jobs)
+    assert any("to:alg" in ((s.get("body") or {}).get("configuration") or {}).get("add_tags", [])
+               for j in jobs for s in j["steps"])

@@ -545,3 +545,20 @@ def test_shop_that_left_while_listing_rejoins(client):  # noqa: F811
     job = next(j for j in client.portal.call(e.jobs) if "rejoin" in (j.get("title") or ""))
     assert job["steps"][0]["body"]["configuration"]["add_tags"] == ["fleet:tp", "at:sol-4-l4"]
     assert client.portal.call(db.kv_get, tp.KV)["tp"]["consolidate"]["by"] == "rejoin"
+
+
+def test_plan_never_lists_a_vessel_with_cargo_and_delists_one_escrowed():
+    # live 2026-11-24: relays bound for ULGRELIIL and CAELOARAX sat for days in a racing vessel and a heaven vessel on sale
+    devs = [shop(), dev("D1", "mining_drone", tags=[TAG]),
+            {"device_code": "R1", "device_type": "ftl_relay", "status": "stowed", "tags": ["to:ulgreliil"],
+             "stowed_in_device_code": "D1"}]
+    assert tp.cargo("D1", devs) == ["R1"]
+    pl = tp.plan(FLEET, devs, [], {}, BPS, P, TAG)
+    assert pl["actions"] == [] and pl["unload"] == ["R1"]
+    assert "R1 aboard" in next(r for r in pl["rows"] if r["type"] == "mining_drone")["status"]
+    listed = [{"trade_code": "TRD-1", "current_stock": 1, "initial_stock": 1, "rewards": {"devices": {"mining_drone": 1}},
+               "criteria": {"resources": {}}}]
+    st = {"listings": {"mining_drone": {"trade_code": "TRD-1", "escrow": ["D1"]}}}
+    devs = [shop(), devs[2]]   # in escrow: gone from the list, its cargo still names it
+    pl = tp.plan(FLEET, devs, listed, st, BPS, P, TAG)
+    assert pl["actions"] == [{"type": "mining_drone", "controller": "SHOP", "delete": "TRD-1", "create": None, "escrow": []}]

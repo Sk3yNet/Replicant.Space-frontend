@@ -229,6 +229,13 @@ def carries_replicant(d: dict, devices: list[dict]) -> bool:
                if code and code in (x.get("stowed_in_device_code"), x.get("attached_to_device_code")))
 
 
+def cargo(code: str | None, devices: list[dict]) -> list[str]:
+    """Devices aboard `code` (stowed or attached): a vessel listed with cargo takes it into escrow (live 2026-11-24:
+    relays bound for ULGRELIIL and CAELOARAX sat for days in a racing vessel and a heaven vessel on sale)."""
+    return sorted(x["device_code"] for x in devices if code and x.get("device_code")
+                  and code in (x.get("stowed_in_device_code"), x.get("attached_to_device_code")))
+
+
 def overage(fleet: dict, state: dict) -> dict[str, int]:
     """Listed beyond the fleet's stock number, not claimed yet: {type: n}. Spares a fleet may ask for (owner 2026-11-17);
     otherwise it stays for sale."""
@@ -260,7 +267,8 @@ def free_here(d: dict, loc: str | None, devices: list[dict]) -> bool:
     tags = d.get("tags") or []
     if any(str(x).startswith(("fleet:", "contract:", "to:")) for x in tags) or pinned_at(d) not in (None, str(loc or "").upper()):
         return False
-    if d.get("controller_device_code") or d.get("hosting_replicant") or carries_replicant(d, devices):
+    if d.get("controller_device_code") or d.get("hosting_replicant") or carries_replicant(d, devices) \
+            or cargo(d.get("device_code"), devices):
         return False
     return str(d.get("status") or "").startswith(("idle", "inactive"))
 
@@ -293,7 +301,7 @@ def plan(fleet: dict, devices: list[dict], trades: dict | list | None, state: di
     spot = settings(fleet)["spot"]
     out: dict[str, Any] = {"rows": rows(fleet, bps, p), "actions": [], "release": [], "need": {}, "skip": [],
                            "notes": [], "location": spot or (ctrl or {}).get("location"), "pin": None, "pins": [],
-                           "shops": [], "unpin": [], "give": [], "claims_done": [], "drop": []}
+                           "shops": [], "unpin": [], "give": [], "claims_done": [], "drop": [], "unload": []}
     if not ctrl:
         out["notes"].append("no AMI trade controller in the fleet")
         return out
@@ -398,6 +406,11 @@ def plan(fleet: dict, devices: list[dict], trades: dict | list | None, state: di
         r.update({"listed": listed, "initial": int((cur or {}).get("initial_stock") or 0), "here": len(loose),
                   "trade_code": (cur or {}).get("trade_code"), "listed_price": as_amounts(((cur or {}).get("criteria") or {}).get("resources")),
                   "status": "", "controller": c if (cur or t in cur_of) else slot.get(t)})
+        laden = sorted(x for x in esc if x and cargo(x, devices))
+        if laden and cur and known:   # escrowed with cargo aboard: delist so the cargo can go where it's bound
+            out["actions"].append({"type": t, "controller": c, "delete": cur["trade_code"], "create": None, "escrow": []})
+            r["status"] = f"delisting: {laden[0]} was listed with {', '.join(cargo(laden[0], devices))} aboard"
+            continue
         want = r["onhand"]
         if not want:
             if cur:
@@ -447,6 +460,12 @@ def plan(fleet: dict, devices: list[dict], trades: dict | list | None, state: di
         bad = [d for d in loose + others if carries_replicant(d, devices)]
         if bad:
             r["status"] = f"not listed: {bad[0]['device_code']} at the shop carries a replicant or matrix"
+            continue
+        full = [d for d in loose + others if cargo(d["device_code"], devices)]
+        if full:
+            r["status"] = (f"not listed: {full[0]['device_code']} at the shop has "
+                           f"{', '.join(cargo(full[0]['device_code'], devices))} aboard (deployed there first)")
+            out["unload"] += [x for d in full for x in cargo(d["device_code"], devices)]
             continue
         if others:
             r["status"] = (f"not listed: {len(others)} other {t.replace('_', ' ')} at {loc} the escrow could take "
@@ -540,6 +559,7 @@ class TradePostMixin:
         from .contractsupply import contract_tag
         from .db import now_iso
         from .fleets import held
+        from .automations import step
         from .loadouts import tag_step
         from .shapes import normalize_blueprints
         fleets_ = [f for f in await self.fleets() if f.get("role") == ROLE and f.get("id")]
@@ -689,6 +709,12 @@ class TradePostMixin:
                 claims[t] = [x for x in claims[t] if (now - datetime.fromisoformat(x.get("at") or now_iso())).total_seconds() < 7200]
                 if not claims[t]:
                     claims.pop(t)
+            unload = [c for c in pl.get("unload") or [] if c not in busy]
+            if unload and not dry:   # cargo left aboard a vessel up for sale: put down at the shop, the loadout pass takes it on
+                steps = [step(f"deploy {c} at the trade post", f"/devices/{c}", {"command": "deploy"}) for c in unload]
+                if await self.create_job("trade_post", f"trade post {f.get('name')}: {len(unload)} device(s) unloaded from "
+                                         "vessels for sale", None, steps, {"devices": unload}):
+                    out.append(f"{f.get('name')}: unloaded {len(unload)}")
             rel = [by[c] for c in pl["release"] if c in by and c not in busy]
             if rel and not dry:
                 steps = [tag_step(d["device_code"], ["spare"], [x for x in d.get("tags") or []
