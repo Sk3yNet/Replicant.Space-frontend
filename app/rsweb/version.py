@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.549.0"
+VERSION = "1.549.1"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.549.1", "2026-11-24", "Repair patrols only consider repair devices within the sector range of the worn system (Joe asked why 8 home-sector patrols said \"about 405 h of travel\"). Delta Logistics' repair devices at ISOLITHOR were the nearest candidates with a free carrier beside them, so the patrol was planned from 29,000 ly away and refused. Now they are skipped and the patrol says what it really waits for (a free carrier or a spare repair device in range)."),
     ("1.549.0", "2026-11-24", "Each logistics fleet balances its own carriers over the hubs nearest its home (Joe asked whether NIO, the Gamma Printing Hub, gets carriers). NIO was already a hub, but the two logistics fleets were pooled: Delta Logistics' five plates at ISOLITHOR raised the home sector's shares, so FALQUORYX, SOLARES and NIO waited for plates that could never come and NIO got none. Carriers in flight on a job (out of comms range without a replicant aboard) now count where they're going instead of not at all."),
     ("1.548.0", "2026-11-24", "One ward per system stays on and isn't spare (Joe). Ten system wards were warding but tagged spare (AEMEROTH, LYRHYRAN, CORHIRUM, CELENEON, FRANZAN, KELELAEL, ALPHARDAN, ORLRENOR, KELCERUM, CORJETHAN). Every 10 minutes the ward working in a system loses a spare tag, and any second ward working in the same system is switched off and made spare."),
     ("1.547.0", "2026-11-24", "Leftover component tags are cleaned up (Joe: sensor array E7B258A4 kept component and prio:3.25 while working in Chaser_5). A device tagged as a print's component kept that tag, its prio: rank, its factory pins and the contract: tag it inherited after the print was done or dropped: 109 devices carried it with no print queued at the hubs. A component no queued or printing print at its pinned location needs is now released after 30 minutes: the print's tags go and a fleetless device that isn't deployed at work becomes a spare (up to 40 a pass). Fleets no longer recruit a spare that is still a component, and the loadout pass no longer makes a component spare."),

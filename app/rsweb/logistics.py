@@ -772,6 +772,8 @@ def repair_runs(*, reqs: list[dict], runs: list[dict], unmet: list[dict], used: 
             best = None   # (ly, repairer, carrier or None, mode)
             for c, d in spare.items():
                 here = star_of(d.get("location"))
+                if not in_reach(here, star, pos, reach):
+                    continue   # Delta's repair devices never patrol the home sector (live 2026-11-24: 8 patrols "405 h")
                 if can_surge(d) and here in commandable and _dist(here, star, pos) <= reach:
                     cand = (_dist(here, star, pos), c, "", "self")
                     best = min(best or cand, cand)

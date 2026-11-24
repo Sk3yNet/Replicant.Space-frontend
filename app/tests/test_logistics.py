@@ -1117,6 +1117,12 @@ def test_repair_drones_not_in_the_logistics_fleet_and_far_trips_are_left_alone()
     far = {**POS, "Z": {"x": 2000, "y": 0, "z": 0}}                                # about 28 h of surging
     p = _repair_plan(devs, pos=far)
     assert not any(r["kind"] == "repair" for r in p["runs"])
+    # a repair device beyond reach of the worn system isn't a candidate (live 2026-11-24: Delta's drones made 8 home
+    # patrols "405 h of travel"); a trip whose legs add up past 24 h is still refused
+    assert any(u["req"] == "repair:Z" and "within 100 ly of Z" in u["why"] for u in p["unmet"])
+    p = lg.plan(fleets=FLEETS, devices=devs, bps=BPS, inventory={}, pos=far, commandable={"A", "B", "Z"},
+                hosts={"HV": "R1"}, busy=set(), reach=5000, contracts=[], trades=[], incoming={}, replicants={},
+                drop=lambda s: f"{s}-1")
     assert any(u["req"] == "repair:Z" and "beyond the 24 h sector range" in u["why"] for u in p["unmet"])
 
 
