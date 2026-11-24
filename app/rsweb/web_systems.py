@@ -112,7 +112,7 @@ async def systems(request: Request, origin: str = "", user: str = Depends(curren
     st = await load_state(request)
     known = {r["star"]: r for r in await request.app.state.db.fetchall("SELECT star, updated_at FROM systems")}
     tag_rows = await request.app.state.db.fetchall(
-        "SELECT star, CASE WHEN json_valid(data) THEN json_extract(data, '$.system_tags') END AS tags FROM systems")
+        "SELECT star, tags FROM systems")
     system_tags = scan_tags(tag_rows)
     presence: dict[str, dict] = defaultdict(lambda: {"devices": 0, "homes": [], "targets": [], "locations": 0, "resources": 0})
     for d in st["devices"]:

@@ -115,3 +115,44 @@ def test_star_catalog_stored_by_star_keeps_its_order_and_cache(tmp_path):
         assert await db.kv_get("stars") == dup
         await db.close()
     asyncio.run(go())
+
+
+def test_system_columns_follow_every_survey_write_and_older_tables_are_filled(tmp_path):
+    import json
+    import sqlite3
+
+    from rsweb import web_core
+    path = str(tmp_path / "s.sqlite")
+    old = sqlite3.connect(path)   # a systems table from before 1.541.0: no columns besides the survey
+    old.execute("CREATE TABLE systems (star TEXT PRIMARY KEY, data TEXT NOT NULL, updated_at TEXT NOT NULL)")
+    old.execute("INSERT INTO systems VALUES('OLD', ?, '2026-11-24T00:00:00+00:00')",
+                (json.dumps({"star": {"radius_solar": 1.5}, "system_tags": ["hazardous_radiation"]}),))
+    old.commit()
+    old.close()
+
+    async def go():
+        db = DB(path)
+        await db.open()
+        row = await db.fetchone("SELECT radius, tags, shops, megas FROM systems WHERE star='OLD'")
+        assert (row["radius"], json.loads(row["tags"]), row["shops"], row["megas"]) == (1.5, ["hazardous_radiation"], 0, 0)
+        scan = {"star": {}, "shops": [{"controller_code": "C1"}],
+                "system_objects": [{"object_type": "megastructure", "location": "NEW-OBJ-1"}]}
+        await db.execute("INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
+                         ("NEW", json.dumps(scan), "2026-11-24T00:00:00+00:00"))
+        row = await db.fetchone("SELECT radius, tags, shops, megas FROM systems WHERE star='NEW'")
+        assert (row["radius"], row["tags"], row["shops"], row["megas"]) == (None, "[]", 1, 1)
+        await db.execute("UPDATE systems SET data=? WHERE star='NEW'", (json.dumps({"system_tags": ["resource_rich"]}),))
+        row = await db.fetchone("SELECT tags, shops, megas FROM systems WHERE star='NEW'")
+        assert (json.loads(row["tags"]), row["shops"], row["megas"]) == (["resource_rich"], 0, 0)
+        await db.execute("INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES('BAD', 'not json', 'x')")
+        assert (await db.fetchone("SELECT tags FROM systems WHERE star='BAD'"))["tags"] == "[]"
+        # the map's summary is kept for a while: a new survey shows on the map at the next refresh
+        web_core._map_scans.clear()
+        scanned, radii, hazards, tags = await web_core.map_scan_summary(db)
+        assert {"OLD", "NEW"} <= scanned and radii == {"OLD": 1.5} and hazards == {"OLD": ["hazardous_radiation"]}
+        await db.execute("INSERT INTO systems(star, data, updated_at) VALUES('LATER', '{}', '2026-11-24T01:00:00+00:00')")
+        assert "LATER" not in (await web_core.map_scan_summary(db))[0]
+        web_core._map_scans["at"] -= web_core.MAP_SCAN_SECONDS
+        assert "LATER" in (await web_core.map_scan_summary(db))[0]
+        await db.close()
+    asyncio.run(go())

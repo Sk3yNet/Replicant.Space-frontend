@@ -167,7 +167,9 @@ launch / withdraw, and **AMI schedules** that re-issue directives to idle contro
 <img src="screens/galaxy-map.jpg" width="420" align="right" alt="Galaxy map">
 
 A live 3D map of the star catalog, plus stars from censuses and your observatories (your systems load first, the rest
-of the catalog after). What each marker and line means is in the [map legend](../README.md#map-legend).
+of the catalog after). What each marker and line means is in the [map legend](../README.md#map-legend). What the map
+shows from your surveys (explored, star size, scan tags and hazards) is refreshed every 30 minutes, so a new survey can
+take that long to appear.
 *Only systems with* filters the map down to systems with chosen features (stations, megastructures, scan tags, hubs,
 your relays / wards / beacons / devices, fleet homes, trade posts); the rest drop off.
 *markers* marks a pasted list of systems: for now (green rings, gone on reload) or saved on the server with a shape,

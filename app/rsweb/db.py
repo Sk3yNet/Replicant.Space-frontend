@@ -207,6 +207,24 @@ def _copy(v: Any) -> Any:
     return v
 
 
+# Survey fields read across every stored scan, kept in columns of their own so those readers don't decode every survey
+# (Joe 2026-11-24): radius (star.radius_solar), tags (system_tags as JSON text, '[]' when none), shops (how many the
+# scan lists) and megas (1 when the scan mentions a megastructure anywhere). Triggers fill them on every write, so the
+# writers stay plain INSERT OR REPLACE / UPDATE ... SET data.
+SYSTEM_COLS = {"radius": "REAL", "tags": "TEXT", "shops": "INTEGER", "megas": "INTEGER"}
+_SYS_SET = """radius = CASE WHEN json_valid({d}) THEN json_extract({d}, '$.star.radius_solar') END,
+    tags = COALESCE(CASE WHEN json_valid({d}) AND json_type({d}, '$.system_tags') = 'array'
+                    THEN json_extract({d}, '$.system_tags') END, '[]'),
+    shops = CASE WHEN json_valid({d}) AND json_type({d}, '$.shops') = 'array' THEN json_array_length({d}, '$.shops') ELSE 0 END,
+    megas = instr({d}, 'megastructure') > 0"""
+SYSTEM_TRIGGERS = f"""
+CREATE TRIGGER IF NOT EXISTS systems_cols_ins AFTER INSERT ON systems BEGIN
+    UPDATE systems SET {_SYS_SET.format(d="NEW.data")} WHERE star = NEW.star; END;
+CREATE TRIGGER IF NOT EXISTS systems_cols_upd AFTER UPDATE OF data ON systems BEGIN
+    UPDATE systems SET {_SYS_SET.format(d="NEW.data")} WHERE star = NEW.star; END;
+"""
+
+
 class DB:
     def __init__(self, path: str):
         self.path = path
@@ -227,6 +245,7 @@ class DB:
         self.conn = await aiosqlite.connect(self.path)
         self.conn.row_factory = aiosqlite.Row
         await self.conn.executescript(SCHEMA)
+        await self._system_columns()
         await self.conn.commit()
         # separate_simulated() was a one-time move for databases from before 1.109.0, long done: its full scan of the
         # events table held a start for 15+ minutes on a slow disk (Joe 2026-11-22, 1.3 GB database)
@@ -235,6 +254,17 @@ class DB:
         self.rconn = await aiosqlite.connect(self.path)
         self.rconn.row_factory = aiosqlite.Row
         await self.rconn.execute("PRAGMA query_only=1")
+
+    async def _system_columns(self) -> None:
+        """Add the SYSTEM_COLS to an older systems table and fill them once (one pass over the stored surveys)."""
+        async with self.conn.execute("PRAGMA table_info(systems)") as cur:
+            have = {r[1] for r in await cur.fetchall()}
+        missing = [c for c in SYSTEM_COLS if c not in have]
+        for c in missing:
+            await self.conn.execute(f"ALTER TABLE systems ADD COLUMN {c} {SYSTEM_COLS[c]}")
+        await self.conn.executescript(SYSTEM_TRIGGERS)
+        if missing:
+            await self.conn.execute(f"UPDATE systems SET {_SYS_SET.format(d='data')}")
 
     async def separate_simulated(self) -> None:
         """Move what a simulation left among the real data (before 1.109.0) to its own place: VIRT… systems, stockpile

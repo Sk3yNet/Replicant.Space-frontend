@@ -194,7 +194,7 @@ async def known_traders(db) -> dict[str, dict]:
         if code and at >= (seen.get(code) or {}).get("seen_at", ""):   # what this sighting leaves out stays known
             old = {k: v for k, v in (seen.get(code) or {}).items() if not k.startswith("from_")}
             seen[code] = {**old, **{k: v for k, v in entry.items() if v is not None}, "seen_at": at}
-    for r in await db.fetchall("SELECT star, data, updated_at FROM systems"):
+    for r in await db.fetchall("SELECT star, data, updated_at FROM systems WHERE shops > 0"):
         try:
             scan = json.loads(r["data"] or "{}")
         except ValueError:

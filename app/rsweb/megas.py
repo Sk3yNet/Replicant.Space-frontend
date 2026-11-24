@@ -44,7 +44,7 @@ async def known(db) -> dict[str, list[str]]:
     if _cache["key"] == key:
         return _cache["val"]
     codes, stations, types = {DATACENTER}, set(), {DATACENTER: "datacenter"}
-    for r in await db.fetchall("SELECT data FROM systems"):
+    for r in await db.fetchall("SELECT data FROM systems WHERE megas"):   # only scans naming a megastructure
         try:
             found = in_scan(json.loads(r["data"] or "{}"))
         except ValueError:

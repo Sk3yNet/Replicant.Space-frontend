@@ -99,6 +99,8 @@ def test_map_ignores_scans_from_before_the_season_reset(client):
     stars = client.get("/api/map.json", headers=H).json()["stars"]
     assert not next(s for s in stars if s["designation"] == "SOL")["scanned"]   # scanned last season: unexplored again
     client.portal.call(db.execute, "UPDATE systems SET updated_at=? WHERE star='SOL'", ("2026-11-10T10:00:00+00:00",))
+    from rsweb import web_core
+    web_core._map_scans.clear()   # the map's survey summary is kept 30 min (1.541.0): drop it as its refresh would
     stars = client.get("/api/map.json", headers=H).json()["stars"]
     assert next(s for s in stars if s["designation"] == "SOL")["scanned"]
 

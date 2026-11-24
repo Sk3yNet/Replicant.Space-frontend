@@ -10,6 +10,7 @@ import json
 import math
 import os
 import re
+import time
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -1599,6 +1600,29 @@ async def map_hazards(eng) -> dict[str, dict]:
     return out
 
 
+MAP_SCAN_SECONDS = 1800
+_map_scans: dict = {}   # {"db", "at", "reset", "val"}: the map's summary of the stored surveys (map_scan_summary)
+
+
+async def map_scan_summary(db) -> tuple[set, dict, dict, dict]:
+    """(scanned stars, {star: radius}, {star: hazard tags}, {star: system tags}) from this season's stored surveys, for
+    the galaxy map. Read from the systems table's own columns and kept for MAP_SCAN_SECONDS: the scanned list only grows,
+    and the map needn't show a new survey at once (Joe 2026-11-24)."""
+    from . import season
+    reset = await season.reset_at(db)   # a season reset made every system unexplored: older scans don't count
+    c = _map_scans
+    if c.get("db") is db and c.get("reset") == reset and time.monotonic() - c["at"] < MAP_SCAN_SECONDS:
+        return c["val"]
+    rows = [r for r in await db.fetchall("SELECT star, radius, tags, updated_at FROM systems")
+            if not season.stale(r["updated_at"], reset)]
+    val = ({r["star"] for r in rows},
+           {r["star"]: r["radius"] for r in rows if r["radius"] is not None},
+           {r["star"]: hz for r in rows if (hz := hazard_tags(r["tags"]))},
+           {r["star"]: tg for r in rows if (tg := scan_tag_list(r["tags"]))})
+    _map_scans.update(db=db, at=time.monotonic(), reset=reset, val=val)
+    return val
+
+
 async def map_payload(request: Request, part: str = "all") -> dict:
     """The galaxy map's data (the Galaxy page and the desktop wallpaper), in two parts so the map can draw the stars
     first: part="core" — the stars (only the fields the map uses), where your devices are, replicants; part="overlay"
@@ -1637,16 +1661,7 @@ async def map_payload(request: Request, part: str = "all") -> dict:
                 radii = {k: (v.get("star") or {}).get("radius_solar") for k, v in (a.get("scans") or {}).items()
                          if isinstance(v, dict)}
         else:
-            rows = await db.fetchall("SELECT star, CASE WHEN json_valid(data) THEN json_extract(data, '$.star.radius_solar') END AS r, "
-                                     "CASE WHEN json_valid(data) THEN json_extract(data, '$.system_tags') END AS tags, "
-                                     "updated_at FROM systems")
-            from . import season
-            reset = await season.reset_at(db)   # a season reset made every system unexplored: older scans don't count
-            rows = [r for r in rows if not season.stale(r["updated_at"], reset)]
-            scanned = {r["star"] for r in rows}
-            radii = {r["star"]: r["r"] for r in rows if r["r"] is not None}
-            hazardous = {r["star"]: hz for r in rows if (hz := hazard_tags(r["tags"]))}
-            tags_of = {r["star"]: tg for r in rows if (tg := scan_tag_list(r["tags"]))}
+            scanned, radii, hazardous, tags_of = await map_scan_summary(db)
         from .census import observatory_stars
         prospected, _ = await observatory_stars(db)   # stars our observatories found: highlighted until scanned
         pfrom = await db.kv_get("prospected_from", {}) or {}   # stars an observatory has prospected from (once each)
