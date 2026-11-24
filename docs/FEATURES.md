@@ -849,7 +849,7 @@ Spares beat prints: the components for every queued print pin free spares first 
 more is pinned or queued for a spot than its queues need, prints not started yet come off the queue; pins stay as
 they are (a print already started isn't counted; what it turns out stays a spare there).
 A component no queued or printing print at its pinned spot needs any more (its print done or dropped) is released
-after 30 minutes (1.546.0): `component`, its `prio:` rank, its factory pins and the `contract:` tag it inherited go,
+after 30 minutes (1.547.0): `component`, its `prio:` rank, its factory pins and the `contract:` tag it inherited go,
 and a fleetless one that isn't deployed at work becomes a spare (up to 40 a pass). Fleets never recruit a spare that
 is still a component.
 
