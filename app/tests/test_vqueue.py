@@ -567,3 +567,22 @@ def test_civ_beacon_prints_waiting_in_a_system_are_counted():
             {"factory": "ZZ", "seq": 8, "body": {"device_type": "ftl_beacon", "tags": ["civ"]}}]
     q = civ_prints(devs, kept)
     assert list(q) == ["NIO"] and q["NIO"]["game"] == 1 and [o["seq"] for o in q["NIO"]["kept"]] == [9, 5]
+
+
+def test_a_contracts_printer_is_no_destination_for_prints(client):  # noqa: F811
+    """Joe 2026-11-24: structural fabricator 94700A36 was a contract print and still took relay prints."""
+    from rsweb import loadouts, ward_orders
+    db, e, world = setup(client)
+    src = next(d for d in world.devices if d["device_code"] == "AF00BEEF")
+    goods = dict(src, device_code="AF00C0DE", tags=["contract:rastuban-2-evt-003"], status="idle")
+    assert loadouts.is_factory(src) and not loadouts.is_factory(goods)
+    assert not ward_orders.factory_near([goods], "SOL", set(), {}, 9999)
+    world.devices.append(goods)
+    world.queues["AF00C0DE"] = []
+    out = feed(client)   # the device list now has it
+    ok, resp, _ = client.portal.call(e.send, "POST", "/devices/AF00C0DE",
+                                     {"command": "enqueue_print", "device_type": "orbital_farm", "quantity": 1}, "t")
+    assert ok and resp["virtual"]                                       # kept in the app, never the game's
+    out = feed(client)
+    assert any("AF00C0DE can't print now" in x for x in out), out
+    assert client.portal.call(client.app.state.api.vq.orders, "AF00C0DE") == [] and world.queues["AF00C0DE"] == []

@@ -167,8 +167,9 @@ class VirtualQueue:
                     from .api import ApiError
                     raise ApiError(400, f"This printer can only fabricate {lom.print_class(dev)}-class devices: "
                                         f"{body.get('device_type')} isn't an exotic blueprint.")
-            elif dev is not None and not lom.is_factory(dev):
-                return None   # a vessel prints through its replicant: no queue
+            elif dev is not None and not lom.is_factory(dev) and not lom.for_contract(dev):
+                return None   # a vessel prints through its replicant: no queue (a contract's goods keep it here:
+                # the feeder hands it to a working printer at the spot)
             async with self.lock:
                 o = await self.add(code, body, priority(body, HAND.get()))
                 q = await self.orders(code)

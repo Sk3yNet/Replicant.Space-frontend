@@ -441,6 +441,8 @@ def is_factory(d: dict) -> bool:
     its replicant, one at a time (seen live 2026-10-09: a fleet's replenishment print queued on a heaven vessel instead
     of the system's autofactories, and never printed). Not a printer limited to one class of device either."""
     t = d.get("device_type") or ""
+    if for_contract(d):   # goods for a contract print nothing (Joe 2026-11-24: structural fabricator 94700A36 took relays)
+        return False
     if "autofactory" in t:
         return True
     if "vessel" in t or t in CLASS_PRINTERS or CLASS_FEATURES & set(d.get("features") or []):
