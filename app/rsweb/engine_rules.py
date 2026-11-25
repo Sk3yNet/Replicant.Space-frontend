@@ -321,7 +321,8 @@ class MiningRulesMixin:
             if at and at > last:
                 details[b] = await self.db.kv_get(f"loc:{b}", None)
         now = _now().isoformat(timespec="seconds")
-        state, notes = via.observe(state, await self.devices(), details, now)
+        from .engine_base import off_loop
+        state, notes = await off_loop(via.observe, state, await self.devices(), details, now)   # pure, ~2 s
         state["last_obs"] = now
         alerts: list[str] = []
         cfg = await self.rule_cfg("belt_viability")

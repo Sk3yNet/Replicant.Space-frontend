@@ -230,6 +230,17 @@ def carries_replicant(d: dict, devices: list[dict]) -> bool:
                if code and code in (x.get("stowed_in_device_code"), x.get("attached_to_device_code")))
 
 
+def replicant_carriers(devices: list[dict]) -> set[str]:
+    """Codes of every device carries_replicant holds true for, in one pass over the list (1.560.0: asking per device
+    went over the list once for each of 2,700 devices, seconds of the contract supply pass)."""
+    out = {d.get("device_code") for d in devices if d.get("device_code") and (
+        d.get("hosting_replicant") or (d.get("device_type") or "") == "replicant_matrix")}
+    for x in devices:
+        if "matrix" in (x.get("device_type") or ""):
+            out.update(c for c in (x.get("stowed_in_device_code"), x.get("attached_to_device_code")) if c)
+    return out
+
+
 def cargo(code: str | None, devices: list[dict]) -> list[str]:
     """Devices aboard `code` (stowed or attached): a vessel listed with cargo takes it into escrow (live 2026-11-24:
     relays bound for ULGRELIIL and CAELOARAX sat for days in a racing vessel and a heaven vessel on sale)."""

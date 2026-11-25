@@ -156,3 +156,44 @@ def test_system_columns_follow_every_survey_write_and_older_tables_are_filled(tm
         assert "LATER" in (await web_core.map_scan_summary(db))[0]
         await db.close()
     asyncio.run(go())
+
+
+def test_merge_and_row_patches_write_only_their_entries_and_match_a_full_write(tmp_path):
+    """1.560.0: a scan adds one surveyed entry, an event changes one device, without the whole value."""
+    async def go():
+        path = str(tmp_path / "t.sqlite")
+        db = DB(path)
+        await db.open()
+        await db.kv_set("surveyed", {f"S-{i}": "t0" for i in range(3000)})
+        await db.kv_get("surveyed")
+        perf.writes.pop("surveyed", None)
+        await db.kv_merge("surveyed", {"S-5": "t1", "NEW-1": "t1"})
+        await db.kv_merge("surveyed", {"S-6": "t9", "NEW-2": "t2"}, keep=True)
+        assert perf.writes["surveyed"][1] < 100
+        s = await db.kv_get("surveyed")
+        assert len(s) == 3002 and s["S-5"] == "t1" and s["S-6"] == "t0" and s["NEW-2"] == "t2"
+        assert list(s)[-2:] == ["NEW-1", "NEW-2"]
+
+        devs = [{"device_code": f"D{i:04d}", "status": "idle", "tags": []} for i in range(2000)]
+        devs[3]["_unconfirmed"] = {"at": "x"}
+        await db.kv_set("devices", devs)
+        await db.kv_get("devices")
+        perf.writes.pop("devices", None)
+        await db.kv_patch_rows("devices", [{"device_code": "D0003", "status": "travelling", "-_unconfirmed": 1},
+                                           {"device_code": "NEW9", "status": "idle"}])
+        assert perf.writes["devices"][1] < 30000
+        assert (await db.kv_row("devices", "D0003")) == {"device_code": "D0003", "status": "travelling", "tags": []}
+        d = await db.kv_get("devices")
+        assert len(d) == 2001 and d[-1]["device_code"] == "NEW9" and d[3]["status"] == "travelling"
+        ver = db.kv_version("devices")
+        await db.kv_patch_rows("devices", [{"device_code": "D0003", "status": "travelling"}])   # no change
+        assert db.kv_version("devices") == ver
+        await db.close()
+
+        db = DB(path)
+        await db.open()
+        assert len(await db.kv_get("surveyed")) == 3002
+        d = await db.kv_get("devices")
+        assert len(d) == 2001 and d[-1]["device_code"] == "NEW9" and "_unconfirmed" not in d[3]
+        await db.close()
+    asyncio.run(go())

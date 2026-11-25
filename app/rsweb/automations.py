@@ -259,12 +259,8 @@ class AutomationEngine(JobsMixin, LoadoutMixin, FleetsMixin, MiningRulesMixin, O
 
     async def remember_tags(self, code: str, tags: list[str]) -> None:
         """Update the cached device list right away, so the next pass doesn't redo tag changes before the next sync."""
-        devices = await self.db.kv_get("devices", []) or []
-        for d in devices:
-            if d.get("device_code") == code:
-                d["tags"] = list(tags)
-                await self.db.kv_set("devices", devices)
-                return
+        if await self.db.kv_row("devices", code) is not None:
+            await self.db.kv_patch_rows("devices", [{"device_code": code, "tags": list(tags)}])
 
     # --- event & tick handling ------------------------------------------------------------------
     async def on_event(self, ev: dict, late: bool = False) -> None:
@@ -278,9 +274,7 @@ class AutomationEngine(JobsMixin, LoadoutMixin, FleetsMixin, MiningRulesMixin, O
                 target = (p.get("scan_target") or p.get("search_target") or p.get("target") or p.get("body")
                           or p.get("designation") or ev.get("location"))
                 if target:
-                    surveyed = await self.db.kv_get("surveyed", {}) or {}
-                    surveyed[target] = now_iso()
-                    await self.db.kv_set("surveyed", surveyed)
+                    await self.db.kv_merge("surveyed", {target: now_iso()})
             # an AMI survey controller finished survey_system: the whole system counts as surveyed
             # (not any directive: a belt_search finishing on the same controller says nothing about the planets)
             if (name == "directive.completed" and "survey" in (ev.get("device_type") or "") and not ev.get("virtual")
@@ -2121,10 +2115,8 @@ class AutomationEngine(JobsMixin, LoadoutMixin, FleetsMixin, MiningRulesMixin, O
         await self.db.kv_set("ami_surveyed", done)
         scan = await self.system_scan(star)
         if scan:
-            surveyed = await self.db.kv_get("surveyed", {}) or {}
-            for t in survey_targets(scan, {}, True, True, 10_000):
-                surveyed.setdefault(t["target"], now_iso())
-            await self.db.kv_set("surveyed", surveyed)
+            await self.db.kv_merge("surveyed", {t["target"]: now_iso() for t in survey_targets(scan, {}, True, True, 10_000)},
+                                   keep=True)
         await self.log("auto_survey", f"{star} fully surveyed" + (f" by {by}" if by else ""))
 
     async def arrived_from_elsewhere(self, ev: dict, star: str) -> bool:

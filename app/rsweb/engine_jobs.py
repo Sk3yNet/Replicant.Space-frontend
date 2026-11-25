@@ -457,9 +457,7 @@ class JobsMixin:
                             and (s2.get("body") or {}).get("command") in ("scan", "search")):
                         s2["status"], s2["note"] = "skipped", f"no moon at {dest}"
                 if dest:
-                    surveyed = await self.db.kv_get("surveyed", {}) or {}
-                    surveyed.setdefault(dest, now_iso())
-                    await self.db.kv_set("surveyed", surveyed)
+                    await self.db.kv_merge("surveyed", {dest: now_iso()}, keep=True)
             if not ok and (st.get("body") or {}).get("command") == "attach" and "cannot attach a large device" in (err or "").lower():
                 await self.learn_no_attach(str((st.get("body") or {}).get("device") or ""))
             if not ok and (st.get("body") or {}).get("command") == "activate" and REFUSED_WARD in (err or "").lower():

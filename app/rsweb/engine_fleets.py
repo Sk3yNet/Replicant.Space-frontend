@@ -598,8 +598,8 @@ class FleetsMixin:
         ignore = set(cfg.get("ignore_tags") or [])
         reps = await self.db.kv_get("replicants", {}) or {}
         hosts = {r.get("hosted_device_code") for r in reps.values() if r.get("hosted_device_code")}
-        from .tradepost import carries_replicant   # a matrix (or anything with one inside) is never handed over
-        hosts |= {d.get("device_code") for d in devices if carries_replicant(d, devices)}
+        from .tradepost import replicant_carriers   # a matrix (or anything with one inside) is never handed over
+        hosts |= replicant_carriers(devices)
         inv = {i.get("location"): i.get("items") or {} for i in normalize_inventory(await self.db.kv_get("inventory", []))}
         inv = await self.safe_piles(inv)   # piles at overdue rocks are left (2026-11-08)
         bps = normalize_blueprints(await self.db.kv_get("blueprints", []))

@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.559.0"
+VERSION = "1.560.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.560.0", "2026-11-25", "Pages freeze less, part 2 (Joe: step A). Each scan (dozens per AMI survey digest) used to read and rewrite the whole 6 MB surveyed record; now it adds only its own entry. Arrivals, command answers, trips, tag changes and single-device refreshes change only their own devices instead of copying all 2,700. The contract supply pass found replicant carriers by checking every device against every other device (seconds each pass); now it takes one pass. Belt viability tracking runs beside the page server."),
     ("1.559.0", "2026-11-25", "Information beacons (Joe): other players' beacons a device scan finds (every arrival, and the traffic poll) are now read at once, description and comments, up to 8 per scan, and again after a day; the arrival log names them. Info beacons page: each of yours takes a deploy location (a star or a spot) with *start broadcasting there*; logistics carries it there, then the app deploys it and starts the broadcast, with its progress on the page."),
     ("1.558.0", "2026-11-25", "Pages freeze less while the engine works (Joe: step A). The loadout and carrier planners, beacon placement for civilizations and trade post planning now run beside the page server instead of on it, so a page answers while they think (they froze pages up to 20 s, 766 times an hour). AMI digests no longer replay every device they name through the engine: only devices a job is waiting on, or scans and prints, are replayed; before, each one read every job and waited for the engine lock, which held the event stream (and pages) up to a minute."),
     ("1.557.0", "2026-11-25", "Local network access (Joe): at home you can reach the server directly on port 7443 (e.g. http://docker.local:7443) without the tunnel or Google sign-in; only private network addresses get in, and everyone there counts as the owner. Set LAN_ACCESS=1 and LAN_URL on the stack to turn it on. Pages opened through the tunnel move to the local address, on the same page, when your public address matches the server's (looked up from Cloudflare every 30 minutes, IPv4 and IPv6). Account › Local network shows both addresses and lets a browser stay on the tunnel."),

@@ -618,6 +618,146 @@ class DB:
         perf.note_query((time.perf_counter() - t0) * 1000)
         return True
 
+    def _changed(self, key: str) -> None:
+        """What a write of `key` drops besides its rows: the cache, packed copy, digest and derived memos."""
+        self._cache.pop(key, None)
+        self._packed.pop(key, None)
+        self._digest.pop(key, None)
+        self._ver[key] = self._ver.get(key, 0) + 2
+        for k in [k for k in self._derived if k[0] == key]:
+            del self._derived[k]
+
+    async def kv_merge(self, key: str, entries: dict, keep: bool = False) -> None:
+        """Set top-level entries of a stored dictionary (keep: only those it doesn't have yet), as kv_get, update and
+        kv_set would. For a DICT_ROWS key only these entries are compared and written (1.560.0: each scan read and
+        rewrote all 6 MB of "surveyed", a third of the event stream's time)."""
+        if not entries:
+            return
+        st = await self._drows_load(key) if key in DICT_ROWS and key not in CACHED else None
+        deep = DICT_ROWS.get(key)
+        deep = deep[0] if isinstance(deep, tuple) else deep
+        if st is None or any(not isinstance(k, str) or _SEP in k or k == deep for k in entries):
+            cur = await self.kv_get(key, {}) or {}
+            for k, v in entries.items():
+                if not (keep and k in cur):
+                    cur[k] = v
+            await self.kv_set(key, cur)
+            return
+        obj, changed = st["obj"], []
+        for k, v in entries.items():
+            if keep and k in obj:
+                continue
+            text = json.dumps(v)
+            nv = json.loads(text)
+            if k in obj and obj[k] == nv:
+                continue
+            changed.append((key, k, text))
+            obj[k] = nv
+        if not changed:
+            return
+        st["all"] = None
+        self._changed(key)
+        t0 = time.perf_counter()
+        try:
+            await self.conn.executemany(
+                "INSERT INTO kv_rows(key, code, data) VALUES(?,?,?) "
+                "ON CONFLICT(key, code) DO UPDATE SET data=excluded.data", changed)
+            await self.conn.execute("UPDATE kv SET updated_at=? WHERE key=?", (now_iso(), key))
+            await self.conn.commit()
+        except Exception:
+            self._drows.pop(key, None)
+            try:
+                await self.conn.rollback()
+            except Exception:
+                pass
+            raise
+        perf.note_write(key, sum(len(t) for _, _, t in changed))
+        perf.note_query((time.perf_counter() - t0) * 1000)
+
+    async def kv_patch_rows(self, key: str, items: list[dict], merge: bool = True) -> None:
+        """Change items of a ROW_KEYS list (devices) by their code without handling the whole list: each item is
+        merged into the stored one (merge=False: replaces it); codes not stored yet are added at the end. Keys starting
+        with "-" in an item are removed from the stored one ({"-_unconfirmed": 1}). Same result as kv_get, change and
+        kv_set (1.560.0)."""
+        field = ROW_KEYS.get(key)
+        items = [d for d in items if isinstance(d, dict)]
+        if not items:
+            return
+        st = (self._rows.get(key) or await self._rows_load(key)) if field else None
+        virt = False
+        if key in SPLIT_KEYS:
+            from .sim import split_kv
+            virt = bool(split_kv(key, items)[1])   # a simulated device: the whole path keeps sim:devices apart
+        codes = [d.get(field) for d in items] if field else []
+
+        def apply(old: dict | None, d: dict) -> dict:
+            new = {**(old or {}), **{k: v for k, v in d.items() if not k.startswith("-")}} if merge else \
+                {k: v for k, v in d.items() if not k.startswith("-")}
+            for k in d:
+                if k.startswith("-"):
+                    new.pop(k[1:], None)
+            return new
+
+        if st is None or virt or not all(isinstance(c, str) and c for c in codes) or len(set(codes)) != len(codes):
+            cur = await self.kv_get(key, []) or []
+            by = dict(zip(codes, items))
+            out = [apply(x, by.pop(x.get(field))) if isinstance(x, dict) and x.get(field) in by else x for x in cur]
+            out.extend(apply(None, d) for d in by.values())
+            await self.kv_set(key, out)
+            return
+        changed, added = [], []
+        try:
+            for c, d in zip(codes, items):
+                b = st["obj"].get(c)
+                new = apply(marshal.loads(b) if b is not None else None, d)
+                text = json.dumps(new)
+                o = marshal.dumps(json.loads(text))
+                if b is not None and b == o:
+                    continue
+                if b is None:
+                    added.append(c)
+                st["raw"][c], st["obj"][c] = marshal.dumps(new, 2), o
+                changed.append((key, c, text))
+        except (ValueError, TypeError):
+            self._rows.pop(key, None)
+            raise
+        if not changed:
+            return
+        if added:
+            st["order"] = st["order"] + added
+        st.pop("all", None)
+        st.pop("reads", None)
+        self._changed(key)
+        t0 = time.perf_counter()
+        mark = json.dumps({ROWS_MARK: True, "order": st["order"]}) if added else ""
+        try:
+            await self.conn.executemany(
+                "INSERT INTO device_rows(key, code, data) VALUES(?,?,?) "
+                "ON CONFLICT(key, code) DO UPDATE SET data=excluded.data", changed)
+            if mark:
+                await self.conn.execute("UPDATE kv SET value=?, updated_at=? WHERE key=?", (mark, now_iso(), key))
+            else:
+                await self.conn.execute("UPDATE kv SET updated_at=? WHERE key=?", (now_iso(), key))
+            await self.conn.commit()
+        except Exception:
+            self._rows.pop(key, None)
+            try:
+                await self.conn.rollback()
+            except Exception:
+                pass
+            raise
+        perf.note_write(key, sum(len(t) for _, _, t in changed) + len(mark))
+        perf.note_query((time.perf_counter() - t0) * 1000)
+
+    async def kv_row(self, key: str, code: str, default: Any = None) -> Any:
+        """One item of a ROW_KEYS list by its code, without copying the whole list."""
+        st = (self._rows.get(key) or await self._rows_load(key)) if key in ROW_KEYS else None
+        if st is not None:
+            b = st["obj"].get(code)
+            return marshal.loads(b) if b is not None else default
+        field = ROW_KEYS.get(key) or "device_code"
+        return next((x for x in await self.kv_get(key, []) or [] if isinstance(x, dict) and x.get(field) == code), default)
+
     async def kv_get(self, key: str, default: Any = None) -> Any:
         t0 = time.perf_counter()
         if key in DICT_ROWS and key not in self._cache:

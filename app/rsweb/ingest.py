@@ -710,16 +710,11 @@ class Worker:
         """Put the answers on the cached device list, marked _unconfirmed {at, what} (shown as "unconfirmed")."""
         mark = {"at": now_iso(), "t": time.time(), "what": what}
         async with self.devices_lock:
-            devices = await self.db.kv_get("devices", []) or []
-            hit = False
-            for d in devices:
-                f = answered.get(d.get("device_code"))
-                if f is not None:
-                    d.update(f)
-                    d["_unconfirmed"] = mark
-                    hit = True
+            known = [c for c in answered if await self.db.kv_row("devices", c) is not None]
+            hit = bool(known)
             if hit:
-                await self.db.kv_set("devices", devices)
+                await self.db.kv_patch_rows("devices", [{**answered[c], "device_code": c, "_unconfirmed": mark}
+                                                        for c in known])
         if hit:
             self.hub.publish("state", "devices")
 
@@ -763,17 +758,13 @@ class Worker:
         mark = {"at": now_iso(), "t": time.time(), "what": "arrived"}
         hit = False
         async with self.devices_lock:
-            devices = await self.db.kv_get("devices", []) or []
-            for d in devices:
-                if d.get("device_code") == code:
-                    d.update(location=loc, travel=None)
-                    if str(d.get("status") or "").lower().startswith(self.MOVING):
-                        d["status"] = "idle"
-                    d["_unconfirmed"] = mark
-                    hit = True
-                    break
-            if hit:
-                await self.db.kv_set("devices", devices)
+            d = await self.db.kv_row("devices", code)
+            if d is not None:
+                ch = {"device_code": code, "location": loc, "travel": None, "_unconfirmed": mark}
+                if str(d.get("status") or "").lower().startswith(self.MOVING):
+                    ch["status"] = "idle"
+                await self.db.kv_patch_rows("devices", [ch])
+                hit = True
         if hit:
             self.hub.publish("state", "devices")
 
@@ -795,14 +786,8 @@ class Worker:
         async with self.devices_lock:
             mine = set(await self.db.kv_get("replicants", {}) or {})
             fresh = {c: d for c, d in fresh.items() if not foreign(d, mine)}
-            devices = [d for d in await self.db.kv_get("devices", []) or [] if not foreign(d, mine)]
-            for d in devices:
-                f = fresh.pop(d.get("device_code"), None)
-                if f is not None:
-                    d.update(f)
-                    d.pop("_unconfirmed", None)   # the game's own word now
-            devices.extend(fresh.values())   # new to the list (printed, adopted)
-            await self.db.kv_set("devices", devices)
+            # merged into the stored ones (the game's own word now: no _unconfirmed); new ones (printed, adopted) added
+            await self.db.kv_patch_rows("devices", [{**d, "-_unconfirmed": 1} for d in fresh.values()])
         self.hub.publish("state", "devices")
 
     LOC_READS_KV = "location_reads"   # {location: {at, pages, n, elsewhere, via}}: what the last location read got
@@ -853,14 +838,7 @@ class Worker:
         async with self.devices_lock:
             mine = set(await self.db.kv_get("replicants", {}) or {})
             fresh = {c: d for c, d in fresh.items() if not foreign(d, mine)}
-            devices = await self.db.kv_get("devices", []) or []
-            for d in devices:
-                f = fresh.pop(d.get("device_code"), None)
-                if f is not None:
-                    d.update(f)
-                    d.pop("_unconfirmed", None)
-            devices.extend(fresh.values())
-            await self.db.kv_set("devices", devices)
+            await self.db.kv_patch_rows("devices", [{**d, "-_unconfirmed": 1} for d in fresh.values()])
         return n
 
     async def note_trip(self, code: str, resp: dict) -> None:
@@ -870,16 +848,17 @@ class Worker:
         riders = {x if isinstance(x, str) else (x or {}).get("device_code") for x in resp.get("attached_devices") or []}
         codes = {code} | {c for c in riders if c}
         trip = {k: v for k, v in resp.items() if k not in ("attached_devices", "device_code")}
-        devices = await self.db.kv_get("devices", []) or []
-        hit = False
-        for d in devices:
-            if d.get("device_code") in codes:
-                d["travel"] = trip
+        ch = []
+        for c in sorted(codes):
+            d = await self.db.kv_row("devices", c)
+            if d is not None:
+                x = {"device_code": c, "travel": trip}
                 if not str(d.get("status") or "").startswith(("travel", "cruis", "surg", "stowed", "attached")):
-                    d["status"] = "travelling"
-                hit = True
+                    x["status"] = "travelling"
+                ch.append(x)
+        hit = bool(ch)
         if hit:
-            await self.db.kv_set("devices", devices)
+            await self.db.kv_patch_rows("devices", ch)
             self.hub.publish("state", "travel.started")
 
     async def prune_timers(self) -> None:
