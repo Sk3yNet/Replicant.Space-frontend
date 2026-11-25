@@ -79,7 +79,8 @@ seconds, and a trip's countdown reaching zero loads the new location.
 
 ## Map legend
 
-Every marker and layer has its own checkbox under *layers* on the Galaxy page; the map's own *legend* panel says the
+The Galaxy page map fills the window below the header (at least 480 px tall) and resizes with it. Every marker and
+layer has its own checkbox under *layers* on the Galaxy page; the map's own *legend* panel says the
 same. Markers sit at a fixed spot around the star, so you learn where to look.
 
 *Only systems with* (under *layers*) keeps just the systems that have the ticked features: space stations,

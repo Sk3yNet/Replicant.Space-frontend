@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Galaxy{% endblock %}
+{% block body_attrs %}{% if ui_mode(request) == "classic" %} class="fill-page"{% endif %}{% endblock %}
 {% block head %}{% if ui_mode(request) == "classic" %}
 <script type="importmap">{"imports": {"three": "/static/vendor/three.module.min.js?v={{ APP_VERSION }}", "three/addons/OrbitControls.js": "/static/vendor/OrbitControls.js?v={{ APP_VERSION }}"}}</script>
 {% endif %}{% endblock %}

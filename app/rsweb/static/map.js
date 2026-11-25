@@ -125,7 +125,9 @@ function resize() {
 }
 // a phone's keyboard opening or closing fires a burst of resizes: handle the last one only
 let resizeTimer = null;
-window.addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(resize, 200); });
+const resizeSoon = () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(resize, 200); };
+window.addEventListener("resize", resizeSoon);
+if (window.ResizeObserver) new ResizeObserver(resizeSoon).observe(el);   // the box changes without a window resize too (header wraps, banner)
 resize();
 // if the browser drops the GL context anyway, say so and reload the map once it comes back, instead of a frozen canvas
 renderer.domElement.addEventListener("webglcontextlost", ev => {

@@ -14,7 +14,7 @@
   <script src="/static/bridge.js?v={{ APP_VERSION }}" defer></script>{% endif %}
   {% block head %}{% endblock %}
 </head>
-<body hx-ext="sse" sse-connect="/live/stream">
+<body{% block body_attrs %}{% endblock %} hx-ext="sse" sse-connect="/live/stream">
 {% if UI == "bridge" %}{% include "partials/bridge_chrome.html" %}
 <section id="win" class="win metal{{ ' closed' if active == 'map' }}" aria-label="Window">
   <div class="win-bar plate"><span id="win-title">{{ self.title() }}</span><span class="spacer"></span>
