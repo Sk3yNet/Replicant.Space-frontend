@@ -255,6 +255,7 @@ async def shop_page(request: Request, user: str = Depends(current_user)):
                 "default": await _eng(request).shop_rollcall_default(st["devices"]),
                 "relays": sorted(relay_posters, key=lambda r: r["star"])}
     return await page(request, user, "shop.html", "shop", shops=shops, shop_groups=groups, rollcall=rollcall, spare_shops=spare, traders=traders, posts=posts,
+                      sold=await sh.sales(request.app.state.db),
                       traders_last=await request.app.state.db.kv_get(sh.LAST_KV),
                       listing_wanted=await request.app.state.db.kv_get(sh.LISTING_KV, {}) or {},
                       trade_ok=await request.app.state.db.kv_get("trade_approvals", {}) or {},

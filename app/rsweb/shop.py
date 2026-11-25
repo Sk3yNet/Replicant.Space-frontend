@@ -10,6 +10,7 @@ in the system the shop is listed in the galactic directory, otherwise it trades 
 """
 from __future__ import annotations
 
+import json
 import re
 from typing import Any
 
@@ -360,3 +361,38 @@ def roll_call(shops_: list[dict], intro: str = ROLLCALL_DEFAULT["intro"]) -> str
     named = (intro or "").upper()
     body = " ".join(f"{'' if loc.upper() in named else loc + ': '}{', '.join(rows)}." for loc, rows in sorted(by_loc.items()))
     return f"{intro} {body}".strip()
+
+
+async def sales(db) -> list[dict]:
+    """What Joe's shops sold, per device type, from the saved seller-side trade.completed events (history keeps
+    trade.*, so this goes back to the first sale; 1.550.0). A sale names only the trade: its type comes from the
+    trade.created escrow of that trade code (devices per unit = escrowed / stock), else from the trade's name."""
+    rows = await db.fetchall("SELECT event, payload, created_at, received_at FROM events "
+                             "WHERE event IN ('trade.completed', 'trade.created') ORDER BY seq")
+    made: dict[str, tuple[str, int]] = {}   # trade code -> (device type, devices per unit)
+    out: dict[str, dict] = {}
+    for r in rows:
+        try:
+            p = json.loads(r["payload"] or "{}")
+        except ValueError:
+            continue
+        if not isinstance(p, dict) or not p.get("trade_code"):
+            continue
+        if r["event"] == "trade.created":
+            devs = ((p.get("escrowed") or {}).get("devices")) or []
+            types = [d.get("device_type") for d in devs if isinstance(d, dict) and d.get("device_type")]
+            if types:
+                t = max(set(types), key=types.count)
+                made[p["trade_code"]] = (t, max(1, types.count(t) // max(1, int(p.get("stock") or 1))))
+            continue
+        if p.get("role") != "seller":
+            continue
+        t, per = made.get(p["trade_code"]) or (re.sub(r"\W+", "_", str(p.get("trade_name") or "?").strip().lower()), 1)
+        s = out.setdefault(t, {"type": t, "devices": 0, "sales": 0, "last": None, "received": {}})
+        s["devices"] += per
+        s["sales"] += 1
+        s["last"] = r["created_at"] or r["received_at"]
+        for res, q in (((p.get("criteria_received") or {}).get("resources")) or {}).items():
+            if isinstance(q, (int, float)):
+                s["received"][res] = s["received"].get(res, 0) + q
+    return sorted(out.values(), key=lambda s: (-s["devices"], s["type"]))

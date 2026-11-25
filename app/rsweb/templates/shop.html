@@ -33,6 +33,14 @@
   </form><div class="sh-out"></div>
 </div>
 
+{% if sold %}<div class="card" id="shop-sold">
+  <h2 style="margin:0 0 4px">Sold <span class="small muted">{{ sold | sum(attribute='devices') }} device(s) in {{ sold | sum(attribute='sales') }} sale(s) at your trade AMIs</span></h2>
+  <table class="small"><tr><th>Device</th><th>Sold</th><th>Last sale</th><th>Received</th></tr>
+    {% for s in sold %}<tr><td>{{ s.type | human }}</td><td>{{ s.devices }}</td><td>{{ s.last | ago if s.last else '' }}</td>
+      <td>{% for r, q in s.received.items() %}{{ q | num }} {{ r }}{{ ', ' if not loop.last }}{% endfor %}</td></tr>{% endfor %}
+  </table>
+</div>{% endif %}
+
 {% for g in shop_groups + ([{"post": None, "spare": True, "shops": spare_shops}] if spare_shops else []) %}
 <div class="card"{% if not g.post and not g.spare %} id="shop-{{ g.shops[0].code }}"{% endif %}>
   {% if g.spare %}<div class="small muted">Trade controllers that are no shop yet ({{ g.shops | length }}): open one to set it up.</div>{% endif %}

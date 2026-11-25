@@ -910,6 +910,10 @@ Account and per-replicant reputation, known species. **Bulk profile import**: pa
   first) or every N hours. The active relay at the trade post posts it (`message` command on the relay: no location
   shown) unless you pick another relay or a replicant (BobNet shows a replicant's star). A shop's own Announcement
   goes out from a replicant's location, so leave it empty.
+- *Sold* (below the roll call): how many of each device your trade AMIs sold, with the last sale and the resources
+  received, counted from every saved seller-side `trade.completed` event (so sales from before 1.550.0 count too).
+- A trade post keeps one listing per device type: a second listing of a type (left over from the 1.529.0 consolidation)
+  is taken down and its devices restock the one kept.
 - Your trade controllers, trades, other traders: every replicant's trader directory plus every shop a system scan lists,
   the newest sighting of each winning (shops can move).
 - A shop stays listed until you remove it (*Remove*, once you checked it's gone): scans can miss shops, and a failed

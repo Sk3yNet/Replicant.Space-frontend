@@ -495,6 +495,23 @@ def plan(fleet: dict, devices: list[dict], trades: dict | list | None, state: di
             r["status"] = "repricing" if repriced and not loose else "restocking"
         elif listed < want:
             r["status"] = f"{len(loose)} on hand, waiting for {want - listed - len(loose)} more" if loose else "supplying"
+    # a second listing of a type we list (owner 2026-11-25: mining drone, propulsor, system ward and FTL beacon were
+    # each listed twice after the 1.529.0 consolidation let go of shops that were still listing, so the app listed the
+    # type again elsewhere; when they rejoined, both stayed): taken down, its escrow comes back as stock for the one kept
+    dups = 0
+    for t, (c0, cur0) in cur_of.items():
+        if not cur0:
+            continue
+        for c, ts in read.items():
+            for x in ts or []:
+                rw = x.get("rewards") or {}
+                if (x.get("trade_code") != cur0.get("trade_code") and (rw.get("devices") or {}) == {t: 1}
+                        and not (rw.get("resources") or {})):
+                    out["actions"].append({"type": t, "controller": c, "delete": x["trade_code"], "create": None,
+                                           "escrow": [], "duplicate": True})
+                    dups += 1
+    if dups:
+        out["notes"].append(f"taking down {dups} duplicate listing(s)")
     if waiting:
         out["notes"].append(f"{waiting} type(s) wait for a shop slot: {shops_needed(fleet)} AMI trade controllers "
                             f"needed, {len(ctrls)} in the fleet")
@@ -657,6 +674,9 @@ class TradePostMixin:
                                                  + (f" on {a['from']} to list it on {code}" if a.get("from") else ""))
                     if not ok:
                         notes.append(f"{t}: delisting failed: {err}")
+                        continue
+                    if a.get("duplicate"):   # the listing we keep stays remembered
+                        out.append(f"{f.get('name')}: took down a duplicate {t} listing on {code}")
                         continue
                     listings.pop(t, None)
                     out.append(f"{f.get('name')}: delisted {t}")

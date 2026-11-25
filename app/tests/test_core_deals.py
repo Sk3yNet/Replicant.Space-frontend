@@ -494,3 +494,32 @@ def test_contracts_page_groups_approved_with_devices_approved_and_unapproved(cli
     page = client.get("/game-events", headers=H).text
     i = [page.index(f'data-fold="{k}"') for k in ("devices", "approved", "unapproved")]
     assert i == sorted(i) and i[0] < page.index("Ask AEM-2") < i[1] < page.index("Ask AEM-3") < i[2] < page.index("Ask AEM-4")
+
+
+def test_shop_page_counts_devices_sold_per_type(client):
+    """Joe 2026-11-25: how many of each device his trade AMIs sold, rebuilt from saved seller trade.completed events
+    (typed by the trade.created escrow, else by the trade name; buyer events are not sales)."""
+    import json
+    from rsweb import shop
+    db = client.app.state.db
+    rows = [("trade.created", {"trade_code": "TRD-A", "name": "Comm satellite", "stock": 2,
+                               "escrowed": {"devices": [{"device_code": "C1", "device_type": "comm_satellite"},
+                                                        {"device_code": "C2", "device_type": "comm_satellite"}]}}),
+            ("trade.completed", {"role": "seller", "trade_code": "TRD-A", "trade_name": "Comm satellite",
+                                 "criteria_received": {"resources": {"structural": 100}}}),
+            ("trade.completed", {"role": "seller", "trade_code": "TRD-A", "trade_name": "Comm satellite",
+                                 "criteria_received": {"resources": {"structural": 100, "rares": 5}}}),
+            ("trade.completed", {"role": "seller", "trade_code": "TRD-B", "trade_name": "Mining rig",
+                                 "criteria_received": {"resources": {"carbon": 7}}}),
+            ("trade.completed", {"role": "buyer", "trade_code": "TRD-C", "trade_name": "Autofactory"})]
+    for i, (ev, p) in enumerate(rows):
+        t = f"2026-11-24T20:0{i}:00+00:00"
+        client.portal.call(db.execute, "INSERT INTO events(id, seq, event, device_code, payload, created_at, received_at) "
+                           "VALUES(?,?,?,?,?,?,?)", (f"ev-sold-{i}", 99950 + i, ev, "AE7F015E", json.dumps(p), t, t))
+    got = {s["type"]: s for s in client.portal.call(shop.sales, db)}
+    assert set(got) == {"comm_satellite", "mining_rig"}
+    assert got["comm_satellite"]["devices"] == 2 and got["comm_satellite"]["received"] == {"structural": 200, "rares": 5}
+    assert got["mining_rig"]["devices"] == 1
+    from corelib import H
+    html = client.get("/shop", headers=H).text
+    assert 'id="shop-sold"' in html and "3 device(s) in 3 sale(s)" in html

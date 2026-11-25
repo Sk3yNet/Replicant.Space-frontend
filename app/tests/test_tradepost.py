@@ -562,3 +562,19 @@ def test_plan_never_lists_a_vessel_with_cargo_and_delists_one_escrowed():
     devs = [shop(), devs[2]]   # in escrow: gone from the list, its cargo still names it
     pl = tp.plan(FLEET, devs, listed, st, BPS, P, TAG)
     assert pl["actions"] == [{"type": "mining_drone", "controller": "SHOP", "delete": "TRD-1", "create": None, "escrow": []}]
+
+
+def test_duplicate_listing_of_a_type_is_taken_down():
+    """Owner 2026-11-25: mining drone, propulsor, system ward and FTL beacon were each listed on two shops (left over
+    from the 1.529.0 consolidation). The listing the app remembers stays; the other is deleted, the remembered one kept."""
+    fleet = {**FLEET, "trade_post": {"onhand": {"mining_drone": 1}}}
+    devs = [shop(), dev("SHOP2", "ami_trade_controller", tags=["fleet:tp"], ami_directive={"name": "trade"})]
+    price = tp.formula_price({"structural": 100, "conductive": 50}, 1800, P)
+    def lst(code):
+        return [{"trade_code": code, "current_stock": 1, "initial_stock": 1, "rewards": {"devices": {"mining_drone": 1}},
+                 "criteria": {"resources": price}}]
+    st = {"listings": {"mining_drone": {"trade_code": "TRD-NEW", "escrow": ["D1"], "controller": "SHOP2"}}}
+    pl = tp.plan(fleet, devs, {"SHOP": lst("TRD-OLD"), "SHOP2": lst("TRD-NEW")}, st, BPS, P, TAG)
+    assert [(a["controller"], a["delete"], a["create"], a.get("duplicate")) for a in pl["actions"]] == \
+        [("SHOP", "TRD-OLD", None, True)]
+    assert "duplicate" in "; ".join(pl["notes"])
