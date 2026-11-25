@@ -843,6 +843,9 @@ class JobsMixin:
                 if rep:
                     ok, resp, _err = await self.send("POST", f"/replicants/{rep}/scan", {}, f"auto: scan {star} for an L4/L5 point")
                     scan = resp if ok and isinstance(resp, dict) else None
+                    if scan and scan.get("planets") is not None:   # kept: it settles whether the system has planets
+                        await self.db.execute("INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
+                                              (star, json.dumps(scan), now_iso()))
                 if not scan:
                     scan = await self.system_scan(star)   # a scan kept from an earlier visit
             lp = geography(star, devices, scan, entry if is_lagrange(entry) else None)["lagrange"]
@@ -851,7 +854,7 @@ class JobsMixin:
             if not st.get("entry_of") and isinstance(scan, dict) and "planets" in scan and not scan.get("planets"):
                 from .ward_orders import NO_LP_KV
                 known = await self.db.kv_get(NO_LP_KV, {}) or {}
-                if star not in known:
+                if star not in known or known[star].get("recheck"):
                     known[star] = {"at": now_iso(), "why": "a scan found no planet there"}
                     await self.db.kv_set(NO_LP_KV, known)
                     await self.log("wards", f"{star} has no planet, so no L4/L5 point: no FTL relay can switch on there "

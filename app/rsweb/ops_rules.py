@@ -279,6 +279,27 @@ class OpsRules:
             await self.log("wards", line)
         return out
 
+    async def _recheck_no_lagrange(self, n: int = 5) -> None:
+        """Systems waiting for a fresh scan to say whether they have planets (ward_orders.no_lagrange): ask the game for
+        a few each pass (GET /locations): a planet listed takes the system off; otherwise a replicant's scan (a scout's, or a
+        relay carrier's) decides."""
+        from . import ward_orders as wo
+        known = await self.db.kv_get(wo.NO_LP_KV, {}) or {}
+        tried = await self.db.kv_get("no_lagrange_tried", {}) or {}
+        due = [s_ for s_, v in sorted(known.items()) if (v or {}).get("recheck") and s_ not in tried][:n]
+        for s_ in due:
+            tried[s_] = now_iso()
+            try:
+                data = await self.api.request("GET", f"/locations/{s_}", background=True)
+            except ApiError:
+                continue
+            # a planet listed settles it; an empty list from afar might only mean unexplored: a replicant's scan decides
+            if isinstance(data, dict) and data.get("planets"):
+                await self.db.execute("INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
+                                      (s_, json.dumps(data), now_iso()))
+        if due:
+            await self.db.kv_set("no_lagrange_tried", tried)
+
     async def _unbind_no_lagrange(self, star: str, dtype: str, label: str, devices: list[dict], busy: set[str]) -> str | None:
         """A relay order for a system with no L4/L5 point is dropped: the relays tagged for it are spares again (one
         aboard a carrier rides back with it). None while one of them is still on a job."""
@@ -322,6 +343,8 @@ class OpsRules:
             jobs = await self.jobs()
             cov = await self.civ_coverage() if kind == "beacon" else []
             nw = await self.no_ward_stars(devices) if kind == "ward" else set()
+            if kind in wo.RELAY_KINDS:
+                await self._recheck_no_lagrange()
             nolp = await wo.no_lagrange(self.db) if kind in wo.RELAY_KINDS else set()
             for star, o in list(orders.items()):
                 if star in nolp:

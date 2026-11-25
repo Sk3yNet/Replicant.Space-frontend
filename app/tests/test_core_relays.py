@@ -1899,7 +1899,17 @@ def test_no_lagrange_system_drops_relay_orders(client):
                            ("Automation: stopped: loadouts: X carries 3 — failed: no L4/L5 point known in ALG (an FTL relay)",))
     client.portal.call(db.execute, "INSERT INTO notifications(level, title, created_at) VALUES('warning', ?, '2026-11-24')",
                        ("stopped: no L4/L5 point known in ONCE (x)",))
+    client.portal.call(db.execute, "INSERT INTO systems(star, data, updated_at) VALUES('ALG', '{\"planets\": []}', '2026-11-01')")
+    client.portal.call(db.kv_set, "ami_surveyed", {"ALG": "2026-11-01", "KEEP": "2026-11-01"})
+    assert client.portal.call(wo.no_lagrange, db) == {"ALG", "ONCE"}
+    # survey status cleared so scouts scan them again (Joe 2026-11-25)
+    assert client.portal.call(db.fetchone, "SELECT 1 FROM systems WHERE star='ALG'") is None
+    assert client.portal.call(db.kv_get, "ami_surveyed", {}) == {"KEEP": "2026-11-01"}
+    # a fresh scan decides: a planet takes ONCE off, none confirms ALG
+    client.portal.call(db.execute, "INSERT INTO systems(star, data, updated_at) VALUES('ONCE', '{\"planets\": [{\"designation\": \"ONCE-1\"}]}', '2999-01-01')")
+    client.portal.call(db.execute, "INSERT INTO systems(star, data, updated_at) VALUES('ALG', '{\"planets\": []}', '2999-01-01')")
     assert client.portal.call(wo.no_lagrange, db) == {"ALG"}
+    assert "recheck" not in client.portal.call(db.kv_get, wo.NO_LP_KV, {})["ALG"]
     relay = {"device_code": "R1", "device_type": "ftl_relay", "location": None, "status": "stowed", "tags": ["to:alg"],
              "stowed_in_device_code": "C1"}
     devs = [relay, {"device_code": "C1", "device_type": "heaven_vessel", "location": "ALG-KUIPER", "status": "idle"}]

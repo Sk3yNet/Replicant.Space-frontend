@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.551.0"
+VERSION = "1.552.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.552.0", "2026-11-25", "Systems where relay runs found no L4/L5 point get a sure answer (Joe: clear their survey status). The 26 systems where a run stopped since 11-20 lose their saved scan and AMI survey mark, so scouts scan them again; until then they count as having no planet. A fresh scan with a planet takes a system off the list (the app also asks the game for 5 of them each pass), one with none confirms it; a relay carrier's own scan is now saved too."),
     ("1.551.0", "2026-11-25", "Relay runs no longer stop at a system with no L4/L5 point (Joe: SOL's and ALGOLUM's relays still weren't there). ALGOLUM has no planet, so a relay can never switch on there: five relay runs since 11-23 stopped at its Kuiper belt, and the latest left heaven vessel CBFC5D06 idle there with the relays for SOL and SCHEANAR still aboard. Now a run skips such a stop and flies on; the system is remembered (a scan with no planet), relay orders there are refused or dropped with their relays made spare, and relay targets (ARUCALIS) chain around it. A Logistics fleet fill no longer holds every carrier of the fleet busy for its whole trip, only the ones it uses (it held CBFC5D06 for 10 hours)."),
     ("1.550.0", "2026-11-25", "Shop page Sold card (Joe): how many of each device your trade AMIs sold, with the last sale and the resources received, rebuilt from every saved seller trade.completed event. Trade posts take down a second listing of a type they already list (Joe asked why some devices were listed twice): mining drone, propulsor, system ward and FTL beacon each had an old listing left on a shop the 1.529.0 consolidation had let go while it still listed; its devices go back to restock the listing kept."),
     ("1.549.2", "2026-11-25", "The station jobs cargo carrier is a cargo freighter (Joe): 1.540.0 had picked a cargo vessel. A cargo vessel set before is swapped on the next dispatch pass for the logistics fleet's freighter with the biggest hold; Economy › Jobs offers freighters only."),

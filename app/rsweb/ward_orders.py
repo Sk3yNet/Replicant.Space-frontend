@@ -34,22 +34,53 @@ NO_LP_KV = "no_lagrange"   # {star: {at, why}}: systems a scan showed with no L4
 NO_LP_RE = r"no L4/L5 point known in ([A-Z0-9]+)"
 
 
+RECHECK_KV = "no_lagrange_recheck"   # set once the suspected systems' survey status was cleared (Joe 2026-11-25)
+
+
 async def no_lagrange(db) -> set[str]:
-    """Systems with no L4/L5 point (a carrier's scan found no planet there; live 2026-11-23/24: five relay runs stopped
-    at ALGOLUM's Kuiper belt, "no L4/L5 point known", and the relays for SOL and SCHEANAR on the same carrier waited).
-    The first read learns the systems such a stop was reported for twice or more."""
+    """Systems with no L4/L5 point (a carrier's scan found no planet there; live 2026-11-20..24: relay runs stopped
+    "no L4/L5 point known" in 26 systems, and the relays for SOL and SCHEANAR waited aboard at ALGOLUM).
+    The first read takes every system such a stop was reported for and clears its survey status (saved scan, AMI
+    survey mark: Joe 2026-11-25, "clear their survey status and we can get an answer for sure"), so scouts scan them
+    again. Until a fresh scan comes in they count as having none (`recheck`); a fresh scan with a planet takes a system
+    off, one with none confirms it."""
     import re
-    known = await db.kv_get(NO_LP_KV, None)
-    if known is None:
-        rows = await db.fetchall("SELECT title, created_at FROM notifications WHERE title LIKE '%no L4/L5 point known in%'")
-        seen: dict[str, int] = {}
-        for r in rows:
-            m = re.search(NO_LP_RE, r["title"] or "")
-            if m:
-                seen[m.group(1)] = seen.get(m.group(1), 0) + 1
-        known = {s_: {"at": None, "why": f"{n} relay runs found no L4/L5 point"} for s_, n in seen.items() if n >= 2}
+    from .db import now_iso
+    known = await db.kv_get(NO_LP_KV, None) or {}
+    if not await db.kv_get(RECHECK_KV, None):
+        rows = await db.fetchall("SELECT title FROM notifications WHERE title LIKE '%no L4/L5 point known in%'")
+        stars = {m.group(1) for r in rows for m in [re.search(NO_LP_RE, r["title"] or "")] if m} | set(known)
+        at = now_iso()
+        ami = await db.kv_get("ami_surveyed", {}) or {}
+        for s_ in sorted(stars):
+            await db.execute("DELETE FROM systems WHERE star=?", (s_,))
+            ami.pop(s_, None)
+            known[s_] = {"at": at, "why": "a relay run found no L4/L5 point; scan again to confirm", "recheck": at}
+        await db.kv_set("ami_surveyed", ami)
         await db.kv_set(NO_LP_KV, known)
-    return set(known or {})
+        await db.kv_set(RECHECK_KV, {"at": at, "stars": sorted(stars)})
+    changed = False
+    for s_, v in list(known.items()):
+        if not (v or {}).get("recheck"):
+            continue
+        row = await db.fetchone("SELECT data, updated_at FROM systems WHERE star=?", (s_,))
+        if not row or str(row["updated_at"] or "") < v["recheck"]:
+            continue   # not scanned again yet
+        try:
+            import json
+            planets = (json.loads(row["data"] or "{}") or {}).get("planets")
+        except ValueError:
+            continue
+        if planets is None:
+            continue
+        changed = True
+        if planets:
+            known.pop(s_)
+        else:
+            known[s_] = {"at": now_iso(), "why": "a fresh scan found no planet there"}
+    if changed:
+        await db.kv_set(NO_LP_KV, known)
+    return set(known)
 
 
 def kv_key(kind: str) -> str:
