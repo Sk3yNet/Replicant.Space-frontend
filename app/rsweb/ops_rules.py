@@ -10,6 +10,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
+from .engine_base import off_loop
 from .api import ApiError
 from .db import now_iso
 
@@ -1125,8 +1126,8 @@ class OpsRules:
                 lines.append(f"{loc}: beacon {pin['device_code']} ({pin.get('location')}) is pinned there, "
                              "a carrier of the loadout pass brings it")
                 continue
-            p = tr.placement(loc, devices, reps, stowed, busy, use_replicant_vessel=manual, logistics=logistics,
-                             keep=keep, bps=bps, vessel_print=manual)
+            p = await off_loop(tr.placement, loc, devices, reps, stowed, set(busy), use_replicant_vessel=manual,
+                               logistics=logistics, keep=keep, bps=bps, vessel_print=manual)   # looks over every device
             if p["kind"] == "factory" and (loc in orders or waiting(row["star"])):
                 claimed[row["star"]] = claimed.get(row["star"], 0) + 1
                 orders.setdefault(loc, now_iso())   # a print already waits in that system: no second one

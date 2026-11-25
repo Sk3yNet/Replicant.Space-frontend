@@ -576,4 +576,11 @@ def survey_targets(scan: dict, surveyed: dict, include_moons: bool, include_belt
     return out[:max(0, max_targets)]
 
 
+async def off_loop(fn, *args, **kwargs):
+    """Run pure, CPU-heavy planning in a worker thread so the event loop (pages, the live stream) keeps answering while
+    it runs: the GIL hands the loop a turn every few milliseconds. Only for work over the caller's own copies, with no
+    awaits, database access or shared state changes inside (Joe 2026-11-25: engine passes froze pages up to 20 s)."""
+    return await asyncio.to_thread(fn, *args, **kwargs)
+
+
 __all__ = [n for n in dir() if not n.startswith("__")]   # everything, underscore helpers too

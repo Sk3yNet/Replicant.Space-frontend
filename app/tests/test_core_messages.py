@@ -187,6 +187,33 @@ def test_ami_digest_scans_are_stored_and_naive_times_use_the_account_zone(client
         shapes.ACCOUNT_TZ[0] = old
 
 
+def test_digest_replays_only_devices_a_job_waits_on(client, monkeypatch):
+    """Joe 2026-11-25: each digest device's replay read every job under the engine lock; now only devices a job still
+    waits on (or events with other uses) are replayed."""
+    eng = client.app.state.worker.automations
+    seen = []
+    real = eng.on_event
+
+    async def spy(ev, late=False):
+        if "#" in str(ev.get("id")):
+            seen.append(ev["device_code"])   # a replay: counted, not run (the fake job below isn't stored)
+            return None
+        return await real(ev, late=late)
+    monkeypatch.setattr(eng, "on_event", spy)
+
+    async def jobs():
+        return [{"status": "waiting", "device": None, "idx": 0,
+                 "steps": [{"status": "waiting", "wait": ["travel.arrived"], "wait_device": "W1"}]}]
+    monkeypatch.setattr(eng, "jobs", jobs)
+    client.portal.call(client.app.state.worker.handle_event, {
+        "id": "dg-9", "event": "ami.mining.digest", "device_code": "MC", "location": "SOL-BELT-1",
+        "created_at": "2026-11-25T12:00:00+00:00",
+        "payload": {"devices": [{"device_code": "W1", "events": 1, "last_event": "travel.arrived"},
+                                {"device_code": "M2", "events": 3, "last_event": "mining.started"},
+                                {"device_code": "S3", "events": 1, "last_event": "scan.completed"}]}})
+    assert seen == ["W1", "S3"]
+
+
 def test_messages_page_auto_read_checkboxes(client):
     """Owner 2026-10-30: checkboxes on the Messages page mark salvage discoveries and civilizations' requests for help
     read as they arrive (salvage on by default, as before)."""

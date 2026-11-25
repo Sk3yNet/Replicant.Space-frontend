@@ -224,6 +224,10 @@ def merge_device_snapshot(prev: list[dict], new: list[dict], partial: bool = Fal
 
 SWOOP_FOCUS_S = 180   # a swoop run: 20 s warmup + 5 rounds of up to 20 s, with room to spare
 
+# digest device events replayed even when no job waits on that device (Automations.on_event uses them for more)
+DIGEST_REPLAY_ALWAYS = {"scan.completed", "search.completed", "print.completed", "event.discovered",
+                        "event.completed", "system.object_detected"}
+
 class Worker:
     def __init__(self, settings: Settings, db: DB, api: RSClient, hub: Hub):
         self.s, self.db, self.api, self.hub = settings, db, api, hub
@@ -372,12 +376,30 @@ class Worker:
                    "created_at": ev.get("created_at"), "payload": {**sc, "from_digest": ev["id"]}}
             if await self.db.insert_event(syn):
                 await self.automations.on_event(syn, late=True)
-        for d in p.get("devices") or []:
-            if isinstance(d, dict) and d.get("device_code") and d.get("last_event") and d.get("events"):
-                await self.automations.on_event({"id": f"{ev['id']}#{d['device_code']}", "event": d["last_event"],
-                                                 "device_code": d["device_code"], "created_at": ev.get("created_at"),
-                                                 "payload": {"from_digest": ev["id"], "status": d.get("status")}},
-                                                late=True)
+        devs = [d for d in p.get("devices") or []
+                if isinstance(d, dict) and d.get("device_code") and d.get("last_event") and d.get("events")]
+        if devs:
+            # a digest names dozens of devices, and each replay read every job and waited for the engine lock to find
+            # nothing to wake (Joe 2026-11-25: the event stream held the server up to 60 s). Only devices some job
+            # still waits on, or events with other uses, are replayed.
+            codes, any_dev = set(), set()
+            for j in await self.automations.jobs():
+                if j.get("status") not in ("running", "waiting"):
+                    continue
+                if j.get("device"):
+                    codes.add(j["device"])
+                for st in (j.get("steps") or [])[j.get("idx", 0):]:
+                    if st.get("wait_device"):
+                        codes.add(st["wait_device"])
+                    elif not j.get("device"):
+                        any_dev.update(st.get("wait") or [])
+            devs = [d for d in devs if d["device_code"] in codes or d["last_event"] in any_dev
+                    or d["last_event"] in DIGEST_REPLAY_ALWAYS or str(d["last_event"]).startswith("simulation.")]
+        for d in devs:
+            await self.automations.on_event({"id": f"{ev['id']}#{d['device_code']}", "event": d["last_event"],
+                                             "device_code": d["device_code"], "created_at": ev.get("created_at"),
+                                             "payload": {"from_digest": ev["id"], "status": d.get("status")}},
+                                            late=True)
 
     async def _announce(self, ev: dict, notify_live: bool) -> None:
         late = is_late(ev) or not notify_live

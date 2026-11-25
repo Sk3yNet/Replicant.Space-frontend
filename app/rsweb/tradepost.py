@@ -28,6 +28,7 @@ import math
 import re
 from typing import Any
 
+from .engine_base import off_loop
 from .components import components, total_resources
 from .shapes import as_amounts
 
@@ -560,7 +561,7 @@ class TradePostMixin:
             if held(f):
                 continue
             key = supply_key(f["id"])
-            pl = plan(f, devices, None, state.get(f["id"]) or {}, bps, p, contract_tag(key))
+            pl = await off_loop(plan, f, devices, None, state.get(f["id"]) or {}, bps, p, contract_tag(key))
             if not pl["location"]:
                 continue
             from .shop import star_of

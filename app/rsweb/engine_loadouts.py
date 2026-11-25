@@ -976,10 +976,13 @@ class LoadoutMixin:
         from .traffic import beacons as _beacons
         civ_locs = {r["location"] for r in await self.civ_coverage() if r.get("completed") or r.get("open")}
         protect = {b["device_code"] for b in _beacons(devices) if b.get("location") in civ_locs}
-        p = plan(cfg, devices, bps, inv, stars, hosts, busy, await self.loadout_orders(),
-                 await self.db.kv_get("stowed_map", {}) or {}, only, await self.known_open_sites(), protect,
-                 await self.geography(devices, stars), await self.commandable(devices, stars, steady=True),
-                 await self.stuck_prints(devices, bps), dispatch=dispatch, job_pins=await self.station_job_pins())
+        args = (cfg, devices, bps, inv, stars, hosts, busy, await self.loadout_orders(),
+                await self.db.kv_get("stowed_map", {}) or {}, only, await self.known_open_sites(), protect,
+                await self.geography(devices, stars), await self.commandable(devices, stars, steady=True),
+                await self.stuck_prints(devices, bps))
+        # the planner (and the carrier assignment it hands its batches to) is pure work over these copies: in a thread,
+        # so pages keep answering while it runs (Joe 2026-11-25: stalls of up to 20 s in dispatch and dispatch_new_prints)
+        p = await off_loop(plan, *args, dispatch=dispatch, job_pins=await self.station_job_pins())
         if not routes:
             p["routes"] = []
             return p

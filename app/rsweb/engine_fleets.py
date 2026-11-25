@@ -364,9 +364,9 @@ class FleetsMixin:
             box: dict = {}
             result["plan"] = await self.loadout_plan(only, routes=full, dispatch=lambda batches, carry: box.update(
                 p=lg.plan(**plan_args, moves=(batches, carry), device_escorts=set(escorts))))
-            p = box.get("p") or lg.plan(**plan_args)   # (the loadout planner had nothing to plan with)
+            p = box.get("p") or await off_loop(lg.plan, **plan_args)   # (the loadout planner had nothing to plan with)
         else:
-            p = lg.plan(**plan_args)
+            p = await off_loop(lg.plan, **plan_args)
         by_code = by_code0
         pickups = await self.db.kv_get(lg.KV_PICKUPS, {}) or {}
         # devices a deal paid out: once they're at the site (fleetless, going nowhere), they're sent to the gather point,
