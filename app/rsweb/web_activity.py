@@ -202,8 +202,9 @@ async def account(request: Request, user: str = Depends(current_user)):
     sync = {k: await db.kv_get(f"sync:{k}") for k in ("account", "devices", "inventory", "messages", "catalogue")}
     runs = list(reversed(await db.kv_get("server_runs", []) or []))
     from .web_diag import diag_mcp_ctx
+    from .lan import lan_ctx
     return await page(request, user, "account.html", "account", runs=runs, changes=appver.CHANGES, **await wallpaper_ctx(request),
-                      **await diag_mcp_ctx(request),
+                      **await diag_mcp_ctx(request), **lan_ctx(request),
                       account=await db.kv_get("account", {}),
                       achievements=await db.kv_get("achievements", {}), actions=actions, sync=sync,
                       hub_listeners=request.app.state.hub.listeners)

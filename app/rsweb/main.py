@@ -143,6 +143,9 @@ def create_app(settings: Settings | None = None, transport: httpx.AsyncBaseTrans
     app.add_middleware(perf.Middleware)
     from . import pagecache
     app.add_middleware(pagecache.ClearOnEdit)
+    from . import lan
+    app.include_router(lan.router)
+    app.add_middleware(lan.Middleware)
     return app
 
 

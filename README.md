@@ -204,6 +204,22 @@ Rules run in the app container, so they keep going with the browser closed. The 
 - `ALLOWED_EMAIL` is enforced twice: by oauth2-proxy's allow-list and by the app itself.
 </details>
 
+### 4. Local network access (optional)
+
+At home you can skip the tunnel: nginx also listens on host port **7443** (`LAN_PORT` changes it) for private addresses
+only (10.x, 172.16–31.x, 192.168.x), with no Google sign-in. Everyone who reaches it is the owner, so set it up only on
+a network you trust, and don't forward that port on your router.
+
+1. In the stack's environment set `LAN_ACCESS=1` and `LAN_URL` to the address your browser uses for it, e.g.
+   `http://docker.local:7443`, and redeploy. Until `LAN_ACCESS=1` the port answers 403.
+2. Open a page through the tunnel at home: when your public address matches the server's (it looks its IPv4 and IPv6
+   addresses up from Cloudflare every 30 minutes; IPv6 counts within the same /64), you're moved to the same page on
+   the local address. **Account › Local network** shows both addresses and has *stay on the tunnel* for that browser
+   (`/lan/off`; `/lan/on` undoes it).
+
+Settings such as the command screen and its accent color are kept per address, so set them once on the local one too.
+Only the multi-user stack (`docker-compose.yml`) has this entry.
+
 ## Multi-user mode: a server for each player
 
 The same stack can host friends too. Each person signs in with their own Google account and gets their **own copy of

@@ -223,3 +223,19 @@ def test_starting_page_shows_log_and_time(mgr):
     r = mgr.get("/_tenant/", headers=H(ANN))
     assert "starting…" in r.text and "Starting for 2 min 5 s" in r.text and "attempt 2" in r.text
     assert "Traceback: boom" in r.text and "exited with code 1" in r.text
+
+
+def test_lan_entry_is_the_owner_and_only_the_owner_gets_the_lan_address(tmp_path, monkeypatch):
+    """Local network access (Joe 2026-11-25): port 7443 asks /_tenant/lan-user who is there."""
+    monkeypatch.setenv("LAN_URL", "http://docker.local:7443")
+    ts = settings(tmp_path, owner_token="OwnerOwnerOwnerOwner1")
+    app = create_manager(ts, FakeSupervisor, transport=game([]))
+    with TestClient(app) as c:
+        assert c.get("/_tenant/lan-user").status_code == 403            # LAN_ACCESS not set: the port stays shut
+        assert "LAN_URL" not in c.app.state.sup.env_for(OWNER)
+        monkeypatch.setenv("LAN_ACCESS", "1")
+        r = c.get("/_tenant/lan-user")
+        assert r.status_code == 200 and r.headers["x-auth-request-email"] == OWNER
+        assert c.app.state.sup.env_for(OWNER)["LAN_URL"] == "http://docker.local:7443"
+        c.post("/_tenant/key", data={"token": GOOD}, headers=H(ANN))
+        assert "LAN_URL" not in c.app.state.sup.env_for(ANN) and "LAN_ACCESS" not in c.app.state.sup.env_for(ANN)

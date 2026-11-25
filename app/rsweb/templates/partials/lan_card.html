@@ -1,0 +1,22 @@
+<div class="card" id="lan" style="margin-top:14px">
+  <h2>Local network <span class="muted small">{{ 'on' if lan.url else 'off' }}{% if lan.here %} · you're on it now{% endif %}</span></h2>
+  {% if not lan.url %}
+  <p class="small muted">Off. To reach this server directly at home (no tunnel, no Google sign-in), set
+    <span class="mono">LAN_ACCESS=1</span> and <span class="mono">LAN_URL</span> (the address your browser uses, e.g.
+    <span class="mono">http://docker.local:7443</span>) on the stack and redeploy. Port 7443 lets in private addresses only.</p>
+  {% else %}
+  <p class="small muted">At home, pages opened through the tunnel move to the local address, keeping the page you were on.
+    "At home" means your public address matches the server's.</p>
+  <table class="small" style="margin-top:6px">
+    <tr><td class="muted">Local address</td><td><a class="mono" href="{{ lan.url }}/" data-full>{{ lan.url }}</a></td></tr>
+    {% if not lan.here %}
+    <tr><td class="muted">Your address</td><td class="mono">{{ lan.me or '?' }}</td></tr>
+    <tr><td class="muted">Server's public address</td><td class="mono">{{ lan.home_ip or 'looking it up…' }}</td></tr>
+    <tr><td class="muted">This browser</td><td>{% if lan.off %}stays on the tunnel · <a href="/lan/on" data-full>send me to the local address at home</a>
+      {% else %}moves to the local address at home · <a href="/lan/off?rd=/account%23lan" data-full>stay on the tunnel</a>{% endif %}</td></tr>
+    {% elif lan.tunnel %}
+    <tr><td class="muted">Tunnel</td><td><a href="{{ lan.tunnel }}/lan/off" data-full>use the tunnel in this browser instead</a></td></tr>
+    {% endif %}
+  </table>
+  {% endif %}
+</div>

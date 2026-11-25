@@ -49,7 +49,8 @@ log = logging.getLogger("rsweb.tenants")
 TOKEN_RE = re.compile(r"^[A-Za-z0-9_\-.~+/=]{16,256}$")
 # Settings that belong to the manager or the owner and must not leak into another user's server.
 _PRIVATE_ENV = ("RS_API_TOKEN", "RS_API_TOKEN_FILE", "ALLOWED_EMAILS", "ALLOWED_EMAIL", "ALLOWED_DOMAINS", "DEV_USER",
-                "DB_PATH", "OWNER_EMAIL", "ADMIN_EMAILS", "OPEN_SIGNUP", "DATA_DIR", "TENANT_BASE_PORT", "MAX_TENANTS")
+                "DB_PATH", "OWNER_EMAIL", "ADMIN_EMAILS", "OPEN_SIGNUP", "DATA_DIR", "TENANT_BASE_PORT", "MAX_TENANTS",
+                "LAN_URL", "LAN_ACCESS")
 
 
 def _csv(name: str) -> list[str]:
@@ -240,6 +241,8 @@ class Supervisor:
                    WALLPAPER_SLUG=t["slug"])   # its desktop-wallpaper address: /wallpaper/<slug>/ (wallpaper.py)
         if email == self.ts.owner_email:
             env["TZ"] = self.ts.default_tz
+            if os.getenv("LAN_ACCESS", "") == "1" and os.getenv("LAN_URL", "").strip():
+                env["LAN_URL"] = os.getenv("LAN_URL", "").strip()   # only the owner is sent to the local address (lan.py)
         if self.reg.stack_key(email):
             env["RS_API_TOKEN"] = self.ts.owner_token
         else:
@@ -450,6 +453,14 @@ def create_manager(ts: TenantSettings | None = None, supervisor_factory: Callabl
         if st["state"] != "running":
             return Response(status_code=403, headers={"X-Tenant-State": st["state"]})
         return Response(status_code=200, headers={"X-Tenant-Port": str(st["port"])})
+
+    @app.get("/_tenant/lan-user")
+    async def lan_user(request: Request):
+        """nginx auth_request for the local-network entry (port 7443, private addresses only, no Google sign-in): with
+        LAN_ACCESS=1 everyone there is the owner (Joe 2026-11-25: anything on my LAN can be assumed to be me)."""
+        if os.getenv("LAN_ACCESS", "") != "1" or not ts.owner_email:
+            return Response(status_code=403)
+        return Response(status_code=200, headers={"X-Auth-Request-Email": ts.owner_email})
 
     @app.get("/_tenant/wallpaper-route")
     async def wallpaper_route(request: Request):

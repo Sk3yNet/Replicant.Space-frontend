@@ -33,6 +33,9 @@ services:
     depends_on: [oauth2-proxy, app]
     restart: unless-stopped
     networks: [edge]
+    # Local network entry (README › Local network access): private addresses only, no Google sign-in, answers 403
+    # until LAN_ACCESS=1 is set below. Change the left number to use another host port.
+    ports: ["${LAN_PORT:-7443}:7443"]
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1/healthz"]
       interval: 30s
@@ -80,6 +83,11 @@ services:
       RS_API_BASE: ${RS_API_BASE:-https://api.replicant.space/v1}
       DB_PATH: /data/rsweb.sqlite
       TZ: ${TZ:-America/New_York}
+      # Local network access: 1 lets everyone on your LAN in as the owner on port 7443 (no Google sign-in); LAN_URL is
+      # that address as your browser reaches it (e.g. http://docker.local:7443), which the tunnel then sends you to
+      # when you're at home.
+      LAN_ACCESS: ${LAN_ACCESS:-}
+      LAN_URL: ${LAN_URL:-}
     volumes:
       - rsweb-data:/data
     # Each user's server gets SIGTERM and a few seconds to record a clean stop.
