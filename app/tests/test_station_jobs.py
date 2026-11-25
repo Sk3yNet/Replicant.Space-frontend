@@ -202,8 +202,8 @@ def test_auto_accept_skips_jobs_outside_the_systems_you_command():
 
 def test_station_carriers_are_picked_from_the_logistics_fleet_and_kept():
     pool = [dev("HV", "heaven_vessel", "A-1"), dev("HV2", "heaven_vessel", "A-1"), dev("CV", "cargo_vessel", "A-1"),
-            dev("F1", "cargo_freighter", "A-1")]
+            dev("F1", "cargo_freighter", "A-1", cargo_capacity=200), dev("F2", "cargo_freighter", "A-1", cargo_capacity=500)]
     hosts = {"HV": "R1", "HV2": "R2", "CV": "R3"}
-    assert sj.pick_carriers({}, pool, hosts, {"R2"}) == {"vessel": "HV2", "cargo": "CV"}
+    assert sj.pick_carriers({}, pool, hosts, {"R2"}) == {"vessel": "HV2", "cargo": "F2"}   # a freighter (Joe 2026-11-25)
     assert sj.pick_carriers({"carriers": {"vessel": "HV", "cargo": "F1"}}, pool, hosts) == {"vessel": "HV", "cargo": "F1"}
-    assert sj.pick_carriers({"carriers": {"vessel": "GONE"}}, pool[2:], {"CV": "R3"}) == {"cargo": "CV"}
+    assert sj.pick_carriers({"carriers": {"vessel": "GONE", "cargo": "CV"}}, pool[2:], {"CV": "R3"}) == {"cargo": "F2"}

@@ -692,8 +692,8 @@ Logistics fleets (Fleets › Logistics) have no missions: their devices deliver 
   cycle and sell out), then prints a factory is stalled on. A carrier takes the part of a batch it can board (stowable devices, and fly-capable ones on attach points); a device that neither stows nor flies is listed as one no carrier can take. Carriers left over after each category's turn help any
   category; stockpile returns (reallocations) only get leftovers, last. The Devices card shows each carrier's category.
 - **Station jobs** (1.540.0) are a category of their own: the resources and devices of the job the runner works. Two
-  logistics carriers belong to it, a heaven vessel hosting a replicant and a cargo ship (a cargo vessel, else a cargo
-  freighter), picked once (a replicant who has worked for a station first) and changeable under Economy › Jobs › Runner.
+  logistics carriers belong to it, a heaven vessel hosting a replicant and a cargo freighter (1.549.2; a cargo
+  vessel before), picked once (a replicant who has worked for a station first) and changeable under Economy › Jobs › Runner.
   They take station work first, before the urgent requests, and other categories when there is none; what they can't
   take goes to any free carrier, since a job has a deadline.
 

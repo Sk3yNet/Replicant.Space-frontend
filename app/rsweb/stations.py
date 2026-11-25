@@ -43,7 +43,7 @@ DEFAULT_RUNNER = {"auto": False, "stations": [], "factions": list(ROLES), "kinds
 # The station jobs carriers (Joe 2026-11-24): one replicant heaven vessel and one cargo ship of the logistics fleet work the
 # "stations" logistics category first and other categories when no station work is open (logistics.plan
 # `station_carriers`); the vessel also flies to wherever a ready job completes. Picked once, kept in job_runner "carriers".
-CARRIER_TYPES = {"vessel": ("heaven_vessel",), "cargo": ("cargo_vessel", "cargo_freighter")}
+CARRIER_TYPES = {"vessel": ("heaven_vessel",), "cargo": ("cargo_freighter",)}   # Joe 2026-11-25: a cargo freighter, not a cargo vessel
 KEYS_DEST = ("destination_location", "destination", "target_location", "to_location", "deliver_to", "delivery_location")
 KEYS_DEST_STATION = ("destination_station", "destination_station_slug", "target_station", "to_station")
 KEYS_TYPE = ("device_type", "device", "type_needed")
@@ -281,8 +281,8 @@ def logistics_rows(mine: dict | None, cfg: dict, stations: list[dict]) -> list[d
 
 def pick_carriers(cfg: dict, pool: list[dict], hosts: dict[str, str], prefer: set[str] | frozenset = frozenset()) -> dict:
     """The station jobs carriers ({"vessel": code, "cargo": code}) among the logistics fleet's devices (`pool`): the chosen
-    ones while they're still in it, else a heaven vessel hosting a replicant and a cargo vessel hosting one (else a cargo
-    freighter), a replicant who has worked for a station (`prefer`, station contributors) first."""
+    ones while they're still in it (and of the right type), else a heaven vessel hosting a replicant, one who has worked
+    for a station (`prefer`, station contributors) first, and the cargo freighter with the biggest hold."""
     by = {d.get("device_code"): d for d in pool}
     old = cfg.get("carriers") or {}
     out: dict[str, str] = {}
@@ -293,7 +293,7 @@ def pick_carriers(cfg: dict, pool: list[dict], hosts: dict[str, str], prefer: se
             continue
         cands = [d for d in pool if d.get("device_type") in types and d.get("device_code") not in out.values()
                  and (role_ != "vessel" or d.get("device_code") in hosts)]
-        cands.sort(key=lambda d: (types.index(d["device_type"]), d["device_code"] not in hosts,
+        cands.sort(key=lambda d: (types.index(d["device_type"]), -float(d.get("cargo_capacity") or 0), d["device_code"] not in hosts,
                                   hosts.get(d["device_code"]) not in prefer, d["device_code"]))
         if cands:
             out[role_] = cands[0]["device_code"]
