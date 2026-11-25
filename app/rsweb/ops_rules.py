@@ -99,6 +99,8 @@ class OpsRules:
             return f"unknown kind {kind}"
         dtype, label = wo.KINDS[kind], wo.LABELS[kind]
         star = star.upper()
+        if kind in wo.RELAY_KINDS and star in await wo.no_lagrange(self.db):
+            return f"{star} has no L4/L5 point (no planet): an FTL relay can't switch on there"
         devices = await self.devices()
         orders = await self.db.kv_get(wo.kv_key(kind), {}) or {}
         if kind == "ward":
@@ -277,6 +279,27 @@ class OpsRules:
             await self.log("wards", line)
         return out
 
+    async def _unbind_no_lagrange(self, star: str, dtype: str, label: str, devices: list[dict], busy: set[str]) -> str | None:
+        """A relay order for a system with no L4/L5 point is dropped: the relays tagged for it are spares again (one
+        aboard a carrier rides back with it). None while one of them is still on a job."""
+        from . import loadouts as lo
+        tag = lo.to_tag(star)
+        bound = [d for d in devices if d.get("device_type") == dtype and tag in (d.get("tags") or [])]
+        if any(d["device_code"] in busy for d in bound):
+            return None
+        freed = []
+        for d in bound:
+            rem = [t for t in d.get("tags") or [] if t == tag or (t.startswith("at:") and lo.star_of(t[3:].upper()) == star)]
+            if await self.create_job("wards", f"{label} {d['device_code']} no longer for {star} (no L4/L5 point there)",
+                                     d["device_code"], [lo.tag_step(d["device_code"], [lo.SPARE], rem)],
+                                     {"devices": [d["device_code"]]}, force=True):
+                busy.add(d["device_code"])
+                freed.append(d["device_code"])
+        msg = f"{star}: {label} order dropped — no L4/L5 point there, so no {label} can switch on" + (
+            f"; {', '.join(freed)} spare again" if freed else "")
+        await self.log("wards", msg, "warning", notify=True)
+        return msg
+
     async def ward_orders_pass(self) -> list[str]:
         """Ward / relay / beacon orders: one of yours deployed and idle in the ordered system is switched on (a ward
         within the cap and never beside a hub of yours; a relay only at an L4/L5 point — placement takes it there)."""
@@ -299,7 +322,15 @@ class OpsRules:
             jobs = await self.jobs()
             cov = await self.civ_coverage() if kind == "beacon" else []
             nw = await self.no_ward_stars(devices) if kind == "ward" else set()
+            nolp = await wo.no_lagrange(self.db) if kind in wo.RELAY_KINDS else set()
             for star, o in list(orders.items()):
+                if star in nolp:
+                    msg = await self._unbind_no_lagrange(star, dtype, label, devices, busy)
+                    if msg:   # else a relay for it is still on a job: next pass
+                        orders.pop(star)
+                        changed = True
+                        out.append(msg)
+                    continue
                 if star in nw:
                     orders.pop(star)
                     changed = True
@@ -794,7 +825,9 @@ class OpsRules:
             relays = await self.db.kv_get(wo.kv_key("relay"), {}) or {}
             stations = await self.db.kv_get(wo.kv_key("station"), {}) or {}
             planned = {**{s: net["hop"] for s in relays}, **{s: net["long_hop"] for s in stations}}
-            res = await asyncio.to_thread(relaynet.chain_to_hub, net, pos, star, planned, long)
+            avoid = await wo.no_lagrange(self.db)
+            planned = {s_: r_ for s_, r_ in planned.items() if s_ not in avoid}
+            res = await asyncio.to_thread(relaynet.chain_to_hub, net, pos, star, planned, long, relaynet.MAX_CHAIN, avoid)
             t["checked"] = now_iso()
             if res is None:
                 t.update(status="no_route", chain=[], long=[], via=[], waiting=[])

@@ -211,6 +211,8 @@ class JobsMixin:
                     no_spot = await self._to_entry(st, job)
                     if no_spot is True:
                         continue   # already there: no trip
+                    if no_spot and st.get("to_entry") and await self._skip_stop(st, job, no_spot):
+                        continue   # a relay run goes on to its next stop
                 if await self._let_off_riders(st, job):
                     continue   # other fleets' members get off first; this trip goes out after them
                 why = await self._beyond_sector(st, job)
@@ -846,6 +848,14 @@ class JobsMixin:
             lp = geography(star, devices, scan, entry if is_lagrange(entry) else None)["lagrange"]
             target = lp[0] if lp else ""
         if not target:
+            if not st.get("entry_of") and isinstance(scan, dict) and "planets" in scan and not scan.get("planets"):
+                from .ward_orders import NO_LP_KV
+                known = await self.db.kv_get(NO_LP_KV, {}) or {}
+                if star not in known:
+                    known[star] = {"at": now_iso(), "why": "a scan found no planet there"}
+                    await self.db.kv_set(NO_LP_KV, known)
+                    await self.log("wards", f"{star} has no planet, so no L4/L5 point: no FTL relay can switch on there "
+                                            "(relay orders and targets go around it)", "warning")
             return f"no L4/L5 point known in {star} (an FTL relay switches on only there)"
         entries[star] = target
         try:   # where it is now (the cached list can still show where it was before this trip)
@@ -860,6 +870,23 @@ class JobsMixin:
         st["match"] = {**(st.get("match") or {}), "destination": target}
         st["desc"] = f"{code} → {target} (an L4/L5 point: relays switch on only there)"
         return None
+
+    async def _skip_stop(self, st: dict, job: dict, why: str) -> bool:
+        """A relay run with no L4/L5 point at this stop skips its drops there and flies on to the next stop (live
+        2026-11-24: CBFC5D06 stopped at ALGOLUM with the relays for SOL and SCHEANAR still aboard). The relays for this
+        stop stay aboard. False when no later trip of the carrier follows (the job stops as before)."""
+        i = job["idx"]
+        path = st.get("path")
+        nxt = next((j for j in range(i + 1, len(job["steps"])) if job["steps"][j].get("path") == path
+                    and (job["steps"][j].get("body") or {}).get("destination")), None)
+        if nxt is None:
+            return False
+        for x in job["steps"][i:nxt]:
+            x["status"] = "skipped"
+            x["error"] = why
+        await self.log(job["rule"], f"{job['title']}: {why}; its drops there are skipped, on to the next stop", "warning")
+        await self._update(job)
+        return True
 
     async def _relay_drop_spot(self, st: dict, job: dict) -> bool:
         """A relay deployed out of a carrier's hold and switched on later in the job is dropped at an L4/L5 point only

@@ -437,14 +437,15 @@ def hub_nets(net: dict) -> set[int]:
 
 
 def chain_to_hub(net: dict, pos: dict[str, Any], target: str, planned: dict[str, float] | None = None,
-                 long: bool = False, max_new: int = MAX_CHAIN) -> dict | None:
+                 long: bool = False, max_new: int = MAX_CHAIN, avoid: set[str] | frozenset = frozenset()) -> dict | None:
     """The fewest new relays that link `target` to a relay network with a hub in it (a relay target, owner
     2026-11-19: frequently visited systems shouldn't need a replicant there). {linked: True, hub_net} when its system
     already is in one; else {linked: False, stars: [systems needing a new relay, hub side first], long: [those that
     get a long-range station], via: [systems on order already that the chain uses], hub: the hub network's system it
     links to, hub_net, n}; None when no chain of max_new relays or fewer does. `planned` {star: ly}: systems with a
     relay or station on order, used as if up. Never a hub: relays, and a long-range station only where it saves
-    STATION_COST relays or more (a station counts as that many). Fewest relays first, then fewest stations, then shortest."""
+    STATION_COST relays or more (a station counts as that many). Fewest relays first, then fewest stations, then shortest.
+    `avoid`: systems where no new relay can go (no L4/L5 point, ward_orders.no_lagrange)."""
     import heapq
     ns, of = net["nodes"], net["of"]
     hubs = hub_nets(net)
@@ -476,6 +477,8 @@ def chain_to_hub(net: dict, pos: dict[str, Any], target: str, planned: dict[str,
             push((0, 0, 0.0, 0), (s, ns[s]["range"]), None)
     elif target in planned:
         push((0, 0, 0.0, 0), (target, planned[target]), None)
+    elif target in avoid:
+        return None
     else:
         for rt in kinds:
             push((STATION_COST if rt == lh else 1, int(rt == lh), 0.0, 1), (target, rt), None)
@@ -506,7 +509,7 @@ def chain_to_hub(net: dict, pos: dict[str, Any], target: str, planned: dict[str,
             elif t in planned:
                 if links(d, r, planned[t]):
                     push((c[0], c[1], ly, c[3]), (t, planned[t]), state)
-            elif c[3] < max_new:
+            elif c[3] < max_new and t not in avoid:
                 for rt in kinds:
                     if links(d, r, rt):
                         st = rt == lh

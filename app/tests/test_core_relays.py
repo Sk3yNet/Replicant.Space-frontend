@@ -1877,3 +1877,59 @@ def test_ward_pass_resends_a_relay_that_went_elsewhere(client):
     jobs = client.portal.call(eng.jobs)
     assert any("to:alg" in ((s.get("body") or {}).get("configuration") or {}).get("add_tags", [])
                for j in jobs for s in j["steps"])
+
+
+def test_chain_avoids_systems_with_no_lagrange_point():
+    """Live 2026-11-24: ALGOLUM has no planet, so no L4/L5 point: a relay can't switch on there, chains go around it."""
+    from rsweb import relaynet
+    pos = {s: {"x": x, "y": y, "z": 0} for s, (x, y) in {"H": (0, 0), "B": (14, 0), "C": (14, 1), "T": (21, 0)}.items()}
+    devs = [{"device_code": "HUB", "device_type": "system_hub", "location": "H-4-L4", "status": "active"}]
+    net = relaynet.networks(devs, pos)
+    assert relaynet.chain_to_hub(net, pos, "T")["stars"] == ["B", "T"]
+    assert relaynet.chain_to_hub(net, pos, "T", avoid={"B"})["stars"] == ["C", "T"]
+    assert relaynet.chain_to_hub(net, pos, "T", avoid={"T"}) is None
+
+
+def test_no_lagrange_system_drops_relay_orders(client):
+    from rsweb import ward_orders as wo
+    db = client.app.state.db
+    eng = client.app.state.worker.automations
+    for _ in range(2):
+        client.portal.call(db.execute, "INSERT INTO notifications(level, title, created_at) VALUES('warning', ?, '2026-11-24')",
+                           ("Automation: stopped: loadouts: X carries 3 — failed: no L4/L5 point known in ALG (an FTL relay)",))
+    client.portal.call(db.execute, "INSERT INTO notifications(level, title, created_at) VALUES('warning', ?, '2026-11-24')",
+                       ("stopped: no L4/L5 point known in ONCE (x)",))
+    assert client.portal.call(wo.no_lagrange, db) == {"ALG"}
+    relay = {"device_code": "R1", "device_type": "ftl_relay", "location": None, "status": "stowed", "tags": ["to:alg"],
+             "stowed_in_device_code": "C1"}
+    devs = [relay, {"device_code": "C1", "device_type": "heaven_vessel", "location": "ALG-KUIPER", "status": "idle"}]
+
+    async def devices():
+        return devs
+    eng.devices = devices
+    assert "no L4/L5 point" in client.portal.call(eng.order_outpost, "relay", "ALG")
+    client.portal.call(db.kv_set, wo.kv_key("relay"), {"ALG": {"at": "2026-11-24T15:41:31+00:00", "how": "send",
+                                                                "device": "R1", "target": True}})
+    client.portal.call(eng.ward_orders_pass)
+    assert client.portal.call(db.kv_get, wo.kv_key("relay"), {}) == {}
+    jobs = client.portal.call(eng.jobs)
+    tag = next(s["body"]["configuration"] for j in jobs for s in j["steps"] if j["device"] == "R1")
+    assert tag == {"add_tags": ["spare"], "remove_tags": ["to:alg"]}
+
+
+def test_relay_run_skips_a_stop_with_no_lagrange_point(client):
+    eng = client.app.state.worker.automations
+    mv = lambda to, **kw: {"desc": f"C1 → {to}", "path": "/replicants/R/travel", "method": "POST",  # noqa: E731
+                           "body": {"destination": to}, "status": "pending", **kw}
+    drop = {"desc": "deploy B1 in ALG", "path": "/devices/B1", "method": "POST", "body": {"command": "deploy"},
+            "status": "pending"}
+    job = {"id": "j", "rule": "loadouts", "title": "run", "idx": 1, "status": "running",
+           "steps": [mv("ALG"), mv("ALG", to_entry="ALG"), drop, mv("SOL"), dict(drop, desc="deploy B2 in SOL")]}
+
+    async def upd(j):
+        return None
+    eng._update = upd
+    assert client.portal.call(eng._skip_stop, job["steps"][1], job, "no L4/L5 point known in ALG")
+    assert [s["status"] for s in job["steps"]] == ["pending", "skipped", "skipped", "pending", "pending"]
+    job["idx"] = 3
+    assert not client.portal.call(eng._skip_stop, job["steps"][3], job, "x")   # no later trip: the job stops as before

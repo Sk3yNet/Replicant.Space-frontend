@@ -30,6 +30,26 @@ KINDS = {"ward": "system_ward", "relay": "ftl_relay", "beacon": "ftl_beacon",
          "station": "deep_space_relay_station"}   # station: the 10 ly relay (relaynet.STATION)
 LABELS = {"ward": "ward", "relay": "FTL relay", "beacon": "FTL beacon", "station": "deep space relay station"}
 RELAY_KINDS = ("relay", "station")
+NO_LP_KV = "no_lagrange"   # {star: {at, why}}: systems a scan showed with no L4/L5 point, where no relay can switch on
+NO_LP_RE = r"no L4/L5 point known in ([A-Z0-9]+)"
+
+
+async def no_lagrange(db) -> set[str]:
+    """Systems with no L4/L5 point (a carrier's scan found no planet there; live 2026-11-23/24: five relay runs stopped
+    at ALGOLUM's Kuiper belt, "no L4/L5 point known", and the relays for SOL and SCHEANAR on the same carrier waited).
+    The first read learns the systems such a stop was reported for twice or more."""
+    import re
+    known = await db.kv_get(NO_LP_KV, None)
+    if known is None:
+        rows = await db.fetchall("SELECT title, created_at FROM notifications WHERE title LIKE '%no L4/L5 point known in%'")
+        seen: dict[str, int] = {}
+        for r in rows:
+            m = re.search(NO_LP_RE, r["title"] or "")
+            if m:
+                seen[m.group(1)] = seen.get(m.group(1), 0) + 1
+        known = {s_: {"at": None, "why": f"{n} relay runs found no L4/L5 point"} for s_, n in seen.items() if n >= 2}
+        await db.kv_set(NO_LP_KV, known)
+    return set(known or {})
 
 
 def kv_key(kind: str) -> str:

@@ -1117,9 +1117,13 @@ class FleetsMixin:
                 out.append(f"{f['name']}: short {fl.summarize(fl.short_list(f, devices))}, no idle spares to take")
                 continue
             codes = [d["device_code"] for d in recruits]
+            # only the carriers its steps use (live 2026-11-24: a Logistics fill held all 42 of the fleet's devices for
+            # 10 hours, among them a heaven vessel left idle at ALGOLUM with 3 relays aboard)
+            used = [d["device_code"] for d in fl.roster(f, devices)["carriers"]
+                    if any(d["device_code"] in str(st_.get("path") or "") or d["device_code"] == (st_.get("body") or {}).get("target")
+                           for st_ in steps)]
             job = await self.create_job("fleet_fill", f"{f['name']}: takes {len(codes)} spare(s) ({', '.join(codes)})", None, steps,
-                                        {"devices": codes + [d["device_code"] for d in fl.roster(f, devices)["carriers"]],
-                                         "fleet": f["id"]}, force=force)
+                                        {"devices": codes + used, "fleet": f["id"]}, force=force)
             busy |= set(codes)
             who = ", ".join(f"{d['device_code']} ({d.get('device_type')})" for d in recruits)
             out.append(f"{f['name']}: takes {who}"

@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.550.0"
+VERSION = "1.551.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.551.0", "2026-11-25", "Relay runs no longer stop at a system with no L4/L5 point (Joe: SOL's and ALGOLUM's relays still weren't there). ALGOLUM has no planet, so a relay can never switch on there: five relay runs since 11-23 stopped at its Kuiper belt, and the latest left heaven vessel CBFC5D06 idle there with the relays for SOL and SCHEANAR still aboard. Now a run skips such a stop and flies on; the system is remembered (a scan with no planet), relay orders there are refused or dropped with their relays made spare, and relay targets (ARUCALIS) chain around it. A Logistics fleet fill no longer holds every carrier of the fleet busy for its whole trip, only the ones it uses (it held CBFC5D06 for 10 hours)."),
     ("1.550.0", "2026-11-25", "Shop page Sold card (Joe): how many of each device your trade AMIs sold, with the last sale and the resources received, rebuilt from every saved seller trade.completed event. Trade posts take down a second listing of a type they already list (Joe asked why some devices were listed twice): mining drone, propulsor, system ward and FTL beacon each had an old listing left on a shop the 1.529.0 consolidation had let go while it still listed; its devices go back to restock the listing kept."),
     ("1.549.2", "2026-11-25", "The station jobs cargo carrier is a cargo freighter (Joe): 1.540.0 had picked a cargo vessel. A cargo vessel set before is swapped on the next dispatch pass for the logistics fleet's freighter with the biggest hold; Economy › Jobs offers freighters only."),
     ("1.549.1", "2026-11-24", "Repair patrols only consider repair devices within the sector range of the worn system (Joe asked why 8 home-sector patrols said \"about 405 h of travel\"). Delta Logistics' repair devices at ISOLITHOR were the nearest candidates with a free carrier beside them, so the patrol was planned from 29,000 ly away and refused. Now they are skipped and the patrol says what it really waits for (a free carrier or a spare repair device in range)."),

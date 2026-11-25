@@ -248,6 +248,9 @@ color and note; either kind shows at any distance and wins the hover.
     sends a spare instead or prints again, and its 3 days start over; with every queue full it waits (and doesn't
     expire) for a free slot. A spare sent for an order that isn't on its way any more (its `to:` tag gone, working in
     another system, or inside a vessel held in a trade's escrow) is replaced the same way after 20 minutes.
+  - A system with no L4/L5 point (a carrier's scan found no planet there) can't host a relay: a relay run skips its
+    drops there and flies on to its next stop, relay orders there are refused (an open one is dropped and its relays
+    made spare), and relay targets chain around it (kv `no_lagrange`).
 - **On the galaxy map** (*relay network* layer, off by default): links are curves with no ring at each relay, solid for
   active networks and dashed for ones without a replicant; a hub's links are a darker shade of the network's color, and
   two relays both linked to the same hub don't show their own link. Relays on order are white rings, suggested bridges
