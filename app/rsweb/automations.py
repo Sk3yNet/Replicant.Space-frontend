@@ -1995,7 +1995,7 @@ class AutomationEngine(JobsMixin, LoadoutMixin, FleetsMixin, MiningRulesMixin, O
 
     # --- helpers for rules ------------------------------------------------------------------------
     def busy_devices(self, jobs: list[dict]) -> set[str]:
-        out = set()
+        out = set(self.__dict__.get("station_hold") or ())   # the station jobs vessel on its tour (stations.tour)
         for j in jobs:
             if j["status"] in ("running", "waiting"):
                 out.add(j.get("device"))

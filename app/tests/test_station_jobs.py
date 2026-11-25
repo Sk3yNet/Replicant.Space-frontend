@@ -207,3 +207,51 @@ def test_station_carriers_are_picked_from_the_logistics_fleet_and_kept():
     assert sj.pick_carriers({}, pool, hosts, {"R2"}) == {"vessel": "HV2", "cargo": "F2"}   # a freighter (Joe 2026-11-25)
     assert sj.pick_carriers({"carriers": {"vessel": "HV", "cargo": "F1"}}, pool, hosts) == {"vessel": "HV", "cargo": "F1"}
     assert sj.pick_carriers({"carriers": {"vessel": "GONE", "cargo": "CV"}}, pool[2:], {"CV": "R3"}) == {"cargo": "F2"}
+
+
+class _TourEng:
+    def __init__(self, boards):
+        self.kv, self.made = {sj.KV_BOARDS: boards}, []
+        eng = self
+
+        class _Db:
+            async def kv_get(self, k, default=None):
+                return eng.kv.get(k, default)
+        self.db = _Db()
+
+    async def jobs(self):
+        return []
+
+    async def commandable(self, devices, stars=None):
+        return {"A", "B", "Z"}
+
+    async def star_lookup(self, what):
+        return POS
+
+    async def create_job(self, rule, title, device, steps, meta=None, force=False):
+        self.made.append((title, steps[0]["body"]["destination"]))
+        return {"id": "j1"}
+
+
+def test_the_station_jobs_vessel_tours_the_stations_and_stays_while_a_job_is_open():
+    """Joe 2026-11-25: fulfill the jobs at a station, then move on to the next station when none are available."""
+    import asyncio
+    sts = [{"slug": "a", "name": "A Station", "location": "A-OBJ-1"}, {"slug": "b", "name": "B Station", "location": "B-OBJ-2"},
+           {"slug": "z", "name": "Z Station", "location": "Z-OBJ-1"}]
+    vessel = dev("HV", "heaven_vessel", "A-OBJ-1", hosting_replicant={"replicant_code": "R1"})
+    cfg = {**sj.DEFAULT_RUNNER, "auto": True, "carriers": {"vessel": "HV"}, "tour": {}}
+    job = {"id": 1, "faction": "crew", "tier": 1, "reputation_reward": 10,
+           "objectives": {"type": "gather_resources", "station_location": "A-OBJ-1", "resource": "carbon", "quantity": 5}}
+    e = _TourEng({"a": {"at": "2000-01-01T00:00:00+00:00", "jobs": [job]}})
+    run = lambda: asyncio.run(sj.tour(e, cfg, sts, {"jobs": []}, [vessel], {}))  # noqa: E731
+    assert "reading its board" in run() and cfg["tour"]["at"] == "a"
+    assert run() is None and not e.made                              # board not read since it came
+    e.kv[sj.KV_BOARDS]["a"]["at"] = "2999-01-01T00:00:00+00:00"
+    assert run() is None and not e.made                              # a job it can take: stays
+    e.kv[sj.KV_BOARDS]["a"]["jobs"] = []
+    note = run()
+    assert e.made == [("station jobs tour: HV → B Station", "B-OBJ-2")] and "no job to take at A Station" in note
+    # the next one: never visited first, then the nearest
+    assert sj.tour_next(sts, {"tour": {"visited": {"b": "2026-11-25T00:00:00"}}}, "a", "A", {"A", "B", "Z"}, POS)["slug"] == "z"
+    assert sj.tour_next(sts, {}, "a", "A", {"A", "B"}, POS)["slug"] == "b"
+    assert sj.tour_next(sts, {"stations": ["a"]}, "a", "A", {"A", "B"}, POS) is None

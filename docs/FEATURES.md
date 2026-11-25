@@ -956,6 +956,10 @@ Station jobs (Season 4, game v4.0.0): the twelve colony stations post jobs for t
   (otherwise it sends the station jobs heaven vessel, or tells you to send one). It warns an hour before a deadline.
   **Auto accept** (off by default) takes the best open job at the stations, factions and kinds you tick whenever you
   hold none and no cooldown runs, and only one whose station and destination are in systems you can command.
+  With Auto accept on, the station jobs heaven vessel tours the stations (1.555.0): a board is shown only to a replicant
+  at the station, so it stays where it is while that board has a job it would take (or you hold one) and flies on to
+  the next chosen station you can command once none is left (the longest unvisited first, then the nearest). It's the
+  runner's alone then: no other logistics takes it.
 
 ### Lockers
 Equipment lockers are NPC devices that hand out a set loadout once per account (e.g. SOL-OORT, TWAFFY-OORT).

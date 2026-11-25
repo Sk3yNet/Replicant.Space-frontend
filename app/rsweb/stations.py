@@ -39,7 +39,7 @@ KINDS = {"gather_resources": "gather", "deliver_resources": "deliver", "deploy_d
 RUNNABLE = ("gather", "deliver", "deploy", "courier")   # what the runner can do by itself
 DEFAULT_RUNNER = {"auto": False, "stations": [], "factions": list(ROLES), "kinds": list(RUNNABLE), "tier2": True,
                   "run": [], "warned": {}, "notes": {}, "supplied": {}, "tries": {}, "accept_fail_at": None,
-                  "carriers": {}, "sent": {}}
+                  "carriers": {}, "sent": {}, "tour": {}}
 # The station jobs carriers (Joe 2026-11-24): one replicant heaven vessel and one cargo ship of the logistics fleet work the
 # "stations" logistics category first and other categories when no station work is open (logistics.plan
 # `station_carriers`); the vessel also flies to wherever a ready job completes. Picked once, kept in job_runner "carriers".
@@ -491,6 +491,17 @@ async def run_pass(eng) -> list[str]:
             out.append(f"completed job {jid}")
         else:
             await eng.log("station_jobs", f"complete {j.get('title')}: {err}", "warning")
+    # with Auto accept on, the station jobs vessel is the runner's alone (Joe 2026-11-25): no other pass takes it
+    vessel = (cfg.get("carriers") or {}).get("vessel")
+    eng.__dict__["station_hold"] = {vessel} if cfg.get("auto") and vessel else set()
+    if cfg.get("auto"):
+        before = dict(cfg.get("tour") or {})
+        note = await tour(eng, cfg, stations, mine, devices, reps)
+        if note:
+            await eng.log("station_jobs", note)
+            out.append(note)
+        if cfg.get("tour") != before:
+            changed = True
     if changed:
         await db.kv_set(KV_RUNNER, cfg)
     return out
@@ -505,7 +516,7 @@ async def send_vessel(eng, cfg: dict, j: dict, ob: dict, devices: list[dict], re
     if not d or not rep or not ob["complete_at"]:
         return None
     jid = str(j.get("id"))
-    if code in eng.busy_devices(await eng.jobs()):
+    if in_job(code, await eng.jobs()):
         return None
     st = str(d.get("status") or "").lower()
     if d.get("stowed_in_device_code") or d.get("attached_to_device_code") or st.startswith(("travel", "surg", "cruis")):
@@ -519,3 +530,73 @@ async def send_vessel(eng, cfg: dict, j: dict, ob: dict, devices: list[dict], re
     job = await eng.create_job("station_jobs", f"station job {j.get('title')}: {code} → {to} to complete it", code, [s],
                                {"devices": [code], "station_job": jid})
     return f"{code} ({(reps.get(rep) or {}).get('name') or rep}) flies to {to} to complete it" if job else None
+
+
+def in_job(code: str | None, jobs: list[dict]) -> bool:
+    """On a running or waiting automation job (busy_devices without the runner's own hold)."""
+    return bool(code) and any(j["status"] in ("running", "waiting") and (j.get("device") == code or code in
+                                                                      ((j.get("meta") or {}).get("devices") or []))
+                              for j in jobs)
+
+
+def tour_next(stations: list[dict], cfg: dict, here_slug: str | None, star_here: str, reach: set[str], pos: dict) -> dict | None:
+    """The station the tour goes to next: a chosen one (all when none chosen) in a system you command, not the one it's
+    at, the longest unvisited first, then the nearest."""
+    from .logistics import _dist
+    sts = set(cfg.get("stations") or [])
+    seen = (cfg.get("tour") or {}).get("visited") or {}
+    cands = [x for x in stations if x.get("slug") and x.get("location") and x["slug"] != here_slug
+             and (not sts or x["slug"] in sts) and star_of(x["location"]) in reach]
+    cands.sort(key=lambda x: (seen.get(x["slug"]) or "", _dist(star_here, star_of(x["location"]), pos), x["slug"]))
+    return cands[0] if cands else None
+
+
+async def tour(eng, cfg: dict, stations: list[dict], mine: dict, devices: list[dict], reps: dict) -> str | None:
+    """The station jobs vessel goes from station to station (Joe 2026-11-25): it stays while the board where it is has a
+    job Auto accept would take (or you hold a job), and flies on to the next station once none is left. A board is shown
+    only to a replicant at the station, so this is how fresh boards get read. Returns a note when something changed."""
+    code = (cfg.get("carriers") or {}).get("vessel")
+    d = next((x for x in devices if x.get("device_code") == code), None)
+    rep = ((d or {}).get("hosting_replicant") or {}).get("replicant_code")
+    t = cfg.setdefault("tour", {})
+    if not d or not rep or accepted(mine) or in_job(code, await eng.jobs()):
+        return None
+    st = str(d.get("status") or "").lower()
+    if d.get("stowed_in_device_code") or d.get("attached_to_device_code") or st.startswith(("travel", "surg", "cruis")):
+        return None
+    loc = d.get("location") or ""
+    here = next((x for x in stations if x.get("location") == loc), None)
+    now = _now()
+    if here:
+        slug = here["slug"]
+        seen = t.setdefault("visited", {})
+        if t.get("at") != slug:   # just arrived: wait for this station's board to be read
+            t["at"], t["since"] = slug, now.isoformat(timespec="seconds")
+            seen[slug] = t["since"]
+            return f"{code} is at {here.get('name') or slug}: reading its board"
+        b = ((await eng.db.kv_get(KV_BOARDS, {})) or {}).get(slug) or {}
+        read = _ts(b.get("at"))
+        since = _ts(t.get("since"))
+        if not b.get("error") and (not read or (since and read < since)):
+            return None   # the board isn't read since it came
+    reach = await eng.commandable(devices)
+    if here:
+        rows = [r for r in board_rows(stations, {slug: b}, mine) if r["station_slug"] == slug]
+        open_ = [r for r in rows if not r["blocked"] or r["blocked"].startswith("cooldown")]
+        if pick([{**r, "blocked": ""} for r in open_], cfg, stations, reach):
+            return None   # a job here Auto accept takes (once any cooldown is over)
+    nxt = tour_next(stations, cfg, here and here["slug"], star_of(loc), reach, await eng.star_lookup("pos"))
+    if not nxt:
+        return None
+    from .automations import step
+    to = nxt["location"]
+    s = step(f"{rep} → {to} (station jobs tour)", f"/replicants/{rep}/travel", {"destination": to},
+             wait=["travel.arrived"], match={"destination": to}, timeout=12 * 3600, critical=True)
+    s["wait_device"] = code
+    job = await eng.create_job("station_jobs", f"station jobs tour: {code} → {nxt.get('name') or nxt['slug']}", code, [s],
+                               {"devices": [code], "station_tour": nxt["slug"]})
+    if not job:
+        return None
+    t["at"], t["since"] = None, None
+    left = f"no job to take at {here.get('name') or here['slug']}, " if here else ""
+    return f"{left}{code} flies to {nxt.get('name') or nxt['slug']} ({to})"
