@@ -255,7 +255,30 @@ async def scan_into(db, api, replicant: str, mine: set[str], s: dict | None = No
         await db.kv_set(tl.KV, t)
     from . import shop
     shops = await shop.note_scanned(db, api, star, devs, mine)
-    return {**snap, "star": star, "shops": shops}
+    info_read = await read_info_beacons(db, api, s, star)
+    return {**snap, "star": star, "shops": shops, "info_read": info_read}
+
+
+async def read_info_beacons(db, api, s: dict, star: str) -> list[str]:
+    """Read the other players' information beacons this scan found in `star` (description and comments), while our
+    replicant is there: new ones, and ones read over a day ago. Returns the codes read."""
+    from . import infobeacons as ib
+    from .api import ApiError
+    codes = ib.due_reads(s.get("info_beacons") or {}, await db.kv_get(ib.KV, {}) or {}, star)
+    got = []
+    for code in codes:
+        try:
+            dev = await api.get(f"/devices/{code}", background=True)
+        except ApiError:
+            continue
+        if isinstance(dev, dict) and dev:
+            got.append((code, dev))
+    if got:
+        store = await db.kv_get(ib.KV, {}) or {}
+        for code, dev in got:
+            store = ib.remember(store, {"device_type": ib.TYPE, "device_code": code, **dev})
+        await db.kv_set(ib.KV, store)
+    return [c for c, _ in got]
 
 
 async def on_traffic_poll(db, api, entries: list[dict], mine: set[str]) -> dict:

@@ -4,13 +4,22 @@
 <h1>Information beacons</h1>
 <p class="muted small">An information beacon broadcasts up to {{ max_text | num }} characters to anyone who scans its system, at any
   location. Get one at Bill's Skunkworks for an FTL beacon, and decommission one at an autofactory to learn the blueprint.
-  Deploy it, write the description, start broadcasting. Anyone with a replicant at a beacon can comment on it (20 at most).</p>
+  Deploy it, write the description, start broadcasting. Give one a deploy location and logistics carries it there; the app then
+  deploys it and starts the broadcast. Anyone with a replicant at a beacon can comment on it (20 at most).</p>
 <div class="card"><h2>Yours</h2>
   {% for b in mine %}<details class="small" style="margin:6px 0"{{ ' open' if loop.length == 1 }}>
     <summary><a class="mono" href="/devices/{{ b.code }}">{{ b.code }}</a> at {% if b.location %}<a href="/systems/{{ b.location.split('-')[0] }}">{{ b.location }}</a>{% else %}?{% endif %}
       <span class="pill {{ b.status | status_class }}">{{ b.status }}</span> · {{ b.comments | length }} comment(s)
       {% if b.description %}<span class="muted">· {{ b.description[:80] }}{{ '…' if b.description | length > 80 }}</span>{% elif not b.read_at %}<span class="muted">· not read yet</span>{% endif %}
-      {% if not b.deployed %}<span class="muted">· not deployed</span>{% endif %}</summary>
+      {% if not b.deployed %}<span class="muted">· not deployed</span>{% endif %}
+      {% if b.target %}<span class="muted">· → {{ b.target.dest }}</span>{% endif %}</summary>
+    <form class="small" style="margin:4px 0" hx-post="/info-beacons/{{ b.code }}/deploy-at" hx-target="next .ib-deploy">
+      Deploy at <input name="destination" value="{{ b.target.dest if b.target else '' }}" placeholder="STAR or spot, e.g. SOLARES-3" size="22">
+      <label><input type="checkbox" name="activate" value="1"{{ ' checked' if not b.target or b.target.activate }}> start broadcasting there</label>
+      <button class="small">Set</button>
+      {% if b.target %}<button class="small ghost" name="clear" value="1">Cancel</button>{% endif %}
+    </form>
+    <div class="ib-deploy small">{% if b.target %}<span class="muted">{{ b.target.line }}</span>{% endif %}</div>
     <div hx-get="/info-beacons/{{ b.code }}/card" hx-trigger="{{ 'load' if loop.length == 1 else 'toggle once from:closest details' }}"><p class="muted">Loading…</p></div>
   </details>{% else %}<p class="muted">You have no information beacon yet.</p>{% endfor %}</div>
 <div class="card"><h2>Other players' beacons</h2>
@@ -20,8 +29,10 @@
     <td>{{ b.owner or '' }}</td>
     <td>{% if b.description %}<span class="ib-text">{{ b.description }}</span>{% else %}<span class="muted">not read{% if b.seen_at %} · seen {{ b.seen_at | ago }}{% endif %}</span>{% endif %}</td>
     <td class="num">{{ b.comments | length if b.read_at else '' }}</td></tr>{% endfor %}</table>
-  <p class="muted small">Open a beacon to read it live and comment; that works only from its star.</p>
-  {% else %}<p class="muted">None seen yet: scan for them below.</p>{% endif %}</div>
+  <p class="muted small">Found by the device scan each replicant makes on arriving in a system, and read then (new ones, and
+    ones read over a day ago). Open a beacon to read it live and comment; that works only from its star.</p>
+  {% else %}<p class="muted">None seen yet. Each replicant's device scan on arrival finds them and reads their messages; you can
+    also scan below.</p>{% endif %}</div>
 <div class="card"><h2>Comments on yours <span class="muted small">latest 30</span></h2>
   <ul class="feed">{% for r in recent %}<li><span class="t">{{ r.at | local('%m-%d %H:%M') }}</span><span><a href="/devices/{{ r.code }}">{{ r.line }}</a></span></li>
   {% else %}<li class="muted">No comments yet.</li>{% endfor %}</ul></div>

@@ -353,7 +353,10 @@ who scans their system. Get one at Bill's Skunkworks for an FTL beacon; decommis
 blueprint. Each of yours has a card (also on its device page): the description with a character count, *allow comments*,
 *Start broadcasting* (it must be deployed), its comments with *Delete*, and a comment box. Other players' beacons come
 from device scans (*Scan for beacons* from any replicant, or any arrival or traffic scan) and can be read and commented on
-from a replicant at the beacon. *Comments on yours* lists `device.commented` events, which also raise an info
+from a replicant at the beacon; a device scan reads the ones it finds right away (description and comments, up to 8 per
+scan, again after a day). Each of yours takes a *Deploy at* location (a star or a spot) with *start broadcasting there*:
+logistics carries it there with hand-delivery tags, then the engine deploys it and starts the broadcast (resent after 10
+minutes, reported after 3 tries); *Cancel* drops the location and the tags. *Comments on yours* lists `device.commented` events, which also raise an info
 notification. The System page shows a Broadcasts card with the scan's info section and the beacons known there.
 Unverified live: the scan's field name for broadcasts and the `device.commented` payload's field names (read loosely).
 

@@ -1264,6 +1264,53 @@ class OpsRules:
             self.hub.publish("state", "traffic")    # the Galaxy map redraws its arrows / other players
         return out
 
+    async def info_beacon_pass(self) -> list[str]:
+        """Information beacons given a deploy location (Info beacons page, Joe 2026-11-25): logistics carries them there
+        (to:/at: tags); once one is on the ground at the spot, deploy it, then start broadcasting if asked. Each step
+        is sent again after RESEND_MIN while the device list still offers it, up to MAX_TRIES, then reported once."""
+        from . import infobeacons as ib
+        targets = await self.db.kv_get(ib.TARGETS_KV, {}) or {}
+        if not targets or (await self.settings()).get("dry_run"):
+            return []
+        by = {d.get("device_code"): d for d in await self.devices()}
+        out, changed, now = [], False, _now()
+        for code, t in list(targets.items()):
+            if t.get("stuck"):
+                continue
+            step = ib.target_step(by.get(code), t)
+            if step in ("gone", "done"):
+                targets.pop(code)
+                changed = True
+                text = (f"information beacon {code} is no longer in the device list: deploy location {t.get('dest')} dropped"
+                        if step == "gone" else f"information beacon {code} is in place at {t.get('dest')}"
+                        + (" and broadcasting" if t.get("activate") else ""))
+                await self.log("info_beacons", text)
+                out.append(text)
+                continue
+            if step == "wait":
+                continue
+            last = _ts((t.get("sent") or {}).get(step))
+            if last and (now - last).total_seconds() < ib.RESEND_MIN * 60:
+                continue
+            tries = (t.get("tries") or {}).get(step, 0)
+            if tries >= ib.MAX_TRIES:
+                t["stuck"] = f"{step} sent {tries} times without effect"
+                changed = True
+                await self.log("info_beacons", f"information beacon {code} at {t.get('dest')}: {t['stuck']}; "
+                               "set its deploy location again on the Info beacons page to retry", "alert", notify=True)
+                continue
+            ok, _resp, err = await self.send("POST", f"/devices/{code}", {"command": step},
+                                             f"info beacons: {step} {code} at {t.get('dest')}")
+            t.setdefault("sent", {})[step] = now_iso()
+            t.setdefault("tries", {})[step] = tries + 1
+            changed = True
+            text = f"information beacon {code}: {step} at {t.get('dest')}" + ("" if ok else f" refused: {err}")
+            await self.log("info_beacons", text, "info" if ok else "warning")
+            out.append(text)
+        if changed:
+            await self.db.kv_set(ib.TARGETS_KV, targets)
+        return out
+
     # --- asteroid defense -----------------------------------------------------------------------------------------
     async def diverted_pct(self) -> float:
         """The asteroid defense rule's "diverted enough" impact likelihood (%)."""

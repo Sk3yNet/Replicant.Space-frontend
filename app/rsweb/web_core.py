@@ -2240,7 +2240,7 @@ def _sse(event: str, html: str) -> str:
 # Where each rule's settings live: the page it works on (it loads them from /automations/rules-panel).
 RULE_HOME = {
     "census_on_arrival": ("Map › Stars", "/stars"), "scan_on_arrival": ("Map › Systems", "/systems"),
-    "devices_on_arrival": ("Map › Systems", "/systems"), "auto_survey": ("Map › Systems", "/systems"),
+    "devices_on_arrival": ("Map › Systems", "/systems"), "info_beacons": ("Activity › Info beacons", "/info-beacons"), "auto_survey": ("Map › Systems", "/systems"),
     "restart_idle_miners": ("Map › Systems", "/systems"), "reopen_sites": ("Map › Systems", "/systems"),
     "salvage_when_depleted": ("Map › Systems", "/systems"), "belt_viability": ("Map › Systems", "/systems"),
     "visitor_alerts": ("Map › Traffic", "/traffic"), "civ_beacons": ("Map › Traffic", "/traffic"),

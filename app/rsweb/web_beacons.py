@@ -77,8 +77,67 @@ async def info_beacons_page(request: Request, user: str = Depends(current_user))
             p = {}
         recent.append({"at": r["created_at"], "code": r["device_code"],
                        "line": ib.commented_line({"device_code": r["device_code"], "location": r["location"], **p})})
+    targets = await db.kv_get(ib.TARGETS_KV, {}) or {}
+    for b in mine:
+        t = targets.get(b["code"])
+        if t:
+            b["target"] = {**t, "line": target_line(b["dev"], t)}
     return await page(request, user, "info_beacons.html", "infobeacons", mine=mine, theirs=theirs, reps=reps,
                       recent=recent, max_text=ib.MAX_TEXT)
+
+
+def target_line(d: dict | None, t: dict) -> str:
+    """Where a beacon with a deploy location stands, in words."""
+    if t.get("stuck"):
+        return f"stuck: {t['stuck']}"
+    step = ib.target_step(d, t)
+    dest = t.get("dest") or "?"
+    if step == "wait":
+        tags = (d or {}).get("tags") or []
+        return (f"on its way to {dest} (logistics carries it)" if any(str(x).startswith(("to:", "at:")) for x in tags)
+                else f"waiting to reach {dest}")
+    return {"deploy": f"at {dest}: deploying", "activate": f"at {dest}: starting the broadcast",
+            "done": f"in place at {dest}", "gone": "no longer in the device list"}.get(step, step)
+
+
+@router.post("/info-beacons/{code}/deploy-at", response_class=HTMLResponse)
+async def info_beacon_deploy_at(request: Request, code: str, destination: str = Form(""), activate: str = Form(""),
+                                clear: str = Form(""), user: str = Depends(current_user)):
+    """Set (or cancel) where one of your information beacons goes: logistics carries it there (hand delivery tags),
+    then the engine deploys it and, if ticked, starts the broadcast (ops_rules.info_beacon_pass)."""
+    from . import loadouts as lo
+    from .web_bulk import deliver_devices
+    db = request.app.state.db
+    targets = await db.kv_get(ib.TARGETS_KV, {}) or {}
+    devices = await db.kv_get("devices", []) or []
+    d = next((x for x in devices if x.get("device_code") == code), None)
+    if not d or d.get("device_type") != ib.TYPE:
+        return HTMLResponse('<div class="result err">That isn&#39;t one of your information beacons.</div>')
+    if clear == "1":
+        had = targets.pop(code, None)
+        await db.kv_set(ib.TARGETS_KV, targets)
+        if lo.delivery_clear_tags(d):
+            return await deliver_devices(request, user, [code], "", clear=True)
+        return HTMLResponse(f'<div class="result ok">{"Deploy location canceled." if had else "No deploy location was set."}</div>')
+    dest = (destination or "").strip().upper()
+    if not dest or not lo.is_place(dest):
+        return HTMLResponse(f'<div class="result err">{html.escape(dest or "No location")} isn&#39;t a star or location '
+                            'code (e.g. SOLARES, SOLARES-3, FALQUORYX-3-L4).</div>')
+    _add, _remove, why = lo.delivery_tags(d, dest)
+    out = ""
+    if why and not why.startswith(("already at", "already tagged")):
+        return HTMLResponse(f'<div class="result err">{html.escape(why[0].upper() + why[1:])}.</div>')
+    if not why:
+        resp = await deliver_devices(request, user, [code], dest)
+        out = resp.body.decode()
+        d = next((x for x in await db.kv_get("devices", []) or [] if x.get("device_code") == code), d)
+        if lo.delivery_tags(d, dest)[2] is None:   # the tag PATCH was refused: nothing will carry it
+            return HTMLResponse(out)
+    targets[code] = {"dest": dest, "activate": activate == "1", "set_at": ib.now()}
+    await db.kv_set(ib.TARGETS_KV, targets)
+    line = target_line(d, targets[code])
+    return HTMLResponse(f'<div class="result ok">Deploy location {html.escape(dest)} set'
+                        f'{", broadcasting once deployed" if activate == "1" else ""}: {html.escape(line)}.</div>' + out)
 
 
 @router.get("/info-beacons/scan/{rep}", response_class=HTMLResponse)

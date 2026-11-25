@@ -177,3 +177,60 @@ def commented_line(p: dict | None) -> str:
     short = text if len(text) <= 120 else text[:117] + "…"
     return f"{who} commented on beacon {code or ''}".replace("  ", " ") + (f" at {where}" if where else "") \
         + (f": “{short}”" if short else "")
+
+
+# --- automatic reads and deploy locations (1.559.0, Joe 2026-11-25) ---------------------------------------------------
+AUTO_READ_MAX = 8      # other players' beacons read per device scan (each is one GET)
+REREAD_HOURS = 24      # a beacon read this long ago is read again by the next scan of its system
+TARGETS_KV = "info_beacon_targets"   # {code: {dest, activate, set_at, sent: {step: iso}, tries: {step: n}, stuck}}
+RESEND_MIN = 10        # a step sent this long ago without the device list showing it done is sent again
+MAX_TRIES = 3
+
+
+def _age_h(iso: str | None, now: datetime | None = None) -> float | None:
+    try:
+        t = datetime.fromisoformat(str(iso))
+    except (TypeError, ValueError):
+        return None
+    if t.tzinfo is None:
+        t = t.replace(tzinfo=timezone.utc)
+    return ((now or datetime.now(timezone.utc)) - t).total_seconds() / 3600
+
+
+def due_reads(seen: dict | None, store: dict | None, star: str, now: datetime | None = None,
+              hours: float = REREAD_HOURS, limit: int = AUTO_READ_MAX) -> list[str]:
+    """Other players' beacons in `star` (others.py `info_beacons`) never read, or read over `hours` ago: a replicant
+    of yours is in the system right after a device scan, so they can be read (only works from their star)."""
+    out = []
+    for code, x in sorted((seen or {}).items()):
+        if str((x or {}).get("location") or "").split("-")[0] != star:
+            continue
+        age = _age_h(((store or {}).get(code) or {}).get("read_at"), now)
+        if age is None or age >= hours:
+            out.append(code)
+    return out[:limit]
+
+
+def at_dest(d: dict, dest: str) -> bool:
+    """On the ground at `dest` (a spot, or anywhere in a star's system) and not waiting on a carrier."""
+    loc = str(d.get("location") or "").upper()
+    dest = (dest or "").upper()
+    if not loc or d.get("stowed_in_device_code") or d.get("attached_to_device_code"):
+        return False
+    if any(str(t).startswith(("to:", "at:")) or t == "lift" for t in d.get("tags") or []):
+        return False   # logistics still has it to move (the tags go on arrival)
+    return loc == dest if "-" in dest else loc.split("-")[0] == dest
+
+
+def target_step(d: dict | None, t: dict) -> str:
+    """What a beacon with a deploy location needs next: gone, wait, deploy, activate or done."""
+    if not d:
+        return "gone"
+    if not at_dest(d, t.get("dest") or ""):
+        return "wait"
+    cmds = d.get("available_commands") or []
+    if "deploy" in cmds:
+        return "deploy"
+    if t.get("activate") and "activate" in cmds:
+        return "activate"
+    return "done"
