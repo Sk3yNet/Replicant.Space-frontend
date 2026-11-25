@@ -10,6 +10,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any
 
+from .api import ApiError
 from .db import now_iso
 
 log = logging.getLogger("rsweb.auto")

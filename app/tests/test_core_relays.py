@@ -1943,3 +1943,30 @@ def test_relay_run_skips_a_stop_with_no_lagrange_point(client):
     assert [s["status"] for s in job["steps"]] == ["pending", "skipped", "skipped", "pending", "pending"]
     job["idx"] = 3
     assert not client.portal.call(eng._skip_stop, job["steps"][3], job, "x")   # no later trip: the job stops as before
+
+
+def test_no_lagrange_recheck_survives_a_game_error(client):
+    # 1.556.0: an ApiError from GET /locations crashed station_swap_pass with a NameError (ApiError not imported)
+    from rsweb import ward_orders as wo
+    from rsweb.api import ApiError
+    db = client.app.state.db
+    eng = client.app.state.worker.automations
+    client.portal.call(db.kv_set, wo.NO_LP_KV, {"ALG": {"at": "2026-11-24", "recheck": True},
+                                                 "BEX": {"at": "2026-11-24", "recheck": True}})
+    seen = []
+
+    async def request(method, path, **kw):
+        seen.append(path)
+        if path.endswith("/ALG"):
+            raise ApiError(404, "Location not found")
+        return {"planets": [{"designation": "BEX-1"}]}
+    orig = eng.api.request
+    eng.api.request = request
+    try:
+        client.portal.call(eng._recheck_no_lagrange)
+    finally:
+        eng.api.request = orig
+    assert seen == ["/locations/ALG", "/locations/BEX"]
+    assert set(client.portal.call(db.kv_get, "no_lagrange_tried", {})) == {"ALG", "BEX"}
+    assert client.portal.call(db.fetchone, "SELECT 1 FROM systems WHERE star='BEX'") is not None
+    assert client.portal.call(db.fetchone, "SELECT 1 FROM systems WHERE star='ALG'") is None
