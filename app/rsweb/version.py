@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.553.0"
+VERSION = "1.554.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.554.0", "2026-11-25", "An impact clears an AMI controller's directive once (Joe: 9A046413 was cleared seven times for SARKARUS-OBJ-2 from 11:59 to 12:09). The cached device list, the last transport digest and the rock chaser's own record still named the old rock, so the clear and its alert were sent again every pass, and the rock chaser couldn't set the new shuttle at SARKARUS-OBJ-3 until 12:09. Now the same spots aren't cleared again for 6 hours unless a newer directive was set, and a digest older than the app's latest directive is ignored. Loadouts also skip devices aboard a carrier that's out of comms range: relay station BB89F788 hangs on stowed surge plate 25876BE0, and 07B7A647's run to fetch it failed every hour since 08:42."),
     ("1.553.0", "2026-11-25", "The Galaxy page map fills the window (Joe): full width and the whole height below the header, resizing with the window; the controls, info panel and legend float over it. It stays at least 480 px tall, so on a phone with a tall header the page scrolls a little. On a phone the info panel now floats at the bottom of the map (it used to fall below the map, out of sight). Stars and lines are unchanged."),
     ("1.552.0", "2026-11-25", "Systems where relay runs found no L4/L5 point get a sure answer (Joe: clear their survey status). The 26 systems where a run stopped since 11-20 lose their saved scan and AMI survey mark, so scouts scan them again; until then they count as having no planet. A fresh scan with a planet takes a system off the list (the app also asks the game for 5 of them each pass), one with none confirms it; a relay carrier's own scan is now saved too."),
     ("1.551.0", "2026-11-25", "Relay runs no longer stop at a system with no L4/L5 point (Joe: SOL's and ALGOLUM's relays still weren't there). ALGOLUM has no planet, so a relay can never switch on there: five relay runs since 11-23 stopped at its Kuiper belt, and the latest left heaven vessel CBFC5D06 idle there with the relays for SOL and SCHEANAR still aboard. Now a run skips such a stop and flies on; the system is remembered (a scan with no planet), relay orders there are refused or dropped with their relays made spare, and relay targets (ARUCALIS) chain around it. A Logistics fleet fill no longer holds every carrier of the fleet busy for its whole trip, only the ones it uses (it held CBFC5D06 for 10 hours)."),

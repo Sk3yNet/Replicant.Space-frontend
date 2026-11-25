@@ -765,3 +765,47 @@ def test_idle_rigs_mine_the_home_belt_until_a_rock_comes_in(client):  # noqa: F8
     client.portal.call(e.save_fleets, f)
     client.portal.call(e.save_jobs, [])
     assert not any("rigs mine" in x for x in client.portal.call(e.rock_chase_pass))
+
+
+def test_impact_directive_clear_ignores_the_run_a_new_shuttle_replaced(client):  # noqa: F811
+    """Live 2026-11-25: 9A046413's shuttle moved SARKARUS-OBJ-2 → OBJ-3, but the cached device list and the last
+    transport digest still named OBJ-2, so the doomed-run check cleared the new shuttle every minute."""
+    ctl = {"device_code": "CTL", "device_type": "ami_transport_controller", "location": "SOL-KUIPER", "status": "coordinating",
+           "tags": ["fleet:rc"], "features": ["ami"], "available_commands": ["clear_directive"],
+           "ami_directive": {"name": "shuttle", "config": {"collect": "SOL-OBJ-2", "deliver": "SOL-4-L4"}},
+           "ami_directive_status": "active"}
+    db, e = _setup(client, [ctl], {})
+    client.portal.call(db.insert_event, {"id": "dg-old", "event": "ami.transport.digest", "device_code": "CTL",
+                                         "payload": {"report": {"collect": "SOL-OBJ-2", "deliver": "SOL-4-L4"}}})
+    client.portal.call(db.execute, "UPDATE events SET received_at=? WHERE id='dg-old'", (iso(-5),))
+    f = client.portal.call(e.fleets)
+    f[0]["chase_run"] = {"ami": {"ctrl": "CTL", "collect": "SOL-OBJ-3", "deliver": "SOL-4-L4", "at": iso(-1)}}
+    client.portal.call(e.save_fleets, f)
+    hot = {"SOL-OBJ-2": 0.5}
+    assert client.portal.call(e._evacuate_directives, [ctl], hot, set()) == []
+    # the new shuttle itself at a doomed rock is still cleared
+    assert client.portal.call(e._evacuate_directives, [ctl], {"SOL-OBJ-3": 0.5}, set()) \
+        == ["CTL: directive cleared, it worked at SOL-OBJ-3 (impact due)"]
+
+
+def test_impact_directive_clear_is_sent_once_per_run(client):  # noqa: F811
+    """Live 2026-11-25 11:59-12:09: the clear was sent and alerted seven times while the lists still named the spot."""
+    ctl = {"device_code": "CTL", "device_type": "ami_transport_controller", "location": "SOL-KUIPER", "status": "coordinating",
+           "tags": ["fleet:rc"], "features": ["ami"], "available_commands": ["clear_directive"],
+           "ami_directive": {"name": "shuttle", "config": {"collect": "SOL-OBJ-2", "deliver": "SOL-4-L4"}},
+           "ami_directive_status": "active"}
+    db, e = _setup(client, [ctl], {})
+    f = client.portal.call(e.fleets)
+    f[0]["chase_run"] = {"ami": {"ctrl": "CTL", "collect": "SOL-OBJ-2", "deliver": "SOL-4-L4", "at": iso(-60)}}
+    client.portal.call(e.save_fleets, f)
+    hot = {"SOL-OBJ-2": 0.5}
+    assert len(client.portal.call(e._evacuate_directives, [ctl], hot, set())) == 1
+    for j in client.portal.call(e.jobs):
+        j["status"] = "done"
+        client.portal.call(e._update, j)
+    assert client.portal.call(e._evacuate_directives, [ctl], hot, set()) == []
+    # a new shuttle to another doomed rock is cleared again
+    f = client.portal.call(e.fleets)
+    f[0]["chase_run"] = {"ami": {"ctrl": "CTL", "collect": "SOL-OBJ-3", "deliver": "SOL-4-L4", "at": iso(1)}}
+    client.portal.call(e.save_fleets, f)
+    assert len(client.portal.call(e._evacuate_directives, [ctl], {"SOL-OBJ-3": 0.5}, set())) == 1

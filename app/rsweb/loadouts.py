@@ -596,6 +596,11 @@ def plan(cfg: dict, devices: list[dict], blueprints: list[dict], inventory: dict
             busy = set(busy) | {d.get("device_code")}
         if d.get("location_stale"):  # last known position only (partial snapshot): count it, don't command it
             busy = set(busy) | {d.get("device_code")}
+    dark = {d.get("device_code") for d in devices if d.get("in_control_range") is False}
+    for d in devices:   # aboard a carrier out of comms range: nobody can let it off (live 2026-11-25: relay station
+        # BB89F788 hung on stowed surge plate 25876BE0 at FALQUORYX-1-L4; 07B7A647's run to fetch it failed every hour)
+        if (d.get("attached_to_device_code") or d.get("stowed_in_device_code")) in dark - {None}:
+            busy = set(busy) | {d.get("device_code")}
     on_busy: dict[str, str] = {}   # aboard a carrier a running job holds: it goes where the carrier goes, not before
     for d in devices:
         c = d.get("attached_to_device_code") or d.get("stowed_in_device_code")

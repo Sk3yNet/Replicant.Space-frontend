@@ -801,26 +801,44 @@ class LoadoutMixin:
         runs = [f.get("chase_run") or {} for f in (await self.loadout_cfg()).get("fleets") or []]
         shuttles = {r["ami"]["ctrl"]: r["ami"] for r in runs if isinstance(r, dict) and (r.get("ami") or {}).get("ctrl")}
         hot_stars = {lo.star_of(x) for x in hot}
+        now = datetime.now(timezone.utc)
+        cleared = {c: v for c, v in (await self.db.kv_get("evac_cleared", {}) or {}).items()
+                   if (now - (_ts((v or {}).get("at")) or now)).total_seconds() < EVAC_CLEAR_HOLD_S}
         out: list[str] = []
         for d in devices:
             code = d.get("device_code")
             if not lo.is_transport_controller(d) or code in busy or lo.star_of(d.get("location")) not in hot_stars:
                 continue
             spots: set[str] = set()
+            # the app's own latest directive for it (rock shuttle or loadout ferry): the device list (2 min cache) and the
+            # last transport digest may still name the run it replaced (live 2026-11-25: 9A046413 was cleared every minute
+            # for SARKARUS-OBJ-2 after the rock chaser had moved its shuttle to SARKARUS-OBJ-3)
+            set_at = max((_ts((x or {}).get("at")) for x in (sent.get(code), shuttles.get(code))), default=None,
+                         key=lambda t: t or datetime.min.replace(tzinfo=timezone.utc))
+            fresh = set_at is not None and (now - set_at).total_seconds() < 600
             dirv = d.get("ami_directive") or {}
-            if dirv and str(d.get("ami_directive_status") or "active") == "active":
+            if not fresh and dirv and str(d.get("ami_directive_status") or "active") == "active":
                 spots |= {str((dirv.get("config") or {}).get(k) or "") for k in ("collect", "deliver")}
             spots |= {str(((sent.get(code) or {}).get("configuration") or {}).get(k) or "") for k in ("collect", "deliver")}
             spots |= {str((shuttles.get(code) or {}).get(k) or "") for k in ("collect", "deliver")}
-            row = await self.db.fetchone("SELECT payload FROM events WHERE event='ami.transport.digest' AND device_code=? "
-                                         "ORDER BY seq DESC LIMIT 1", (code,))
+            row = await self.db.fetchone("SELECT payload, received_at FROM events WHERE event='ami.transport.digest' "
+                                         "AND device_code=? ORDER BY seq DESC LIMIT 1", (code,))
             try:
                 rep = (json.loads(row["payload"] or "{}").get("report") or {}) if row else {}
             except ValueError:
                 rep = {}
-            spots |= {str(rep.get(k) or "") for k in ("collect", "deliver")}
+            got = _ts(row["received_at"]) if row else None
+            if set_at is None or (got is not None and got > set_at):   # a digest from before the new directive is stale
+                spots |= {str(rep.get(k) or "") for k in ("collect", "deliver")}
             doomed = sorted(x for x in spots if x in hot)
             if not doomed:
+                continue
+            # cleared already: until a newer directive is set, the cached list, the digest and the app's own record of the
+            # run keep naming the spot, and clearing again only repeats the alert (11:59-12:09: seven times for 9A046413)
+            last = cleared.get(code) or {}
+            done_at = _ts(last.get("at"))
+            if done_at and set(doomed) <= set(last.get("spots") or []) and (set_at is None or set_at <= done_at) \
+                    and (now - done_at).total_seconds() < EVAC_CLEAR_HOLD_S:
                 continue
             if await self.create_job("evacuate", f"{code}: stop its run at {', '.join(doomed)} (impact)", code,
                                      [step(f"{code}: clear directive (works at {', '.join(doomed)})", f"/devices/{code}",
@@ -829,6 +847,8 @@ class LoadoutMixin:
                 busy.add(code)
                 if sent.pop(code, None) is not None:
                     await self.db.kv_set("loadout_ferries", sent)
+                cleared[code] = {"at": now.isoformat(), "spots": doomed}
+                await self.db.kv_set("evac_cleared", cleared)
                 out.append(f"{code}: directive cleared, it worked at {', '.join(doomed)} (impact due)")
         return out
 
@@ -1341,3 +1361,15 @@ class LoadoutMixin:
         for line in started:
             await self.log("loadouts", f"dispatched right after printing: {line}")
         return started
+
+
+EVAC_CLEAR_HOLD_S = 6 * 3600   # a cleared directive is not cleared again for the same spots unless a newer one was set
+
+
+def _ts(v) -> datetime | None:
+    """An ISO time as an aware datetime, None when missing or unreadable."""
+    try:
+        t = datetime.fromisoformat(str(v).replace("Z", "+00:00")) if v else None
+    except ValueError:
+        return None
+    return t.replace(tzinfo=timezone.utc) if t and t.tzinfo is None else t
