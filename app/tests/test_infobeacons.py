@@ -137,3 +137,14 @@ def test_deploy_location_carries_deploys_and_broadcasts(client):
     assert client.portal.call(client.app.state.db.kv_get, ib.TARGETS_KV, {}) == {}
     r = client.post("/info-beacons/IB44C2E2/deploy-at", data={"destination": "nowhere!"}, headers=HX).text
     assert "isn&#39;t a star" in r
+
+
+def test_info_beacons_never_count_as_traffic_beacons():
+    """Joe 2026-11-25: an information beacon at RADYR-OORT was pinned to the civilization's body like an FTL beacon."""
+    from rsweb import traffic
+    info = {"device_code": "B9BA1A7B", "device_type": "information_beacon", "features": ["beacon", "stow"],
+            "location": "RADYR-OORT", "status": "monitoring", "tags": ["spare"]}
+    ftl = {"device_code": "F1", "device_type": "ftl_beacon", "location": "RADYR-3-L4", "status": "monitoring"}
+    assert not traffic.is_beacon(info) and traffic.is_beacon(ftl)
+    assert [d["device_code"] for d in traffic.beacons([info, ftl])] == ["F1"]
+    assert [d["device_code"] for d in traffic.beacons_all([info, ftl])] == ["F1"]

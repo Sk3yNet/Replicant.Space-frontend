@@ -38,8 +38,15 @@ def _ts(v: str | None) -> datetime | None:
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
+def beacon_type(t) -> bool:
+    """An FTL beacon type (logs traffic). Information beacons only broadcast a text the owner placed by hand (Joe
+    2026-11-25: one was pinned to a civilization's body and nearly moved off its Oort spot), so they never count."""
+    t = str(t or "")
+    return "beacon" in t and t != "information_beacon"
+
+
 def is_beacon(d: dict) -> bool:
-    return "beacon" in (d.get("device_type") or "") or "audit" in (d.get("features") or [])
+    return beacon_type(d.get("device_type")) or ("audit" in (d.get("features") or []) and d.get("device_type") != "information_beacon")
 
 
 def deployed(d: dict) -> bool:
@@ -48,7 +55,7 @@ def deployed(d: dict) -> bool:
 
 def beacons(devices: list[dict]) -> list[dict]:
     """Your deployed beacons (the ones that can be audited)."""
-    return sorted((d for d in devices if is_beacon(d) and "beacon" in (d.get("device_type") or "") and deployed(d)),
+    return sorted((d for d in devices if is_beacon(d) and beacon_type(d.get("device_type")) and deployed(d)),
                   key=lambda d: d.get("device_code") or "")
 
 
@@ -341,7 +348,7 @@ def pinned_for(devices: list[dict], locs: list[str] | set[str]) -> dict | None:
 
 def beacons_all(devices: list[dict]) -> list[dict]:
     """Every beacon of yours, deployed or aboard a carrier."""
-    return [d for d in devices if "beacon" in (d.get("device_type") or "")]
+    return [d for d in devices if beacon_type(d.get("device_type"))]
 
 
 def is_vessel(d: dict) -> bool:
@@ -392,7 +399,7 @@ def placement(loc: str, devices: list[dict], replicants: dict, stowed_map: dict[
                 holds[carrier].append(k)
 
     def beacon_in(vessel: str) -> str | None:
-        return next((k for k in holds.get(vessel, []) if "beacon" in ((by.get(k) or {}).get("device_type") or "")
+        return next((k for k in holds.get(vessel, []) if beacon_type((by.get(k) or {}).get("device_type"))
                      and k not in busy), None)
 
     hosts = {}
@@ -435,7 +442,7 @@ def placement(loc: str, devices: list[dict], replicants: dict, stowed_map: dict[
                             f"and {'detach' if b in attached else 'deploy'} beacon {b}" + moves(code)}
     # any beacon of yours in this system that isn't at a civilization's body can be moved there — it logs the whole
     # system's traffic wherever it sits, so nothing is lost. Spare / civ-tagged ones first, then e.g. the Kuiper beacon.
-    loose = sorted((d for d in devices if "beacon" in (d.get("device_type") or "") and star_of(d.get("location")) == star
+    loose = sorted((d for d in devices if beacon_type(d.get("device_type")) and star_of(d.get("location")) == star
                     and deployed(d) and d.get("device_code") not in busy and d.get("location") not in keep
                     and d.get("location") != loc and "stow" in (d.get("available_commands") or ["stow"])),
                    key=lambda d: (not ({"civ", "spare"} & set(d.get("tags") or [])), d.get("device_code") or ""))
