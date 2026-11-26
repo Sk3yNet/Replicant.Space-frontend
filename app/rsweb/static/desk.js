@@ -6,13 +6,14 @@
 (() => {
   const SKIP = /^\/(oauth2|static|api|_tenant|wallpaper|bridge|desk|live|lan)(\/|$)|\.(json|csv|txt|png|svg|zip)$/;
   const DETAIL = /^\/(devices|systems|replicants)\/[^/]+\/?$/;   // pages you open several of at once
-  const KEY = "desk:layout";
+  const KEY = "desk:layout", INFO_KEY = "desk:info";
   const $ = id => document.getElementById(id);
   const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) {} };
   let zTop = 20, placed = 0, saving = null;
 
   const desk = () => $("desk");
   const wins = () => [...desk().querySelectorAll(".desk-win:not(.closed)")];
+  const pages = () => wins().filter(w => !w.dataset.panel);   // the map's info panel is a window too, but no page
   const here = u => u.pathname + u.search;
 
   function inApp(a) {
@@ -64,6 +65,7 @@
     w.style.top = Math.max(0, Math.min(g.y, H - 40)) + "px";
   }
   function title(w) {
+    if (w.dataset.panel) return w.querySelector(".dw-title").textContent;
     const main = w.querySelector(".dw-body main");
     const t = (main && main.dataset.title || "").trim() || w.dataset.url || "";
     w.querySelector(".dw-title").textContent = t;
@@ -129,6 +131,8 @@
   function remove(w) { w.remove(); tabs(); save(); const top = wins().sort((a, b) => b.style.zIndex - a.style.zIndex)[0]; if (top) focus(top); else history.replaceState({ desk: 1 }, "", "/map"); }
   function unfold(w) { w.classList.remove("folded"); tabs(); }
   function tabs() {
+    const iw = desk().querySelector(".desk-win[data-panel]"), panel = $("map-panel");
+    if (iw && panel && panel.open === iw.classList.contains("folded")) panel.open = !iw.classList.contains("folded");   // map.js reopens it on a pick
     const t = $("desk-tabs");
     if (!t) return;
     t.innerHTML = "";
@@ -144,7 +148,10 @@
   function save() {
     clearTimeout(saving);
     saving = setTimeout(() => {
-      const list = wins().filter(w => w.dataset.url).sort((a, b) => a.style.zIndex - b.style.zIndex).map(w => ({
+      const info = desk().querySelector(".desk-win[data-panel]");
+      if (info) store(INFO_KEY, JSON.stringify({ x: parseInt(info.style.left) || 0, y: parseInt(info.style.top) || 0,
+        w: info.offsetWidth, h: info.offsetHeight, f: info.classList.contains("folded") ? 1 : 0 }));
+      const list = pages().filter(w => w.dataset.url).sort((a, b) => a.style.zIndex - b.style.zIndex).map(w => ({
         u: w.dataset.url, x: parseInt(w.style.left) || 0, y: parseInt(w.style.top) || 0, w: w.offsetWidth, h: w.offsetHeight,
         f: w.classList.contains("folded") ? 1 : 0, m: w.classList.contains("max") ? 1 : 0 }));
       store(KEY, JSON.stringify(list));
@@ -158,7 +165,7 @@
   }
 
   function tidy() {   // side by side in a grid, unfolded
-    const ws = wins();
+    const ws = pages();
     if (!ws.length) return;
     const W = desk().clientWidth, H = desk().clientHeight, gap = 8;
     const cols = Math.ceil(Math.sqrt(ws.length)), rows = Math.ceil(ws.length / cols);
@@ -205,7 +212,8 @@
     const w = e.target.closest && e.target.closest(".desk-win");
     const btn = e.target.closest && e.target.closest(".dw-bar button");
     if (w && btn) {
-      if (btn.classList.contains("dw-x")) remove(w);
+      if (btn.classList.contains("dw-x") && w.dataset.panel) { w.classList.add("folded"); tabs(); save(); }   // the info panel only folds
+      else if (btn.classList.contains("dw-x")) remove(w);
       else if (btn.classList.contains("dw-fold")) { w.classList.toggle("folded"); tabs(); save(); }
       else if (btn.classList.contains("dw-max")) { w.classList.toggle("max"); save(); }
       return;
@@ -258,6 +266,29 @@
     if (m) m.open = false;
   });
 
+  // the galaxy map's info panel (selected star, measurements) becomes a window like the pages: moved, resized, folded
+  function infoWindow() {
+    const panel = $("map-panel"), info = $("map-info");
+    if (!panel || !info) return;
+    const w = frame();
+    w.dataset.panel = "map-info";
+    w.classList.add("dw-info");
+    w.querySelector(".dw-title").textContent = "Galaxy info";
+    w.querySelector(".dw-x").title = "Collapse";
+    w.querySelector(".dw-body").appendChild(info);
+    panel.hidden = true;
+    let g = null;
+    try { g = JSON.parse(store(INFO_KEY) || "null"); } catch (e) {}
+    const W = desk().clientWidth;
+    geom(w, g || { x: W - 360, y: 10, w: 340, h: 420 });
+    if (g && g.f) w.classList.add("folded");
+    w.style.zIndex = ++zTop;
+    // map.js opens the panel when you pick a star or measure: unfold the window and bring it forward then
+    new MutationObserver(() => { if (panel.open && w.classList.contains("folded")) { unfold(w); save(); } if (panel.open) w.style.zIndex = ++zTop; })
+      .observe(panel, { attributes: true, attributeFilter: ["open"] });
+    tabs();
+  }
+
   document.addEventListener("DOMContentLoaded", () => {
     const first = desk().querySelector(".desk-win[data-first]");
     let keep = null;
@@ -285,7 +316,8 @@
     if (keep) { keep.classList.remove("folded"); focus(keep); }
     else { const top = wins().pop(); if (top) focus(top); }
     $("desk-tidy").addEventListener("click", tidy);
-    $("desk-clear").addEventListener("click", () => { wins().forEach(w => w.remove()); tabs(); save(); history.replaceState({ desk: 1 }, "", "/map"); });
+    infoWindow();
+    $("desk-clear").addEventListener("click", () => { pages().forEach(w => w.remove()); tabs(); save(); history.replaceState({ desk: 1 }, "", "/map"); });
     save();
   });
 })();

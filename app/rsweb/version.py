@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.564.1"
+VERSION = "1.564.2"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.564.2", "2026-11-26", "Desk: the galaxy map's info panel is a window like the pages (Joe): move it by its bar, resize it from the corner, collapse it to a tab, or make it full size; it unfolds and comes forward when you pick a star, and its place is remembered in this browser."),
     ("1.564.1", "2026-11-26", "System page Bodies card: stations and megastructures show their distance in AU from the stored location detail when the system scan leaves it out (LAOWAOI-OBJ-2)."),
     ("1.564.0", "2026-11-26", "Trips to stations and megastructures (STAR-OBJ-n) far out in a system now surge hop to the nearest surge spot and cruise only the rest: the planner took them for inner-system places, so 5DD5C090 surged to LAOWAOI-5-L4 and cruised 3780 AU (6 h) to LAOWAOI-OBJ-2. Their distance comes from scans and stored location details."),
     ("1.563.0", "2026-11-26", "Reputation: Known species shows one block per species with its habitable ranges as wrapping pills, so the card no longer runs behind the next one (every theme, phones too); reputation tables scroll inside their card."),

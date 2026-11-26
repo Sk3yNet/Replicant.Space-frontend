@@ -38,7 +38,9 @@ html[data-theme] .desk-win { background: color-mix(in srgb, var(--line) 70%, tra
 .desk-tabs { display: flex; gap: 4px; overflow: hidden; min-width: 0; }
 .desk-tabs button { font-size: 11px; padding: 2px 8px; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 html.desk #toasts { right: 16px; bottom: 16px; z-index: 50; }
-html.desk #map-panel { z-index: 5; }
+html.desk #map-panel[hidden] { display: none; }
+.desk-win.dw-info { min-width: 220px; }
+.desk-win.dw-info .dw-body { padding: 10px 12px; }
 /* phones: one window at a time, full width (the command screen suits phones better) */
 @media (max-width: 800px) {
   .desk-menu .in { grid-template-columns: 1fr 1fr; }
