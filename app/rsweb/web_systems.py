@@ -229,8 +229,19 @@ async def system_view(request: Request, star: str, refresh: int = 0, user: str =
     _onn = oth.normalize(await db.kv_get(oth.KV, {}))
     ib_mine, ib_theirs = ib.rows(st["devices"], await db.kv_get(ib.KV, {}) or {}, _onn["info_beacons"])
     ib_here = [b for b in ib_mine + ib_theirs if star_of(b.get("location")) == star]
+    from .fleets import place_radius
+    place_au = {}   # stations and megastructures (STAR-OBJ-n): the scan's distance, else the stored location detail's
+    for code in {t.get("code") for t in bodies} | {o.get("location") for o in scan.get("system_objects") or []
+                                                    if isinstance(o, dict)}:
+        if code and "-OBJ-" in str(code):
+            o = next((x for x in scan.get("system_objects") or [] if isinstance(x, dict) and x.get("location") == code), None)
+            r = place_radius(o)
+            if r is None:
+                r = place_radius(await db.kv_get(f"loc:{code}", None))
+            if r is not None:
+                place_au[code] = r
     return await page(request, user, "system.html", "systems", star=star, scan=scan, view=view, err=err, region=region,
-                      scan_info=ib.scan_info(scan), info_beacons=ib_here,
+                      place_au=place_au, scan_info=ib.scan_info(scan), info_beacons=ib_here,
                       others=oth.summary(osnap, await db.kv_get("replicant_profiles", {}) or {}), others_snap=osnap,
                       other_drones=oth.drone_totals(osnap, await db.kv_get("replicant_profiles", {}) or {}),
                       others_warded=star in oth.warded_by_others(await db.kv_get("stars", {}) or {}, st["devices"]),

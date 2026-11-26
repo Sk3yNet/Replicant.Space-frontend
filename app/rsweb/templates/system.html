@@ -139,7 +139,7 @@
     {% for t in bodies %}{% set p = t.planet or {} %}<tr>
       <td><a hx-get="/locations/{{ t.code }}" hx-target="#loc-panel" href="/locations/{{ t.code }}">{{ t.code }}</a></td>
       <td class="muted">{{ p.type or CATEGORY_LABEL.get(t.category, t.category) | lower }}</td>
-      <td class="num">{{ p.orbital_distance_au or '' }}</td><td class="num">{{ p.moon_count if p else '' }}</td><td>{{ '✓' if p.in_habitable_zone }}</td>
+      <td class="num">{{ p.orbital_distance_au or place_au.get(t.code, '') }}</td><td class="num">{{ p.moon_count if p else '' }}</td><td>{{ '✓' if p.in_habitable_zone }}</td>
       <td>{{ t.note or '' }}{% if t.stock %} <span class="muted">stock {% for r, v in t.stock.items() %}{{ v | num }} {{ r }}{{ ', ' if not loop.last }}{% endfor %}</span>{% endif %}</td>
       <td>{% for x in t.salvage %}<div title="{{ x.code }}">{{ x.name or (x.type | human) or 'salvage' }}:
           {% if x.remaining_pct %}{% for r, pc in x.remaining_pct.items() %}{{ r }}{% if r in x.amounts %} {{ x.amounts[r] | num }}{% endif %} <span class="muted">{{ pc | round | int }}%</span>{{ ', ' if not loop.last }}{% endfor %}
@@ -152,7 +152,7 @@
     {{ o.designation or '' }} at <a hx-get="/locations/{{ o.location }}" hx-target="#loc-panel" href="/locations/{{ o.location }}">{{ o.location }}</a>
     <span class="muted">{{ (o.megastructure_type or o.object_type or '') | human }}{% if o.stage %} · {{ o.stage }}{% endif %}{% if o.status %} · {{ o.status }}{% endif %}{% if o.progress_percentage is not none and o.progress_percentage is defined %} · {{ o.progress_percentage | round(1) }}%{% endif %}</span></summary>
     {% if o.description %}<p style="margin:4px 0">{{ o.description }}</p>{% endif %}
-    <p class="muted" style="margin:4px 0">{% if o.orbital_distance_au is defined %}{{ o.orbital_distance_au }} AU{% endif %}{% if o.deadline %} · deadline {{ o.deadline }}{% endif %}{% if o.contributors is defined %} · {{ o.contributors }} contributor{{ 's' if o.contributors != 1 }}{% endif %}</p>
+    <p class="muted" style="margin:4px 0">{% if place_au.get(o.location) is not none %}{{ place_au[o.location] }} AU{% endif %}{% if o.deadline %} · deadline {{ o.deadline }}{% endif %}{% if o.contributors is defined %} · {{ o.contributors }} contributor{{ 's' if o.contributors != 1 }}{% endif %}</p>
     {% if req %}<table class="small"><tr><th>Needs</th><th class="num">Have</th><th class="num">Required</th><th class="num">Remaining</th><th></th></tr>
       {% for t, r in req | dictsort %}<tr><td>{{ t | human }}</td><td class="num">{{ r.current }}</td><td class="num">{{ r.required }}</td>
         <td class="num">{{ r.remaining or '' }}</td><td>{{ '✓' if r.complete }}</td></tr>{% endfor %}</table>{% endif %}

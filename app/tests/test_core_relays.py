@@ -1551,6 +1551,11 @@ def test_system_page_folds_out_system_objects_and_the_full_scan(client):
     page = client.get("/systems/ARUCALIS", headers=H).text
     assert "Populated Space Station" in page and "hab module" in page and "creme-292" in page
     assert "Full system scan" in page and "SPACE-STATION-006" in page
+    assert "AU" not in page.split("SPACE-STATION-006")[1].split("Needs")[0]
+    # Joe 2026-11-26: the scan gives no distance; the stored location detail does (LAOWAOI-OBJ-2, 3781.59 AU)
+    client.portal.call(db.kv_set, "loc:ARUCALIS-OBJ-1", {"megastructure": {"orbital_distance_au": 3781.59}})
+    page = client.get("/systems/ARUCALIS", headers=H).text
+    assert "3781.59 AU" in page
 
 
 def test_relay_orders_use_another_hubs_extras_before_a_hubs_own_stock():
