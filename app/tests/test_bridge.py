@@ -49,3 +49,22 @@ def test_outliner_lists_needs_fleets_and_replicants(client):
     r = client.get("/bridge/outliner", headers=H)
     assert r.status_code == 200 and "Trip held: 10-day surge" in r.text and 'href="/fleets/logistics"' in r.text
     assert "Needs you (1)" in r.text and "/replicants/" in r.text
+
+
+def test_themes_apply_to_every_interface_and_terminal_scanlines_switch_off(client):
+    """Joe 2026-11-26: Nixie and Terminal themes, picked per browser, for classic and the command screen alike."""
+    r = client.get("/fleets", headers=H)
+    assert "data-theme" not in r.text.split("<head>")[0] and "themes.css" not in r.text
+    client.cookies.set("ui_theme", "nixie")
+    r = client.get("/fleets", headers=H)
+    assert 'data-theme="nixie"' in r.text and "themes.css" in r.text and "Nixie+One" in r.text and "t-scan" not in r.text
+    client.cookies.set("ui_theme", "terminal")
+    client.cookies.set("ui", "bridge")
+    r = client.get("/fleets", headers=H)
+    head = r.text.split("<head>")[0]
+    assert 'data-theme="terminal"' in head and "bridge t-scan" in head and "--accent" not in head and "VT323" in r.text
+    client.cookies.set("ui_scan", "off")
+    assert "t-scan" not in client.get("/fleets", headers=H).text.split("<head>")[0]
+    client.cookies.set("ui_theme", "bogus")
+    assert "data-theme" not in client.get("/fleets", headers=H).text.split("<head>")[0]
+    assert 'id="theme"' in client.get("/account", headers=H).text

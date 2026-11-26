@@ -1,0 +1,86 @@
+/* Themes (Joe 2026-11-26): <html data-theme="nixie|terminal">, cookie ui_theme, picked on the Account page, for the classic
+   tabs, the command screen and the desk alike. Loaded after app.css and bridge.css, so these variables win. The galaxy map's
+   own contents (stars, lines, labels drawn in WebGL) are left as they are (Joe). Scanlines: html.t-scan (cookie ui_scan,
+   on unless "off"), never over the map: they sit on panels, cards and windows only. */
+
+/* ---- Nixie: orange tube glow on black, tube font for numbers and headings (Joe: those only) ---- */
+html[data-theme="nixie"] {
+  --bg: #050302; --panel: #0d0806; --panel2: #160d08; --line: #3a2416; --text: #ffb877; --muted: #a8714a;
+  --accent: #ff8a2a; --accent-hi: #ffb066; --accent-dim: #5a2a0c; --accent-soft: #24120a;
+  --good: #ffc76a; --warn: #ff8a2a; --bad: #ff4a1c; --move: #ffa64d;
+  --glow: 0 0 2px rgba(255,138,42,.9), 0 0 8px rgba(255,100,20,.55), 0 0 18px rgba(255,80,10,.25);
+  --tube: "Nixie One", var(--mono);
+  --steel: linear-gradient(145deg, #3a2a20 0%, #1a110c 30%, #4a3628 52%, #140c08 75%, #33241a 100%);
+  --plate: linear-gradient(180deg, #1c110b, #0b0705);
+}
+html[data-theme="nixie"] body {
+  background-color: var(--bg);
+  /* the wire mesh in front of the tubes */
+  background-image: radial-gradient(rgba(120,90,70,.09) 1px, transparent 1.2px);
+  background-size: 6px 6px;
+}
+html[data-theme="nixie"] h1, html[data-theme="nixie"] h2, html[data-theme="nixie"] h3,
+html[data-theme="nixie"] .num, html[data-theme="nixie"] [data-ends], html[data-theme="nixie"] .badge,
+html[data-theme="nixie"] .brand, html[data-theme="nixie"] #win-title, html[data-theme="nixie"] .stat b {
+  font-family: var(--tube); color: var(--accent-hi); text-shadow: var(--glow); letter-spacing: .04em;
+}
+html[data-theme="nixie"] h2 { color: var(--accent); }
+html[data-theme="nixie"] a { color: var(--accent-hi); }
+html[data-theme="nixie"] .lv-alert::before, html[data-theme="nixie"] .lv-error::before { content: "✕ "; }
+html[data-theme="nixie"] .lv-warning::before { content: "! "; }
+html[data-theme="nixie"] .lv-done::before { content: "✓ "; }
+
+/* ---- Terminal: green phosphor on black, monospace, line-box frames ---- */
+html[data-theme="terminal"] {
+  --bg: #000; --panel: #000; --panel2: #031a08; --line: #1f7a35; --text: #33ff66; --muted: #1fb347;
+  --accent: #33ff66; --accent-hi: #7dff9b; --accent-dim: #0b4d1c; --accent-soft: #052a0f;
+  --good: #33ff66; --warn: #b6ff3a; --bad: #e8ffe8; --move: #7dff9b;
+  --mono: "VT323", "IBM Plex Mono", ui-monospace, monospace;
+  --glow: 0 0 2px rgba(51,255,102,.7), 0 0 6px rgba(51,255,102,.25);
+  --steel: none; --plate: #000;
+}
+html[data-theme="terminal"], html[data-theme="terminal"] body {
+  font-family: var(--mono); font-size: 17px; line-height: 1.3; text-shadow: var(--glow);
+}
+html[data-theme="terminal"] body { background: #000; }
+html[data-theme="terminal"] input, html[data-theme="terminal"] select, html[data-theme="terminal"] textarea,
+html[data-theme="terminal"] button, html[data-theme="terminal"] .btn, html[data-theme="terminal"] .card,
+html[data-theme="terminal"] .pill, html[data-theme="terminal"] pre { border-radius: 0; }
+html[data-theme="terminal"] .metal { background: #000; box-shadow: 0 0 0 1px var(--line); border-radius: 0; }
+html[data-theme="terminal"] .metal::after { display: none; }
+html[data-theme="terminal"] h2 { color: var(--accent-hi); }
+html[data-theme="terminal"] h2::before { content: "> "; }
+html[data-theme="terminal"] a { color: var(--accent-hi); text-decoration: underline; text-underline-offset: 2px; }
+html[data-theme="terminal"] tr:hover td { background: var(--accent-soft); }
+/* one color: states differ by brightness, reverse video and symbols */
+html[data-theme="terminal"] .lv-alert, html[data-theme="terminal"] .lv-error, html[data-theme="terminal"] .result.err {
+  background: var(--accent); color: #000; text-shadow: none; padding: 0 3px;
+}
+html[data-theme="terminal"] .lv-alert::before, html[data-theme="terminal"] .lv-error::before { content: "✕ "; }
+html[data-theme="terminal"] .lv-warning::before, html[data-theme="terminal"] .st-idle::before { content: "! "; }
+html[data-theme="terminal"] .lv-done::before, html[data-theme="terminal"] .st-work::before { content: "✓ "; }
+html[data-theme="terminal"] .st-move::before { content: "» "; }
+html[data-theme="terminal"] .st-off { opacity: .6; }
+html[data-theme="terminal"] .badge { background: var(--accent); color: #000; text-shadow: none; }
+html[data-theme="terminal"] button.danger { background: #000; border-color: var(--accent); }
+html[data-theme="terminal"] button.danger:hover { background: var(--accent); color: #000; }
+
+/* ---- shared: buttons, code blocks and hover in the theme's colors (app.css has fixed blues for these) ---- */
+html[data-theme] button, html[data-theme] .btn { background: var(--accent-soft); border-color: var(--line); color: var(--text); }
+html[data-theme] button:hover, html[data-theme] .btn:hover { background: var(--accent-dim); border-color: var(--accent); }
+html[data-theme] button.ghost { background: transparent; }
+html[data-theme] button.danger { background: var(--accent-dim); border-color: var(--accent); }
+html[data-theme] pre { background: var(--panel2); }
+html[data-theme] .card.hl { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent-soft); }
+html[data-theme] nav.sub a.on { box-shadow: inset 0 -2px 0 var(--accent); }
+html[data-theme] ::selection { background: var(--accent); color: #000; }
+
+/* ---- scanlines (on by default; Account › Theme turns them off), on panels only, never over the map ---- */
+html.t-scan .card, html.t-scan header.top, html.t-scan header.bar, html.t-scan #win-body, html.t-scan .metal > .in,
+html.t-scan .desk-win {
+  background-image: repeating-linear-gradient(0deg, rgba(0,0,0,.28) 0 1px, transparent 1px 3px);
+}
+@media (prefers-reduced-motion: reduce) {
+  html.t-scan .card, html.t-scan header.top, html.t-scan header.bar, html.t-scan #win-body, html.t-scan .metal > .in,
+  html.t-scan .desk-win { background-image: none; }
+}

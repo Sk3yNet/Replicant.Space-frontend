@@ -45,6 +45,33 @@
 {% include "partials/wallpaper_card.html" %}
 {% include "partials/diag_mcp_card.html" %}
 {% include "partials/lan_card.html" %}
+{% set TH = ui_theme(request) %}
+<div class="card" style="margin-top:14px" id="theme">
+  <h2>Theme</h2>
+  <p class="small muted">Colors and fonts for every interface: classic, command screen and desk. The galaxy map itself keeps its
+    colors. Remembered in this browser.</p>
+  <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center">
+    {% for k, label in THEMES.items() %}<button type="button" class="small theme-pick{{ ' on' if TH.name == k }}" data-t="{{ k }}"
+      {% if TH.name == k %}aria-pressed="true" style="border-color:var(--accent)"{% endif %}>{{ label }}</button>{% endfor %}
+    {% if TH.name == "terminal" %}<label style="margin-left:10px"><input type="checkbox" id="scan-pick" {{ 'checked' if TH.scan }}> scanlines</label>{% endif %}
+  </div>
+  <p class="small muted" style="margin-top:6px">Nixie: orange tube glow, tube digits for numbers and headings. Terminal: green
+    phosphor on black{{ ', with scanlines (off when your system asks for reduced motion)' }}.</p>
+  <script>
+  (() => {
+    const year = "; path=/; max-age=31536000; samesite=lax";
+    document.querySelectorAll(".theme-pick").forEach(b => b.addEventListener("click", () => {
+      document.cookie = "ui_theme=" + b.dataset.t + year;
+      location.reload();
+    }));
+    const scan = document.getElementById("scan-pick");
+    if (scan) scan.addEventListener("change", () => {
+      document.cookie = "ui_scan=" + (scan.checked ? "on" : "off") + year;
+      document.documentElement.classList.toggle("t-scan", scan.checked);
+    });
+  })();
+  </script>
+</div>
 <div class="card" style="margin-top:14px" id="screen">
   <h2>Command screen</h2>
   <p class="small muted">Pages open as windows over the galaxy map, with an icon rail and an outliner instead of tabs. Chosen per
@@ -54,7 +81,7 @@
   <div style="margin-top:12px; display:flex; gap:6px; align-items:center; flex-wrap:wrap">
     <label>Accent color <input type="color" id="accent-pick" value="{{ ui_accent(request) }}" style="padding:0; width:44px; height:30px; vertical-align:middle"></label>
     {% for c in ["#e0332f", "#ff7a1a", "#f0c419", "#3fbf5f", "#2fb7e0", "#6c7bff", "#c04ce0", "#d0d4da"] %}<button type="button" class="small accent-swatch" data-c="{{ c }}" style="background:{{ c }}; width:30px; height:30px" aria-label="Accent {{ c }}" title="{{ c }}"></button>{% endfor %}
-    <span class="small muted">(the command screen only; remembered in this browser)</span>
+    <span class="small muted">(the command screen only, Standard theme; remembered in this browser)</span>
   </div>
   <script>
   (() => {

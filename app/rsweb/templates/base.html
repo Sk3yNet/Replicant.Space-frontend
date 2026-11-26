@@ -1,5 +1,5 @@
-{% set UI = ui_mode(request) %}{% if UI != "win" %}<!doctype html>
-<html lang="en"{% if UI == "bridge" %} class="bridge" style="--accent: {{ ui_accent(request) }}"{% endif %}>
+{% set UI = ui_mode(request) %}{% if UI != "win" %}{% set TH = ui_theme(request) %}<!doctype html>
+<html lang="en"{% if TH.name %} data-theme="{{ TH.name }}"{% endif %} class="{{ 'bridge' if UI == 'bridge' }}{{ ' t-scan' if TH.scan }}"{% if UI == "bridge" and not TH.name %} style="--accent: {{ ui_accent(request) }}"{% endif %}>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -12,6 +12,9 @@
   {% if UI == "bridge" %}<link rel="stylesheet" href="/static/bridge.css?v={{ APP_VERSION }}">
   <script type="importmap">{"imports": {"three": "/static/vendor/three.module.min.js?v={{ APP_VERSION }}", "three/addons/OrbitControls.js": "/static/vendor/OrbitControls.js?v={{ APP_VERSION }}"}}</script>
   <script src="/static/bridge.js?v={{ APP_VERSION }}" defer></script>{% endif %}
+  {% if TH.name %}{% if TH.font %}<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family={{ TH.font }}&display=swap">{% endif %}
+  <link rel="stylesheet" href="/static/themes.css?v={{ APP_VERSION }}">{% endif %}
   {% block head %}{% endblock %}
 </head>
 <body{% block body_attrs %}{% endblock %} hx-ext="sse" sse-connect="/live/stream">

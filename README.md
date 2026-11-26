@@ -37,6 +37,9 @@ and codes).
 
 ## Pages
 
+**Themes** (Account › Theme, per browser, for every interface): Standard, **Nixie** (orange tube glow, tube digits for
+numbers and headings) and **Terminal** (green phosphor on black, scanlines you can switch off). The galaxy map keeps its colors.
+
 Six tabs, each with sub-tabs; every page keeps its own URL. Or the **command screen** (Account › Command screen, or
 `/bridge`; chosen per browser): the galaxy map fills the screen, an icon rail replaces the tabs, an outliner lists what
 needs you, your fleets, replicants and running automations (collapse it to a slim edge tab with ›), and each page opens as a window over the map without

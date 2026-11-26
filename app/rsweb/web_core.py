@@ -305,7 +305,21 @@ def ui_accent(request: Request | None) -> str:
     return v if _HEX.fullmatch(v) else "#e0332f"
 
 
-templates.env.globals.update(NAV=NAV, ui_mode=ui_mode, ui_accent=ui_accent)
+THEME_COOKIE, SCAN_COOKIE = "ui_theme", "ui_scan"
+THEMES = {"": "Standard", "nixie": "Nixie", "terminal": "Terminal"}   # Joe 2026-11-26; themes.css
+THEME_FONTS = {"nixie": "Nixie+One", "terminal": "VT323"}
+
+
+def ui_theme(request: Request | None) -> dict:
+    """The browser's theme (cookie ui_theme, Account page) for every interface: {name, scan, font}. Scanlines (Terminal)
+    are on unless cookie ui_scan=off."""
+    c = request.cookies if request is not None else {}
+    name = c.get(THEME_COOKIE) or ""
+    name = name if name in THEMES else ""
+    return {"name": name, "scan": name == "terminal" and c.get(SCAN_COOKIE) != "off", "font": THEME_FONTS.get(name, "")}
+
+
+templates.env.globals.update(NAV=NAV, ui_mode=ui_mode, ui_accent=ui_accent, ui_theme=ui_theme, THEMES=THEMES)
 from . import tradepost as _tp  # noqa: E402
 templates.env.globals.update(price_text=_tp.price_text, hours_text=_tp.hours_text)
 templates.env.globals.update(is_large=lambda b: _modular_type((b or {}).get("device_type"), {(b or {}).get("device_type"): b or {}}))
