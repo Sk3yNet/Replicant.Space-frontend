@@ -21,6 +21,15 @@ async def bridge_on(request: Request, user: str = Depends(current_user)):
     return r
 
 
+@router.get("/desk")
+@router.get("/desk/on")
+async def desk_on(request: Request, user: str = Depends(current_user)):
+    """The desk (Joe 2026-11-26): a third option beside classic and the command screen; pages float as windows."""
+    r = RedirectResponse("/map", status_code=303)
+    r.set_cookie(UI_COOKIE, "desk", max_age=YEAR, samesite="lax", httponly=True)
+    return r
+
+
 @router.get("/bridge/off")
 async def bridge_off(request: Request, user: str = Depends(current_user)):
     r = RedirectResponse("/account", status_code=303)

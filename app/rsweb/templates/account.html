@@ -73,11 +73,18 @@
   </script>
 </div>
 <div class="card" style="margin-top:14px" id="screen">
-  <h2>Command screen</h2>
+  <h2>Interface</h2>
   <p class="small muted">Pages open as windows over the galaxy map, with an icon rail and an outliner instead of tabs. Chosen per
     browser; the classic interface stays one click away (here, or in the account menu).</p>
-  {% if ui_mode(request) == "classic" %}<a class="btn" href="/bridge/on">Switch to the command screen</a>
-  {% else %}<a class="btn" href="/bridge/off" data-full>Back to the classic interface</a>{% endif %}
+  <p class="small muted">Or the <b>desk</b>: every page floats in its own window over the live galaxy map, as many as you like
+    (several device pages side by side). Drag a window by its bar, resize it from the corner, collapse it to a tab in the top
+    bar; the layout is remembered in this browser.</p>
+  {% set M = request.cookies.get("ui") or "classic" %}
+  <div style="display:flex; gap:6px; flex-wrap:wrap">
+    {% if M != "bridge" %}<a class="btn" href="/bridge/on" data-full>Command screen</a>{% endif %}
+    {% if M != "desk" %}<a class="btn" href="/desk/on" data-full>Desk</a>{% endif %}
+    {% if M in ("bridge", "desk") %}<a class="btn" href="/bridge/off" data-full>Classic interface</a>{% endif %}
+  </div>
   <div style="margin-top:12px; display:flex; gap:6px; align-items:center; flex-wrap:wrap">
     <label>Accent color <input type="color" id="accent-pick" value="{{ ui_accent(request) }}" style="padding:0; width:44px; height:30px; vertical-align:middle"></label>
     {% for c in ["#e0332f", "#ff7a1a", "#f0c419", "#3fbf5f", "#2fb7e0", "#6c7bff", "#c04ce0", "#d0d4da"] %}<button type="button" class="small accent-swatch" data-c="{{ c }}" style="background:{{ c }}; width:30px; height:30px" aria-label="Accent {{ c }}" title="{{ c }}"></button>{% endfor %}

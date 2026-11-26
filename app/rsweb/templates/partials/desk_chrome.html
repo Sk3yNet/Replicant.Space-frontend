@@ -1,0 +1,34 @@
+{# The desk around every page (cookie ui=desk, 2026-11-26): a top bar with the page launcher, the galaxy map behind, and
+   any number of floating windows (desk.js). #}
+<header class="bar plate">
+  <a class="brand" href="/map" data-desk-map>◉ REPLICANT</a>
+  <details class="desk-launch">
+    <summary class="btn small">Open ▾</summary>
+    <div class="desk-menu metal"><div class="in">
+      {% for label, href, subs in NAV %}<div class="dm-group"><b>{{ label }}</b>
+        {% for key, h, l in subs %}<a href="{{ h }}" data-key="{{ key }}">{{ l }}{% if key == 'messages' and rate.unread %}<span class="badge">{{ rate.unread }}</span>{% endif %}</a>{% endfor %}
+      </div>{% endfor %}
+    </div></div>
+  </details>
+  <span id="desk-tabs" class="desk-tabs" aria-label="Collapsed windows"></span>
+  <span class="spacer"></span>
+  <div id="rate" sse-swap="rate">{% include "partials/rate.html" %}</div>
+  <a class="needs" href="/notifications" title="Errors and mentions waiting for you">Needs you<span id="notif-badge" sse-swap="badge">{% include "partials/badge.html" with context %}</span></a>
+  <button type="button" class="ghost small" id="desk-tidy" title="Line the open windows up side by side">Tidy</button>
+  <button type="button" class="ghost small" id="desk-clear" title="Close every window">Close all</button>
+  <details class="acct-menu">
+    <summary class="small muted" title="Signed in via Google">{{ user }} ▾</summary>
+    <div class="acct-list">
+      <a href="/account">Account</a>
+      <a href="/diagnostics">Diagnostics</a>
+      <a href="/console">Console</a>
+      <a href="/account#server" class="mono">v{{ APP_VERSION }}</a>
+      {% if TENANT_MODE %}<a href="/_tenant/" data-full>Your server &amp; API key</a>{% endif %}
+      <a href="/bridge/on" data-full>Command screen</a>
+      <a href="/bridge/off" data-full>Classic interface</a>
+      <a href="/oauth2/sign_out?rd=/" data-full>Sign out</a>
+    </div>
+  </details>
+</header>
+<div id="backdrop">{% include "partials/map_body.html" %}</div>
+<script type="module" src="/static/map.js?v={{ APP_VERSION }}"></script>

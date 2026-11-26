@@ -68,3 +68,20 @@ def test_themes_apply_to_every_interface_and_terminal_scanlines_switch_off(clien
     client.cookies.set("ui_theme", "bogus")
     assert "data-theme" not in client.get("/fleets", headers=H).text.split("<head>")[0]
     assert 'id="theme"' in client.get("/account", headers=H).text
+
+
+def test_desk_draws_the_page_in_a_floating_window_over_the_map(client):
+    """The desk (Joe 2026-11-26): a third interface beside classic and the command screen."""
+    r = client.get("/desk/on", headers=H, follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/map" and "ui=desk" in r.headers["set-cookie"]
+    client.cookies.set("ui", "desk")
+    r = client.get("/fleets", headers=H)
+    head = r.text.split("<head>")[0]
+    assert 'class="bridge desk"' in head and "desk.js" in r.text and "bridge.js" not in r.text
+    assert 'class="desk-win metal" data-first="1"' in r.text and 'id="map"' in r.text and 'class="desk-launch"' in r.text
+    assert 'id="outliner"' not in r.text and '<nav class="main">' not in r.text and 'data-src="/fleets"' in r.text
+    assert 'class="desk-win metal closed"' in client.get("/map", headers=H).text   # the map itself: no window
+    w = client.get("/devices/SP000001", headers={**H, "X-Window": "1"})
+    assert w.text.lstrip().startswith("<main") and "<html" not in w.text
+    acct = client.get("/account", headers=H).text
+    assert 'href="/bridge/on"' in acct and 'href="/bridge/off"' in acct and 'href="/desk/on"' not in acct

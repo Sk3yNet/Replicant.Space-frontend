@@ -196,7 +196,7 @@ document.addEventListener("htmx:afterSettle", () => fixDatalists());
   const off = () => { try { return localStorage.getItem(KEY) === "1"; } catch (e) { return false; } };
   const fills = el => el.hasAttribute("hx-get") && SELF.test(el.getAttribute("hx-trigger") || "");
   function sections(root) {   // [[key, element]] in page order; the same keys for the live page and a fresh copy
-    const main = root.querySelector("main"), out = [], n = {};
+    const main = root.matches && root.matches("main") ? root : root.querySelector("main"), out = [], n = {};
     if (!main) return out;
     const add = (k, el) => { n[k] = (n[k] || 0) + 1; out.push([n[k] > 1 ? k + "#" + n[k] : k, el]); };
     main.querySelectorAll("[data-live][id]").forEach(el => add("#" + el.id, el));
@@ -208,9 +208,13 @@ document.addEventListener("htmx:afterSettle", () => fixDatalists());
     });
     return out;
   }
+  // the desk (cookie ui=desk) holds several pages at once, one <main> per window; elsewhere there's one
+  const desk = () => document.documentElement.classList.contains("desk");
+  const mains = () => desk() ? [...document.querySelectorAll(".desk-win main[data-src]")] : [document.querySelector("main")].filter(Boolean);
+  const allSections = () => mains().flatMap(m => sections(m));
   function schedule() {
     pending = true;
-    if (timer || busy || off() || document.hidden || !sections(document).length) return;
+    if (timer || busy || off() || document.hidden || !allSections().length) return;
     const fast = Date.now() < fastUntil;   // just after an order: follow its result closely
     timer = setTimeout(run, Math.max(SETTLE_MS, last + (fast ? FAST_GAP_MS : MIN_MS) - Date.now()));
   }
@@ -229,31 +233,35 @@ document.addEventListener("htmx:afterSettle", () => fixDatalists());
     fixDatalists(el);
     el.dispatchEvent(new CustomEvent("live:swapped", { bubbles: true }));
   }
+  async function refresh(main) {
+    const mine = sections(main).filter(([, el]) => !blocked(el));
+    mine.filter(([, el]) => fills(el)).forEach(([, el]) =>
+      htmx.ajax("GET", el.getAttribute("hx-get"), { source: el, target: el, swap: el.getAttribute("hx-swap") || "innerHTML" }));
+    const diff = mine.filter(([, el]) => !fills(el));
+    if (!diff.length) return;
+    const win = document.documentElement.classList.contains("bridge") || desk();   // windows: only the window's page
+    const src = win && main.dataset.src;
+    if (win && !src) return;
+    const u = new URL(src || location.href, location.href);
+    u.searchParams.delete("refresh");
+    const r = await fetch(u, { headers: win ? { "X-Live": "1", "X-Window": "1" } : { "X-Live": "1" }, credentials: "same-origin" });
+    if (!r.ok || r.redirected) return;
+    const fresh = new Map(sections(new DOMParser().parseFromString(await r.text(), "text/html")));
+    const pre = desk() ? src + " " : "";
+    diff.forEach(([k, el]) => {
+      const nu = fresh.get(k);
+      if (!nu || blocked(el)) return;
+      const html = nu.innerHTML, prev = pre + k in seen ? seen[pre + k] : el.innerHTML;
+      seen[pre + k] = html;
+      if (html !== prev) swap(el, html);
+    });
+  }
   async function run() {
     timer = null;
     if (off() || document.hidden || busy) return;
     pending = false; busy = true; last = Date.now();
     try {
-      const mine = sections(document).filter(([, el]) => !blocked(el));
-      mine.filter(([, el]) => fills(el)).forEach(([, el]) =>
-        htmx.ajax("GET", el.getAttribute("hx-get"), { source: el, target: el, swap: el.getAttribute("hx-swap") || "innerHTML" }));
-      const diff = mine.filter(([, el]) => !fills(el));
-      if (!diff.length) return;
-      const win = document.documentElement.classList.contains("bridge");   // the command screen: only the window's page
-      const src = win && document.querySelector("main[data-src]");
-      if (win && !src) return;
-      const u = new URL(src ? src.dataset.src : location.href, location.href);
-      u.searchParams.delete("refresh");
-      const r = await fetch(u, { headers: win ? { "X-Live": "1", "X-Window": "1" } : { "X-Live": "1" }, credentials: "same-origin" });
-      if (!r.ok || r.redirected) return;
-      const fresh = new Map(sections(new DOMParser().parseFromString(await r.text(), "text/html")));
-      diff.forEach(([k, el]) => {
-        const nu = fresh.get(k);
-        if (!nu || blocked(el)) return;
-        const html = nu.innerHTML, prev = k in seen ? seen[k] : el.innerHTML;
-        seen[k] = html;
-        if (html !== prev) swap(el, html);
-      });
+      for (const m of mains()) await refresh(m);
     } catch (e) {
     } finally {
       busy = false;
@@ -263,7 +271,7 @@ document.addEventListener("htmx:afterSettle", () => fixDatalists());
   function badge() {
     const b = document.getElementById("live-switch");
     if (!b) return;
-    b.hidden = !sections(document).length;
+    b.hidden = !allSections().length;
     b.classList.toggle("off", off());
     b.title = off() ? "Live updates paused: click to resume" : "Parts of this page update by themselves: click to pause";
   }

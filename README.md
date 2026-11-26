@@ -37,6 +37,10 @@ and codes).
 
 ## Pages
 
+Or the **desk** (Account › Interface, or `/desk`): every page opens as its own floating window over the live galaxy
+map, as many as you like (several device pages side by side). Drag windows by their bar, resize from the corner, collapse
+them to tabs in the top bar, or line them up with Tidy; the layout is remembered per browser. Desktop-first.
+
 **Themes** (Account › Theme, per browser, for every interface): Standard, **Nixie** (orange tube glow, tube digits for
 numbers and headings) and **Terminal** (green phosphor on black, scanlines you can switch off). The galaxy map keeps its colors.
 

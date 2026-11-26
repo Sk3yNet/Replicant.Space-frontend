@@ -293,8 +293,9 @@ def ui_mode(request: Request | None) -> str:
         return "classic"
     if request.headers.get("x-window"):
         return "win"
-    if request.cookies.get(UI_COOKIE) == "bridge" and not (request.url.path == "/map" and sim_view(request)):
-        return "bridge"
+    ui = request.cookies.get(UI_COOKIE)
+    if ui in ("bridge", "desk") and not (request.url.path == "/map" and sim_view(request)):
+        return ui   # desk (2026-11-26): many floating windows over the map (desk.js)
     return "classic"
 
 

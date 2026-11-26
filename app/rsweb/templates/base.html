@@ -1,5 +1,5 @@
 {% set UI = ui_mode(request) %}{% if UI != "win" %}{% set TH = ui_theme(request) %}<!doctype html>
-<html lang="en"{% if TH.name %} data-theme="{{ TH.name }}"{% endif %} class="{{ 'bridge' if UI == 'bridge' }}{{ ' t-scan' if TH.scan }}"{% if UI == "bridge" and not TH.name %} style="--accent: {{ ui_accent(request) }}"{% endif %}>
+<html lang="en"{% if TH.name %} data-theme="{{ TH.name }}"{% endif %} class="{{ 'bridge' if UI in ('bridge', 'desk') }}{{ ' desk' if UI == 'desk' }}{{ ' t-scan' if TH.scan }}"{% if UI in ("bridge", "desk") and not TH.name %} style="--accent: {{ ui_accent(request) }}"{% endif %}>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -9,16 +9,23 @@
   <script src="/static/vendor/htmx.min.js"></script>
   <script src="/static/vendor/htmx-sse.js"></script>
   <script src="/static/app.js?v={{ APP_VERSION }}" defer></script>
-  {% if UI == "bridge" %}<link rel="stylesheet" href="/static/bridge.css?v={{ APP_VERSION }}">
+  {% if UI in ("bridge", "desk") %}<link rel="stylesheet" href="/static/bridge.css?v={{ APP_VERSION }}">
   <script type="importmap">{"imports": {"three": "/static/vendor/three.module.min.js?v={{ APP_VERSION }}", "three/addons/OrbitControls.js": "/static/vendor/OrbitControls.js?v={{ APP_VERSION }}"}}</script>
-  <script src="/static/bridge.js?v={{ APP_VERSION }}" defer></script>{% endif %}
+  {% if UI == "desk" %}<link rel="stylesheet" href="/static/desk.css?v={{ APP_VERSION }}">
+  <script src="/static/desk.js?v={{ APP_VERSION }}" defer></script>{% else %}<script src="/static/bridge.js?v={{ APP_VERSION }}" defer></script>{% endif %}{% endif %}
   {% if TH.name %}{% if TH.font %}<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family={{ TH.font }}&display=swap">{% endif %}
   <link rel="stylesheet" href="/static/themes.css?v={{ APP_VERSION }}">{% endif %}
   {% block head %}{% endblock %}
 </head>
 <body{% block body_attrs %}{% endblock %} hx-ext="sse" sse-connect="/live/stream">
-{% if UI == "bridge" %}{% include "partials/bridge_chrome.html" %}
+{% if UI == "desk" %}{% include "partials/desk_chrome.html" %}
+<div id="desk">
+<section class="desk-win metal{{ ' closed' if active == 'map' }}" data-first="1">
+  <div class="dw-bar plate"><span class="dw-title">{{ self.title() }}</span><span class="spacer"></span>
+    <button type="button" class="dw-fold" title="Collapse">▁</button><button type="button" class="dw-max" title="Full size">⤢</button><button type="button" class="dw-x" title="Close">✕</button></div>
+  <div class="dw-body">
+{% elif UI == "bridge" %}{% include "partials/bridge_chrome.html" %}
 <section id="win" class="win metal{{ ' closed' if active == 'map' }}" aria-label="Window">
   <div class="win-bar plate"><span id="win-title">{{ self.title() }}</span><span class="spacer"></span>
     <button type="button" class="ghost small" id="win-max" title="Full size">⤢</button><a class="win-x" id="win-close" href="/map" title="Close: back to the galaxy">✕</a></div>
@@ -68,7 +75,9 @@
 </main>
 {% block scripts %}{% endblock %}
 {% if UI != "win" %}{% if UI == "bridge" %}  </div>
-</section>{% endif %}
+</section>{% elif UI == "desk" %}  </div>
+</section>
+</div>{% endif %}
 <div id="toasts" sse-swap="notify" hx-swap="afterbegin"></div>
 <span id="live-signal" hx-trigger="sse:state" hidden></span>
 </body>

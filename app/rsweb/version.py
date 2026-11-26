@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.561.0"
+VERSION = "1.562.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.562.0", "2026-11-26", "The desk, phase 1 (Joe): a third interface beside the classic tabs and the command screen (Account › Interface, or /desk). Every page opens as its own translucent window over the live galaxy map, as many as you like: drag a window by its bar, resize it from the corner, collapse it to a tab in the top bar, make it full size, close it, or line them all up with Tidy. A link inside a window opens there, except device, system and replicant pages, which open their own window (or bring forward the one already open), so several device pages sit side by side; each window's results and live cards stay in that window. The Open menu lists every page; the layout is remembered in this browser. Themes apply. Sorting and filtering every column, drag and drop between fleets and the event stream window come next."),
     ("1.561.0", "2026-11-26", "Themes (Joe): Account › Theme picks Standard, Nixie or Terminal for this browser, in the classic tabs, the command screen and the coming desk. Nixie: orange tube glow on black behind a faint wire mesh, with a nixie tube font for numbers, headings and countdowns. Terminal: green phosphor monospace text on black with line-box frames, states told apart by brightness, symbols and reverse video, and scanlines on panels (on by default, a box turns them off; off when your system asks for reduced motion). The galaxy map itself keeps its colors."),
     ("1.560.1", "2026-11-25", "Information beacons are no longer treated as FTL beacons: the civilization beacon pass pinned one (B9BA1A7B at RADYR-OORT) to the planet like a traffic beacon and could have moved it. Traffic audits, beacon carries and civilization placement now count only FTL beacons."),
     ("1.560.0", "2026-11-25", "Pages freeze less, part 2 (Joe: step A). Each scan (dozens per AMI survey digest) used to read and rewrite the whole 6 MB surveyed record; now it adds only its own entry. Arrivals, command answers, trips, tag changes and single-device refreshes change only their own devices instead of copying all 2,700. The contract supply pass found replicant carriers by checking every device against every other device (seconds each pass); now it takes one pass. Belt viability tracking runs beside the page server."),
