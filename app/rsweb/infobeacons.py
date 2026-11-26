@@ -17,6 +17,8 @@ field names; both are read loosely.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
+import re
 from typing import Any
 
 TYPE = "information_beacon"
@@ -223,7 +225,7 @@ def at_dest(d: dict, dest: str) -> bool:
 
 
 def target_step(d: dict | None, t: dict) -> str:
-    """What a beacon with a deploy location needs next: gone, wait, deploy, activate or done."""
+    """What a beacon with a deploy location needs next: gone, wait, deploy, describe, activate or done."""
     if not d:
         return "gone"
     if not at_dest(d, t.get("dest") or ""):
@@ -231,6 +233,107 @@ def target_step(d: dict | None, t: dict) -> str:
     cmds = d.get("available_commands") or []
     if "deploy" in cmds:
         return "deploy"
+    if t.get("text") and not t.get("described") and description(d) != t["text"]:
+        return "describe"   # the bulk import's text goes on before the broadcast starts
     if t.get("activate") and "activate" in cmds:
         return "activate"
     return "done"
+
+
+# --- bulk import (Joe 2026-11-26: place a whole set of texts at once, e.g. a 36-log story) -----------------------------
+BULK_MAX = 200
+
+
+def parse_bulk(raw: str) -> tuple[list[dict], bool]:
+    """The import's JSON: a list of {dest, text[, title, code, activate]}, or {"activate": bool, "beacons": [...]}.
+    `dest` may be spelled destination/location, `text` description, `code` device_code. Returns (entries, activate
+    default); raises ValueError with a readable reason."""
+    try:
+        data = json.loads(raw or "")
+    except ValueError as e:
+        raise ValueError(f"That isn't valid JSON ({e}).") from None
+    act = True
+    if isinstance(data, dict):
+        act = data.get("activate") is not False
+        data = data.get("beacons") or data.get("entries") or data.get("logs")
+    if not isinstance(data, list) or not data:
+        raise ValueError('Expected a list of {"dest": "STAR-OORT", "text": "..."} entries (or {"beacons": [...]}).')
+    if len(data) > BULK_MAX:
+        raise ValueError(f"{len(data)} entries; at most {BULK_MAX} at once.")
+    out, errs = [], []
+    for i, e in enumerate(data, 1):
+        if not isinstance(e, dict):
+            errs.append(f"entry {i} isn't an object")
+            continue
+        dest = str(e.get("dest") or e.get("destination") or e.get("location") or "").strip().upper()
+        text = str(e.get("text") if e.get("text") is not None else e.get("description") or "").replace("\r\n", "\n").strip()
+        title = str(e.get("title") or (text.split("\n", 1)[0] if text else "") or f"entry {i}")[:80]
+        if not dest or not re.fullmatch(r"[A-Z0-9][A-Z0-9\-_.]*", dest):
+            errs.append(f"entry {i} ({title}): no star or location code")
+        if not text:
+            errs.append(f"entry {i} ({title}): no text")
+        elif len(text) > MAX_TEXT:
+            errs.append(f"entry {i} ({title}): text is {len(text)} characters, the game takes {MAX_TEXT}")
+        code = str(e.get("code") or e.get("device_code") or "").strip().upper() or None
+        out.append({"n": i, "dest": dest, "text": text, "title": title, "code": code,
+                    "activate": act if e.get("activate") is None else bool(e.get("activate"))})
+    if errs:
+        raise ValueError("; ".join(errs[:10]) + (f" (and {len(errs) - 10} more)" if len(errs) > 10 else "") + ".")
+    return out, act
+
+
+def free_beacon(d: dict, store: dict | None, targets: dict | None) -> bool:
+    """Yours to hand a new text: no deploy location set, not broadcasting, no description yet."""
+    code = d.get("device_code")
+    if d.get("device_type") != TYPE or code in (targets or {}):
+        return False
+    known = ((store or {}).get(code) or {}).get("device") or {}
+    if description(d) or description(known):
+        return False
+    cmds = d.get("available_commands") or []
+    return "deactivate" not in cmds and not (settings(d).get("active") or settings(known).get("active"))
+
+
+def assign(entries: list[dict], devices: list[dict], store: dict | None, targets: dict | None,
+           dist=None) -> list[dict]:
+    """Pick a beacon for each entry: the one it names, else the nearest free one (`dist(star_a, star_b)` in ly; the
+    lowest code when distances are unknown). An entry whose destination and text already have a beacon on the way is
+    kept as it is, so importing the same file again only fills what's missing."""
+    targets = targets or {}
+    mine = {d.get("device_code"): d for d in devices if d.get("device_type") == TYPE}
+    free = sorted(c for c, d in mine.items() if free_beacon(d, store, targets))
+    taken: set = set()
+    rows = []
+    for e in entries:
+        row = {**e, "status": "new", "why": ""}
+        have = next((c for c, t in targets.items() if t.get("dest") == e["dest"] and t.get("text") == e["text"]), None)
+        if have:
+            row.update(code=have, status="kept", why="already set")
+        elif e.get("code"):
+            if e["code"] not in mine:
+                row.update(status="none", why=f"{e['code']} isn't one of your information beacons")
+            elif e["code"] in taken:
+                row.update(status="none", why=f"{e['code']} is named twice")
+            else:
+                row["why"] = "named in the file" + (" (replaces its deploy location)" if e["code"] in targets else "")
+        else:
+            star = e["dest"].split("-")[0]
+            pool = [c for c in free if c not in taken]
+            if not pool:
+                row.update(status="none", why="no free information beacon: get more, then import again")
+            else:
+                def key(c):
+                    here = str(mine[c].get("location") or "").split("-")[0]
+                    try:
+                        ly = float(dist(here, star)) if dist and here else float("inf")
+                    except (TypeError, ValueError):
+                        ly = float("inf")
+                    return (ly, c)
+                row["code"] = min(pool, key=key)
+                ly = key(row["code"])[0]
+                at = mine[row["code"]].get("location") or "?"
+                row["why"] = f"from {at}" + (f", {ly:,.0f} ly" if ly != float("inf") else "")
+        if row.get("code") and row["status"] != "none":
+            taken.add(row["code"])
+        rows.append(row)
+    return rows

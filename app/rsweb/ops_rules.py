@@ -1299,8 +1299,13 @@ class OpsRules:
                 await self.log("info_beacons", f"information beacon {code} at {t.get('dest')}: {t['stuck']}; "
                                "set its deploy location again on the Info beacons page to retry", "alert", notify=True)
                 continue
-            ok, _resp, err = await self.send("POST", f"/devices/{code}", {"command": step},
-                                             f"info beacons: {step} {code} at {t.get('dest')}")
+            if step == "describe":
+                ok, _resp, err = await self.send("PATCH", f"/devices/{code}", ib.settings_body(t["text"]),
+                                                 f"info beacons: description of {code} at {t.get('dest')}")
+                t["described"] = bool(ok)
+            else:
+                ok, _resp, err = await self.send("POST", f"/devices/{code}", {"command": step},
+                                                 f"info beacons: {step} {code} at {t.get('dest')}")
             t.setdefault("sent", {})[step] = now_iso()
             t.setdefault("tries", {})[step] = tries + 1
             changed = True

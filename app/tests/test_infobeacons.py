@@ -148,3 +148,46 @@ def test_info_beacons_never_count_as_traffic_beacons():
     assert not traffic.is_beacon(info) and traffic.is_beacon(ftl)
     assert [d["device_code"] for d in traffic.beacons([info, ftl])] == ["F1"]
     assert [d["device_code"] for d in traffic.beacons_all([info, ftl])] == ["F1"]
+
+
+def test_bulk_import_assigns_tags_describes_and_broadcasts(client):
+    import json
+    from tests.test_ops import eng
+    a = _beacon(client, code="IB0000A1", loc="SOL-KUIPER", available_commands=["deploy", "stow"])
+    _beacon(client, code="IB0000A2", loc="SOL-KUIPER", available_commands=["deploy", "stow"])
+    _beacon(client, code="IB0000A3", loc="SOL-3-L4", available_commands=["deactivate", "comment", "stow"])  # broadcasting
+    text = "LOG 01/36 · CAPT. TEST\n\nHello."
+    data = json.dumps({"beacons": [{"dest": "SOL-3", "text": text}, {"dest": "SOL-OORT", "text": "two", "code": "IB0000A2"},
+                                   {"dest": "SOL-4", "text": "three"}]})
+    r = client.post("/info-beacons/bulk", data={"data": data}, headers=HX).text
+    assert "Preview: 2 to place" in r and "1 without a beacon" in r and "IB0000A1" in r and "IB0000A3" not in r, r
+    assert client.portal.call(client.app.state.db.kv_get, ib.TARGETS_KV, {}) == {}
+    r = client.post("/info-beacons/bulk", data={"data": data, "go": "1"}, headers=HX).text
+    assert "Imported 2 of 2" in r, r
+    t = client.portal.call(client.app.state.db.kv_get, ib.TARGETS_KV, {})
+    assert t["IB0000A1"]["text"] == text and t["IB0000A2"]["dest"] == "SOL-OORT" and t["IB0000A1"]["activate"]
+    assert "at:sol-3" in [x.lower() for x in a.get("tags", [])]
+    again = client.post("/info-beacons/bulk", data={"data": data}, headers=HX).text
+    assert "0 to place, 2 already set" in again, again
+    e = eng(client)
+    a.update(location="SOL-3", tags=[])
+    client.portal.call(client.app.state.worker.sync_devices)
+    assert "deploy at SOL-3" in client.portal.call(e.info_beacon_pass)[0]
+    a["available_commands"] = ["activate", "comment", "stow"]
+    client.portal.call(client.app.state.worker.sync_devices)
+    out = client.portal.call(e.info_beacon_pass)
+    assert "describe at SOL-3" in out[0], out
+    assert ib.description(a) == text
+    out = client.portal.call(e.info_beacon_pass)
+    assert "activate at SOL-3" in out[0], out
+    bad = client.post("/info-beacons/bulk", data={"data": '[{"dest": "", "text": "x"}]'}, headers=HX).text
+    assert "no star or location code" in bad
+
+
+def test_bulk_assign_prefers_the_nearest_free_beacon():
+    devs = [{"device_code": c, "device_type": ib.TYPE, "location": loc, "available_commands": ["deploy"]}
+            for c, loc in (("A", "FAR-OORT"), ("B", "NEAR-3"))]
+    dist = {("FAR", "HOME"): 100.0, ("NEAR", "HOME"): 5.0}
+    rows = ib.assign([{"n": 1, "dest": "HOME-OORT", "text": "t", "title": "t", "code": None, "activate": True}],
+                     devs, {}, {}, lambda a, b: dist[(a, b)])
+    assert rows[0]["code"] == "B" and "5 ly" in rows[0]["why"]

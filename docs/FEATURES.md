@@ -356,7 +356,7 @@ from device scans (*Scan for beacons* from any replicant, or any arrival or traf
 from a replicant at the beacon; a device scan reads the ones it finds right away (description and comments, up to 8 per
 scan, again after a day). Each of yours takes a *Deploy at* location (a star or a spot) with *start broadcasting there*:
 logistics carries it there with hand-delivery tags, then the engine deploys it and starts the broadcast (resent after 10
-minutes, reported after 3 tries); *Cancel* drops the location and the tags. *Comments on yours* lists `device.commented` events, which also raise an info
+minutes, reported after 3 tries); *Cancel* drops the location and the tags. *Bulk import* takes a JSON list of `{dest, text[, title, code]}` (or `{activate, beacons: [...]}`): *Preview* shows the beacon each entry gets (the one named, else the nearest free one: no deploy location, no text, not broadcasting), *Import* sets them all; the engine writes each text once its beacon is deployed, before the broadcast. Entries already set are kept, so a second import fills only what's missing. *Comments on yours* lists `device.commented` events, which also raise an info
 notification. The System page shows a Broadcasts card with the scan's info section and the beacons known there.
 Unverified live: the scan's field name for broadcasts and the `device.commented` payload's field names (read loosely).
 

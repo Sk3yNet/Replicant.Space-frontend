@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.564.2"
+VERSION = "1.566.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.566.0", "2026-11-26", "Info beacons bulk import (Joe): paste or load a JSON list of texts with destinations; Preview shows which beacon takes each (the one named, else the nearest free one), Import tags each for logistics like Deploy at, and once a beacon is deployed there the app writes its text, then starts the broadcast. Importing the same file again only fills entries still without a beacon."),
     ("1.565.0", "2026-11-26", "Trips from a place that isn't a surge spot to a surge spot close by now cruise straight there (`via: \"direct\"`): the game routed them by the entry point, so 5DD5C090 cruised 3780 AU from LAOWAOI-OBJ-2 to LAOWAOI-5-L4 to hop back out to LAOWAOI-OORT, next door (13 s straight). Travel forms, previews and automated trips alike."),
     ("1.564.2", "2026-11-26", "Desk: the galaxy map's info panel is a window like the pages (Joe): move it by its bar, resize it from the corner, collapse it to a tab, or make it full size; it unfolds and comes forward when you pick a star, and its place is remembered in this browser."),
     ("1.564.1", "2026-11-26", "System page Bodies card: stations and megastructures show their distance in AU from the stored location detail when the system scan leaves it out (LAOWAOI-OBJ-2)."),

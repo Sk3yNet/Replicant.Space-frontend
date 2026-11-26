@@ -90,13 +90,15 @@ def target_line(d: dict | None, t: dict) -> str:
     """Where a beacon with a deploy location stands, in words."""
     if t.get("stuck"):
         return f"stuck: {t['stuck']}"
+    if t.get("note") and ib.target_step(d, t) == "wait":
+        return t["note"]
     step = ib.target_step(d, t)
     dest = t.get("dest") or "?"
     if step == "wait":
         tags = (d or {}).get("tags") or []
         return (f"on its way to {dest} (logistics carries it)" if any(str(x).startswith(("to:", "at:")) for x in tags)
                 else f"waiting to reach {dest}")
-    return {"deploy": f"at {dest}: deploying", "activate": f"at {dest}: starting the broadcast",
+    return {"deploy": f"at {dest}: deploying", "describe": f"at {dest}: writing its text", "activate": f"at {dest}: starting the broadcast",
             "done": f"in place at {dest}", "gone": "no longer in the device list"}.get(step, step)
 
 
@@ -211,3 +213,74 @@ async def info_beacon_comment(request: Request, code: str, message: str = Form("
 async def info_beacon_delete_comment(request: Request, code: str, index: int, user: str = Depends(current_user)):
     return await card(request, code, await call_action(request, user, "DELETE", f"/devices/{code}/comments/{index}", None,
                                                        f"delete comment {index} on information beacon {code}"))
+
+
+async def _bulk_rows(request: Request, raw: str) -> tuple[list[dict], dict, list[dict]]:
+    """(rows, targets, devices) for the bulk import: parse, then pick a beacon for each entry (infobeacons.assign)."""
+    from .balance import _dist
+    from .relaynet import star_pos
+    db = request.app.state.db
+    entries, _act = ib.parse_bulk(raw)
+    targets = await db.kv_get(ib.TARGETS_KV, {}) or {}
+    devices = await db.kv_get("devices", []) or []
+    pos = await star_pos(db)
+    return ib.assign(entries, devices, await _store(db), targets, lambda a, b: _dist(a, b, pos)), targets, devices
+
+
+def _bulk_table(rows: list[dict], done: dict | None = None) -> str:
+    out = ['<table class="small"><tr><th>#</th><th>Text</th><th>Destination</th><th>Beacon</th><th>Notes</th></tr>']
+    for r in rows:
+        note = (done or {}).get(r["n"]) or r["why"]
+        cls = "err" if r["status"] == "none" else ("muted" if r["status"] == "kept" else "")
+        out.append(f'<tr><td class="num">{r["n"]}</td><td>{html.escape(r["title"])} <span class="muted">({len(r["text"]):,} chars)</span></td>'
+                   f'<td class="mono">{html.escape(r["dest"])}</td>'
+                   f'<td class="mono">{html.escape(r.get("code") or "—")}</td><td class="{cls}">{html.escape(note)}</td></tr>')
+    return "".join(out) + "</table>"
+
+
+@router.post("/info-beacons/bulk", response_class=HTMLResponse)
+async def info_beacons_bulk(request: Request, data: str = Form(""), go: str = Form(""), user: str = Depends(current_user)):
+    """Bulk import (Joe 2026-11-26): a JSON list of texts with destinations. Preview shows which beacon takes each one
+    (the one named, else the nearest free beacon); Import tags each for logistics to carry (as Deploy at does) and sets
+    its deploy location with the text, which the engine writes once the beacon is deployed there, before the broadcast
+    starts (ops_rules.info_beacon_pass). Importing the same file again only fills entries still without a beacon."""
+    from . import fleets as fl
+    from . import loadouts as lo
+    try:
+        rows, targets, devices = await _bulk_rows(request, data)
+    except ValueError as e:
+        return HTMLResponse(f'<div class="result err">{html.escape(str(e))}</div>')
+    todo = [r for r in rows if r["status"] == "new"]
+    short = sum(r["status"] == "none" for r in rows)
+    head = (f'{len(todo)} to place, {sum(r["status"] == "kept" for r in rows)} already set'
+            + (f', {short} without a beacon' if short else ""))
+    if go != "1":
+        return HTMLResponse(f'<p class="small">Preview: {head}. Nothing is sent until you press Import.</p>' + _bulk_table(rows))
+    db = request.app.state.db
+    by = {d.get("device_code"): d for d in devices}
+    homes = {fl.fleet_tag(f["id"]): f.get("home") or "" for f in await db.kv_get("fleets", []) or [] if f.get("id")}
+    done, placed = {}, 0
+    for r in todo:
+        d = by.get(r["code"]) or {}
+        add, remove, why = lo.delivery_tags(d, r["dest"], homes)
+        note = ""
+        if not why and (add or remove):
+            cfg = {k: v for k, v in (("add_tags", add), ("remove_tags", remove)) if v}
+            out = await call_action(request, user, "PATCH", f"/devices/{r['code']}", {"configuration": cfg},
+                                    f"info beacon import: deliver {r['code']} to {r['dest']}")
+            if not out["ok"]:
+                done[r["n"]] = f"tagging refused: {out.get('error') or 'error'}"
+                continue
+            note = "logistics carries it"
+        elif why and not why.startswith(("already at", "already tagged")):
+            note = f"needs a hand delivery ({why})"
+        else:
+            note = "already there" if why and why.startswith("already at") else "on its way"
+        targets[r["code"]] = {"dest": r["dest"], "activate": r["activate"], "text": r["text"], "title": r["title"],
+                              "set_at": ib.now(), **({"note": note} if note.startswith("needs") else {})}
+        done[r["n"]] = note
+        placed += 1
+    await db.kv_set(ib.TARGETS_KV, targets)
+    return HTMLResponse(f'<div class="result ok">Imported {placed} of {len(todo)} to place'
+                        + (f'; {short} still without a beacon' if short else "") + '. Reload to see them under Yours.</div>'
+                        + _bulk_table(rows, done))
