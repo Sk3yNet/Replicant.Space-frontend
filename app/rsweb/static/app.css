@@ -285,3 +285,8 @@ svg.system .scan-beam { fill: #8fd8ff; opacity: .35; animation: scan-pulse 1.6s 
 /* Fleet card: a loadout with no carrier has no seats to count (1.412.0) */
 .no-carrier .lp, .no-carrier .lp-h { display: none; }
 .ib-text { white-space: pre-wrap; overflow-wrap: anywhere; }
+/* Reputation › Known species: one block per species, ranges wrap as pills */
+.species + .species { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 10px; }
+.species h3 { margin: 0 0 4px; } .species p { margin: 0 0 6px; overflow-wrap: anywhere; }
+.species .env { display: flex; flex-wrap: wrap; gap: 4px 6px; }
+.scroll-x { overflow-x: auto; max-width: 100%; }
