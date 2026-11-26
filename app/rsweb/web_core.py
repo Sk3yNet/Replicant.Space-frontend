@@ -987,7 +987,7 @@ async def planned_device_trip(request: Request, user: str, code: str, body: dict
     if not via:
         out = await call_action(request, user, "POST", path, body, label)
         return render_action(request, out, note=await ramp_note(request, ramp) if ramp else None)
-    out = await call_action(request, user, "POST", path, {**body, "via": via}, f"{label} via {', '.join(via)}")
+    out = await call_action(request, user, "POST", path, {**body, "via": hubroute.as_sent(via)}, f"{label} via {', '.join(via)}")
     if not out["ok"] and loop_refused(out["error"]):
         if not body.get("dry_run"):
             return await hop_first_chain(request, user, path, body, code, via)

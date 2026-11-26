@@ -672,6 +672,8 @@ class JobsMixin:
         ISOLITHOR-BELT-1 by their travel forms, landed at ISOLITHOR-1-L4 and cruised 499 AU, 57 min)."""
         st = {"path": f"/devices/{device}", "body": {"command": "travel", "destination": dest}, "desc": ""}
         await self.plan_via(st, {"rule": None, "title": "", "hand": hand})
+        if st["body"].get("via") == "direct":   # a straight cruise (_exit_via): no waypoints
+            return ["direct"], None
         via = list(st["body"].get("via") or [])
         ramp = st.get("arrive_via")
         split = None
@@ -1122,9 +1124,21 @@ class JobsMixin:
         if inside and (via or at_spot):
             now_au = gap(pos, dest)
             hop = min(spots - {pos}, key=lambda x: (gap(x, dest), x), default=None)
-            if hop and now_au - gap(hop, dest) >= max(30.0, now_au / 4):
+            if hop and hop != dest and now_au - gap(hop, dest) >= max(30.0, now_au / 4):   # a spot destination: no via of itself
                 via.append(hop)
                 saved_from = saved_from or now_au
+        if inside and not at_spot and not via and dest in spots and entry and dest != entry:
+            # to a surge spot from a place that isn't one, the game cruises to the entry point and hops out from there
+            # (live 2026-11-26: 5DD5C090 LAOWAOI-OBJ-2 → LAOWAOI-OORT, 3780 AU to LAOWAOI-5-L4, 6 h; `via: "direct"`
+            # previewed 13 s). A straight cruise instead, when it's much shorter.
+            game, straight = gap(here, entry), gap(here, dest)
+            if game - straight >= max(30.0, game / 4):
+                body["via"] = "direct"
+                st["desc"] += " (straight cruise)"
+                if job.get("rule"):
+                    await self.log(job["rule"], f"{job['title']}: {code} → {dest} cruises straight (≈{straight:.0f} AU), "
+                                                f"not by {entry} (≈{game:.0f} AU)")
+                return []
         ds = star_of(dest)
         if not inside and not re.fullmatch(rf"{re.escape(ds)}-\d+-L[45]", dest):
             # the off-ramp (owner 2026-10-22: 2D6BFDF1 surged to ISOLITHOR-1-L4, then cruised 499 AU to ISOLITHOR-BELT-1):
@@ -1196,7 +1210,7 @@ class JobsMixin:
                     try:
                         secs = hubroute.total_seconds(await self.api.request(
                             "POST", path, json_body={**{k: x for k, x in body.items() if k != "via"},
-                                                     **({"via": v} if v else {}), "dry_run": True}, background=True))
+                                                     **({"via": hubroute.as_sent(v)} if v else {}), "dry_run": True}, background=True))
                     except ApiError:
                         continue
                     if secs is not None:

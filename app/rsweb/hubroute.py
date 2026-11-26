@@ -47,6 +47,18 @@ def star_after(v: str) -> str:
     return next((g[2] for g in GATES if g[1] == v), v.split("-")[0])
 
 
+DIRECT = "direct"   # `via: "direct"` skips the game's routing through surge spots (docs; live 2026-11-26)
+
+
+def as_sent(via: Any) -> Any:
+    """A planned `via` as the game takes it: the list of waypoints, or the string "direct" (planned as ["direct"])."""
+    if isinstance(via, str):
+        return DIRECT if via.lower() == DIRECT else via
+    if isinstance(via, list) and len(via) == 1 and str(via[0]).lower() == DIRECT:
+        return DIRECT
+    return via
+
+
 def waypoints(via: list[str], dest: str) -> list[str]:
     """`via` as the game takes it: a trip to a body in another system than the last waypoint needs that system's star
     as one more waypoint (live 2026-10-20: "Cannot travel directly from SOLARES to SOL-3-1 (different systems). Add a

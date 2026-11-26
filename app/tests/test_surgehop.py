@@ -333,3 +333,16 @@ def test_a_station_far_out_takes_the_off_ramp_from_its_location_detail(client):
                        {"location": "Z-OBJ-2", "megastructure": {"orbital_distance_au": 900.0}})
     assert client.portal.call(e.trip_via, "V1", "Z-OBJ-2") == ["Z", "Z-KUIPER"]
     assert system_radii({"system_objects": [{"location": "Z-OBJ-1", "orbital_distance_au": 12.5}]}) == {"Z-OBJ-1": 12.5}
+
+
+def test_from_a_station_to_a_surge_spot_next_to_it_cruises_straight(client):
+    # live 2026-11-26: 5DD5C090 LAOWAOI-OBJ-2 → LAOWAOI-OORT was routed by the entry point (3780 AU, 6 h);
+    # `via: "direct"` previewed 13 s
+    client.portal.call(client.app.state.db.kv_set, "loc:Z-OBJ-2", {"megastructure": {"orbital_distance_au": 500.0}})
+    sent, job = _run(client, at="Z-OBJ-2", dest="Z-KUIPER")
+    assert sent == [{"command": "travel", "destination": "Z-KUIPER", "via": "direct"}]
+    assert client.portal.call(eng(client).trip_via, "V1", "Z-KUIPER") == ["direct"]
+    sent, _ = _run(client, at="Z-OBJ-2", dest="Z-1-L4")   # the entry point: hop in from the Kuiper belt, as before
+    assert sent == [{"command": "travel", "destination": "Z-1-L4", "via": ["Z-KUIPER"]}]
+    from rsweb.hubroute import as_sent
+    assert as_sent(["DIRECT"]) == "direct" and as_sent(["Z", "Z-KUIPER"]) == ["Z", "Z-KUIPER"]

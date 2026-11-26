@@ -708,7 +708,7 @@ async def replicant_travel(request: Request, code: str, destination: str = Form(
         resp, saved, refused, hop_first = direct, None, None, (await ramp_note(request, ramp) if ramp else None)
         if via:
             try:
-                resp = await api.post(path, {"destination": destination, "via": via, "dry_run": True})
+                resp = await api.post(path, {"destination": destination, "via": hubroute.as_sent(via), "dry_run": True})
                 d_s, v_s = hubroute.total_seconds(direct), hubroute.total_seconds(resp)
                 saved = (d_s - v_s, d_s) if d_s and v_s else None
                 if saved and saved[0] <= 0:   # no faster than the game's own route: go direct
@@ -723,7 +723,7 @@ async def replicant_travel(request: Request, code: str, destination: str = Form(
                        legs=resp.get("route") if isinstance(resp.get("route"), list) else [resp.get("route")] if resp.get("route") else [],
                        sugg=await suggestions(request, destination), uid=f"r-{code}", **await chain_context(request, host, code))
     form = await request.form()
-    body = {"destination": destination, **({"via": via} if via else {})}
+    body = {"destination": destination, **({"via": hubroute.as_sent(via)} if via else {})}
     try:
         followups = parse_chain(form, host, code)
     except ValueError as e:

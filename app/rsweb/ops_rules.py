@@ -1617,8 +1617,8 @@ class OpsRules:
     async def trip_seconds(self, code: str, dest: str) -> float | None:
         """The game's preview of `code`'s trip to `dest` along the route the job runner will take (surge hops, a hub, the
         off-ramp), else its own route; None when neither previews (owner 2026-10-22: the actual travel time counts)."""
-        from .hubroute import total_seconds
-        via = await self.trip_via(code, dest)
+        from .hubroute import as_sent, total_seconds
+        via = as_sent(await self.trip_via(code, dest))
         for v in ([via] if via else []) + [None]:
             try:
                 return total_seconds(await self.api.request("POST", f"/devices/{code}", json_body={
