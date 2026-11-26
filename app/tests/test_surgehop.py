@@ -320,3 +320,16 @@ def test_a_hand_sent_trip_landing_at_the_entry_point_hops_to_the_off_ramp(client
     assert [b for p, b in sent if p == "/devices/V1"][-1] == {"command": "travel", "destination": "Z-KUIPER"}
     _arrive(client, "Z-KUIPER")
     assert [b for p, b in sent if p == "/devices/V1"][-1] == {"command": "travel", "destination": "Z-BELT-1"}
+
+
+def test_a_station_far_out_takes_the_off_ramp_from_its_location_detail(client):
+    # live 2026-11-26: 5DD5C090 NIO → LAOWAOI-OBJ-2 (a frontier assembly 3781.59 AU out) landed at LAOWAOI-5-L4 and
+    # cruised 3780 AU, 6 h: OBJ-n places counted as inner system
+    from rsweb.fleets import system_radii
+    _run(client, at="Y-2-L4", scanned=False)   # sets up system Z and V1
+    e = eng(client)
+    assert client.portal.call(e.trip_via, "V1", "Z-OBJ-2") == []
+    client.portal.call(client.app.state.db.kv_set, "loc:Z-OBJ-2",
+                       {"location": "Z-OBJ-2", "megastructure": {"orbital_distance_au": 900.0}})
+    assert client.portal.call(e.trip_via, "V1", "Z-OBJ-2") == ["Z", "Z-KUIPER"]
+    assert system_radii({"system_objects": [{"location": "Z-OBJ-1", "orbital_distance_au": 12.5}]}) == {"Z-OBJ-1": 12.5}

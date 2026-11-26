@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.563.0"
+VERSION = "1.564.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.564.0", "2026-11-26", "Trips to stations and megastructures (STAR-OBJ-n) far out in a system now surge hop to the nearest surge spot and cruise only the rest: the planner took them for inner-system places, so 5DD5C090 surged to LAOWAOI-5-L4 and cruised 3780 AU (6 h) to LAOWAOI-OBJ-2. Their distance comes from scans and stored location details."),
     ("1.563.0", "2026-11-26", "Reputation: Known species shows one block per species with its habitable ranges as wrapping pills, so the card no longer runs behind the next one (every theme, phones too); reputation tables scroll inside their card."),
     ("1.562.0", "2026-11-26", "The desk, phase 1 (Joe): a third interface beside the classic tabs and the command screen (Account › Interface, or /desk). Every page opens as its own translucent window over the live galaxy map, as many as you like: drag a window by its bar, resize it from the corner, collapse it to a tab in the top bar, make it full size, close it, or line them all up with Tidy. A link inside a window opens there, except device, system and replicant pages, which open their own window (or bring forward the one already open), so several device pages sit side by side; each window's results and live cards stay in that window. The Open menu lists every page; the layout is remembered in this browser. Themes apply. Sorting and filtering every column, drag and drop between fleets and the event stream window come next."),
     ("1.561.0", "2026-11-26", "Themes (Joe): Account › Theme picks Standard, Nixie or Terminal for this browser, in the classic tabs, the command screen and the coming desk. Nixie: orange tube glow on black behind a faint wire mesh, with a nixie tube font for numbers, headings and countdowns. Terminal: green phosphor monospace text on black with line-box frames, states told apart by brightness, symbols and reverse video, and scanlines on panels (on by default, a box turns them off; off when your system asks for reduced motion). The galaxy map itself keeps its colors."),

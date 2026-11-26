@@ -654,7 +654,8 @@ INNER_AU = 5.0                                              # a body we know not
 
 
 def system_radii(scan: dict | None) -> dict[str, float]:
-    """Distance from the star (AU) of each place a system scan names: planets, belts (mid-radius), Kuiper, Oort."""
+    """Distance from the star (AU) of each place a system scan names: planets, belts (mid-radius), Kuiper, Oort, and
+    system objects (STAR-OBJ-n: stations, megastructures) that carry an orbital distance."""
     out: dict[str, float] = {}
     if not isinstance(scan, dict):
         return out
@@ -669,7 +670,22 @@ def system_radii(scan: dict | None) -> dict[str, float]:
         o = (scan.get("outer_system") or {}).get(k) or {}
         if o.get("designation") and o.get("distance_au") is not None:
             out[o["designation"]] = float(o["distance_au"])
+    for o in scan.get("system_objects") or []:
+        r = place_radius(o)
+        if isinstance(o, dict) and o.get("location") and r is not None:
+            out[str(o["location"]).upper()] = r
     return out
+
+
+def place_radius(detail: dict | None) -> float | None:
+    """A location's (or system object's) distance from its star, from its own detail: `orbital_distance_au`, at the top
+    or under `megastructure` (live 2026-11-26: LAOWAOI-OBJ-2, a frontier assembly at 3781.59 AU)."""
+    if not isinstance(detail, dict):
+        return None
+    for d in (detail, detail.get("megastructure")):
+        if isinstance(d, dict) and isinstance(d.get("orbital_distance_au"), (int, float)):
+            return float(d["orbital_distance_au"])
+    return None
 
 
 def radius_au(loc: str | None, radii: dict[str, float] | None = None) -> float | None:

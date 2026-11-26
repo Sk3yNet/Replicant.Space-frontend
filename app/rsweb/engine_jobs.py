@@ -1105,6 +1105,7 @@ class JobsMixin:
         if "surge" not in (d.get("features") or []) or not here or here == dest:
             return []
         radii = await self.cruise_radii()
+        await self._place_radii(radii, here, dest)
         hs = star_of(here)
         spots, entry = await self._surge_spots(hs, radii)
         def gap(x: str, y: str) -> float:
@@ -1144,6 +1145,18 @@ class JobsMixin:
                 await self.log(job["rule"], f"{job['title']}: {code} → {dest} via {', '.join(via)} (surge hop), instead of "
                                             f"≈{saved_from:.0f} AU of cruise")
         return via
+
+    async def _place_radii(self, radii: dict[str, float], *locs: str) -> None:
+        """Fills in the radius of a place the scans don't give (a STAR-OBJ-n station or megastructure) from its stored
+        location detail (kv loc:…). Without it the place counted as inner system: 5DD5C090 surged from NIO to
+        LAOWAOI-5-L4 and cruised 3780 AU (6 h) to LAOWAOI-OBJ-2 (3781.59 AU out) instead of hopping out first
+        (owner 2026-11-26)."""
+        from .fleets import place_radius
+        for x in locs:
+            if x and "-OBJ-" in x and x not in radii:
+                r = place_radius(await self.db.kv_get(f"loc:{x}", None))
+                if r is not None:
+                    radii[x] = r
 
     async def _beyond_sector(self, st: dict, job: dict) -> str | None:
         """The sector range (owner 2026-10-22: logistics sent freighter 2D6BFDF1 from SOLARES on a 241 h trip to
