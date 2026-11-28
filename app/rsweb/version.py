@@ -16,12 +16,13 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.569.0"
+VERSION = "1.570.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
-    ("1.569.0", "2026-11-28", "Info beacons are switched on before their carrier leaves (Joe): a carrier dropping one at its deploy location deploys it, writes its text and starts the broadcast at the drop; if the game refuses the broadcast, the job stops with the carrier still there. Out of reach a beacon can't be switched on later."),
+    ("1.570.0", "2026-11-28", "Info beacons are switched on before their carrier leaves (Joe): a carrier dropping one at its deploy location deploys it, writes its text and starts the broadcast at the drop; if the game refuses the broadcast, the job stops with the carrier still there. Out of reach a beacon can't be switched on later."),
+    ("1.569.0", "2026-11-28", "Dashboard › Hub stockpiles draws a hub whose stockpile sat still (Joe: Gamma at NIO went blank): rows are saved only when a pile changes, so with nothing in the chosen window the chart was empty; each line now starts at its last value from before the window and runs on to now. Rock chasers no longer pick a spent vector charge: Chaser_2 sent detonate to EF797F8D (used on KELMONENT-KUIPER-76 the day before, kept 12 h as unlisted) every 2 minutes for 3.5 hours, \"Device not found\", while its other charge sat ready. A charge the game no longer lists is skipped, and a charge that detonates leaves the device list at once."),
     ("1.568.1", "2026-11-28", "Information beacons go on multi-drop runs like relays and FTL beacons (Joe): a carrier taking one fills its free hold with others waiting at the same pick-up point and drops them system by system, nearest first; beyond the network only a vessel hosting a replicant takes them."),
     ("1.568.0", "2026-11-28", "Info beacons bulk import prints what spares don't cover (Joe): an entry with no free beacon within the sector range gets a print order; the engine prints one on the autofactory nearest its destination (a stocked one first), tagged for logistics to carry there, and hands the new beacon the entry's text and deploy location. Print orders are listed under Bulk import, are reordered if they never show up (3 tries), and a free beacon beyond the sector range no longer takes an entry it could never reach."),
     ("1.567.0", "2026-11-28", "Claude connector: a read-only stars tool lists catalog stars by region, distance from a star or point, whether you have devices there, and a minimum spacing, for placing beacon stories away from your own systems."),

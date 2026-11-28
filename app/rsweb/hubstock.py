@@ -66,8 +66,19 @@ async def record(db, locs: list[dict], ts: str) -> None:
     await db.kv_set("hub_inventory_spots", where)
 
 
-async def history(db, since: str) -> dict[str, dict[str, list[tuple[str, float]]]]:
+async def history(db, since: str, now: str | None = None) -> dict[str, dict[str, list[tuple[str, float]]]]:
+    """{hub: {resource: [(ts, qty)]}} for the window. Rows are saved only on change, so a hub whose pile sat still
+    (Gamma at NIO, 1.569.0) had no rows in a 2-day window and its chart went blank: each line starts with its last value
+    from before the window (at `since`) and, with `now`, runs on to now at its latest value."""
     raw: dict[str, dict[str, list[tuple[str, float]]]] = defaultdict(lambda: defaultdict(list))
+    for r in await db.fetchall("SELECT hub, resource, qty, MAX(ts) AS ts FROM hub_inventory_history WHERE ts < ? "
+                               "GROUP BY hub, resource", (since,)):
+        raw[r["hub"]][r["resource"]].append((since, r["qty"]))
     for r in await db.fetchall("SELECT ts, hub, resource, qty FROM hub_inventory_history WHERE ts >= ? ORDER BY ts", (since,)):
         raw[r["hub"]][r["resource"]].append((r["ts"], r["qty"]))
+    if now:
+        for res in raw.values():
+            for pts in res.values():
+                if pts[-1][0] < now:
+                    pts.append((now, pts[-1][1]))
     return raw
