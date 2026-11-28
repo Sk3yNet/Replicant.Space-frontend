@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.571.2"
+VERSION = "1.571.3"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.571.3", "2026-11-28", "Asteroids no longer show a destination in another system (Joe: FALQUORYX-OBJ-3 → FALQUORYX-1-2, destination SARKARUS-1): a game impact warning was matched to a rock by the system of its envelope location and by the nearest ETA, so an 11-26 warning about SARKARUS-1 was glued onto FALQUORYX-OBJ-3, detected a day later, with its ETA, devices and spot. A warning now matches only a rock in its destination's system due within 30 minutes of the warned ETA, never changes a read rock's ETA, and such old mix-ups are cleared."),
     ("1.571.2", "2026-11-28", "Devices waiting at a rock for a pick-up evacuate (Joe: service bot 666EAB02 was destroyed at XANDUNYR-OBJ-12): a repair patrol job had it wait there for a carrier due 35 minutes after the impact, and evacuation skipped it as busy. A device a job leaves waiting at a doomed spot for another device now leaves at the hour mark and that job is called off. Repair patrols never pick up a repair device at a rock and start at the worst worn device off the rocks. An impact warning filed under a spot in another system (ISOLITHOR-1-L4 for XANDUNYR-1) is matched by its destination's system."),
     ("1.571.1", "2026-11-28", "Info beacons bulk import takes your free beacons again (Joe: none were used): the game lists deactivate on idle, undeployed beacons too, and the app took that for broadcasting, so every beacon looked taken and every entry went to print. Free and broadcasting are now told by the beacon's status, and a beacon at its spot is switched on unless its status says it already broadcasts."),
     ("1.571.0", "2026-11-28", "Mining fleets can stay near a hub (Joe: Miner_9 and Miner_10, based at NIO for the Gamma hub, wandered off on auto relocate, Miner_9 now 315 ly away): the fleet card's path settings take \"staying within N ly of STAR\". Each new home is then picked inside that radius, and a home outside it is left on the next pass without waiting for it to run dry. Blank keeps the old behavior (anywhere in the sector range)."),

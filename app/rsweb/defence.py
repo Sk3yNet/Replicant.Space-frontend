@@ -285,10 +285,17 @@ def warning_object(p: dict, location: str | None, objs: dict[str, dict]) -> str 
     star = (p.get("destination") or location or "").split("-")[0]
     eta = _ts(p.get("impact_eta"))
     open_ = [d for d, o in objs.items() if is_object(d) and d.split("-")[0] == star and not o.get("closed")]
+    if eta:   # only a rock due about when the warning says (live 2026-11-28: an 11-26 SARKARUS-1 warning was glued
+        # onto FALQUORYX-OBJ-3, detected 11-27, and showed "destination SARKARUS-1")
+        open_ = [d for d in open_ if (t := _ts(objs[d].get("impact_eta"))) is None
+                 or abs((t - eta).total_seconds()) <= WARNING_MATCH_MIN * 60]
     if not open_:
         return None
     return min(open_, key=lambda d: abs(((_ts(objs[d].get("impact_eta")) or eta or datetime.now(timezone.utc))
                                           - (eta or datetime.now(timezone.utc))).total_seconds()))
+
+
+WARNING_MATCH_MIN = 30   # a warning's ETA and its rock's may differ a little (the rock is read every 5 min)
 
 
 def objects_in_scan(data: Any, star: str) -> list[dict]:

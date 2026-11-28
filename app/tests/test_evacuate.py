@@ -261,3 +261,12 @@ def test_a_warning_from_another_system_is_matched_by_its_destination():
     objs = {"X-OBJ-12": {"impact_eta": "2026-11-28T13:29:33Z"}, "I-OBJ-1": {"impact_eta": "2026-11-28T13:29:00Z"}}
     p = {"destination": "X-1", "impact_eta": "2026-11-28T13:29:33.67Z", "device_codes": ["SB"]}
     assert dfn.warning_object(p, "I-1-L4", objs) == "X-OBJ-12"
+
+
+def test_an_old_warning_isnt_glued_onto_a_later_rock():
+    # live 2026-11-28: an 11-26 SARKARUS-1 warning showed on FALQUORYX-OBJ-3 (due 11-28) as "destination SARKARUS-1"
+    from rsweb import defence as dfn
+    objs = {"F-OBJ-3": {"impact_eta": "2026-11-28T17:47:00Z"}}
+    p = {"destination": "F-1", "impact_eta": "2026-11-26T18:17:00Z"}
+    assert dfn.warning_object(p, "F-1-L4", objs) is None
+    assert dfn.warning_object({**p, "impact_eta": "2026-11-28T17:50:00Z"}, "F-1-L4", objs) == "F-OBJ-3"

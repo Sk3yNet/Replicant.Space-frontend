@@ -1463,7 +1463,8 @@ class OpsRules:
                 if not dfn.is_object(des):
                     o["unresolved"] = True
                 o["warned_devices"] = p.get("device_codes") or o.get("warned_devices") or []
-                o["impact_eta"] = p.get("impact_eta") or o.get("impact_eta")
+                if o.get("source") == "impact_warning" or not o.get("impact_eta"):   # a read rock keeps its own
+                    o["impact_eta"] = p.get("impact_eta") or o.get("impact_eta")
                 o["impact_target"] = o.get("impact_target") or p.get("destination")
                 o["destination"] = p.get("destination") or o.get("destination")
                 o["warned_at"] = r["created_at"]
@@ -1538,6 +1539,11 @@ class OpsRules:
         for k, o in objs.items():   # saved before 1.99 without a designation (v3.5.0 detections): its location is its name
             if not o.get("designation"):
                 o["designation"] = k
+            dest = str(o.get("destination") or "")
+            if dfn.is_object(k) and dest and dest.split("-")[0] != k.split("-")[0]:
+                # a warning about another system matched before 1.571.3 (FALQUORYX-OBJ-3 "destination SARKARUS-1")
+                for f in ("destination", "also_at", "warned_devices", "warned_at"):
+                    o.pop(f, None)
         # owner, 2026-10-15: an event is over once its impact time has passed. Live 2026-11-08: SOLARES-OBJ-6 (ETA
         # 11-07 20:46 UTC, still 5 AU out at its last read) struck 18.5 h late and destroyed 46 devices that went there
         # after the app had closed it. Now a rock past its ETA is "overdue": still read, nothing goes there, and whatever
