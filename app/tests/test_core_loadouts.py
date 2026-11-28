@@ -1163,7 +1163,8 @@ def test_loadout_plan_fills_a_carrier_hold_with_relays_for_several_systems():
     def dev(code, t, loc, **kw):
         return {"device_code": code, "device_type": t, "location": loc, "status": "idle", "operational_capacity": 100.0,
                 "features": kw.pop("features", ["cruise", "stow"]), "available_commands": ["travel", "stow", "deploy"], **kw}
-    devices = [dev(f"R{t}", "ftl_relay", "HUB-1", tags=[f"to:{t.lower()}"]) for t in ("AAA", "BBB", "CCC")]
+    devices = [dev(f"R{t}", "ftl_relay", "HUB-1", tags=[f"to:{t.lower()}"]) for t in ("AAA", "BBB")]
+    devices.append(dev("RCCC", "information_beacon", "HUB-1", tags=["to:ccc", "at:ccc-oort"]))   # info beacons ride along (1.568.1)
     devices.append(dev("HV", "heaven_vessel", "HUB-1", features=["surge", "cruise"], stow_capacity=3,
                        hosting_replicant={"replicant_code": "R1"}, tags=["fleet:logistics"]))
     stars = {s: {"designation": s, "position": {"x": x, "y": 0, "z": 0}} for s, x in
@@ -1174,6 +1175,17 @@ def test_loadout_plan_fills_a_carrier_hold_with_relays_for_several_systems():
     dl = [d for d in p["deliveries"] if d["carrier"] == "HV"]
     assert len(dl) == 1 and sorted(dl[0]["devices"]) == ["RAAA", "RBBB", "RCCC"]   # 2 slots left after the first: all go
     assert dl[0]["to"] == "AAA" and dl[0]["stops"] == ["CCC", "BBB"]               # then nearest first: CCC 3 ly, BBB 4 ly
+    # the info beacon is deployed, given its text and switched on at its spot before the carrier flies on (Joe 2026-11-28)
+    steps = lo.delivery_steps(dl[0], p["by_code"], stars, False,
+                              info_targets={"RCCC": {"dest": "CCC-OORT", "text": "LOG 01", "activate": True}})
+    descs = [st["desc"] for st in steps]
+    i = next(n for n, d in enumerate(descs) if "CCC-OORT" in d)
+    after = descs[i:]
+    w = next(n for n, d in enumerate(after) if d == "RCCC: write its text")
+    a = after.index("activate RCCC")
+    nxt = next(n for n, d in enumerate(after) if "BBB" in d)
+    assert w < a < nxt and steps[i + a]["critical"], descs
+    assert steps[i + w]["method"] == "PATCH" and steps[i + w]["body"]["configuration"]["settings"]["description"] == "LOG 01"
     devices[-1]["stow_capacity"] = 2   # room for two: the third waits for the next run
     p = lo.plan(cfg, devices, [], {}, stars, {"HV": "R1"}, set(), [], {}, commandable={"HUB"})
     assert sum(len(d["devices"]) for d in p["deliveries"] if d["carrier"] == "HV") == 2
