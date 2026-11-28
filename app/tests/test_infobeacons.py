@@ -155,7 +155,9 @@ def test_bulk_import_assigns_tags_describes_and_broadcasts(client):
     from tests.test_ops import eng
     a = _beacon(client, code="IB0000A1", loc="SOL-KUIPER", available_commands=["deploy", "stow"])
     _beacon(client, code="IB0000A2", loc="SOL-KUIPER", available_commands=["deploy", "stow"])
-    _beacon(client, code="IB0000A3", loc="SOL-3-L4", available_commands=["deactivate", "comment", "stow"])  # broadcasting
+    a3 = _beacon(client, code="IB0000A3", loc="SOL-3-L4", available_commands=["deactivate", "comment", "stow"])
+    a3["status"] = "broadcasting"
+    client.portal.call(client.app.state.worker.sync_devices)
     text = "LOG 01/36 · CAPT. TEST\n\nHello."
     data = json.dumps({"beacons": [{"dest": "SOL-3", "text": text}, {"dest": "SOL-OORT", "text": "two", "code": "IB0000A2"},
                                    {"dest": "SOL-4", "text": "three"}]})
@@ -228,3 +230,11 @@ def test_bulk_print_orders_print_near_the_destination_then_hand_over_the_text(cl
     t = client.portal.call(db.kv_get, ib.TARGETS_KV, {})
     assert t["IBNEW001"]["text"] == "LOG 07" and t["IBNEW001"]["activate"]
     assert client.portal.call(db.kv_get, ib.PRINTS_KV, {}) == {}
+
+
+def test_an_idle_beacon_offering_deactivate_is_still_free():
+    """Live 2026-11-28: the game lists deactivate on idle, undeployed beacons; none of Joe's 33 counted as free."""
+    d = {"device_code": "E060D19D", "device_type": ib.TYPE, "location": "SOLARES-BELT-1", "status": "idle", "tags": [],
+         "available_commands": ["change_owner", "deactivate", "decommission", "deploy", "stow"]}
+    assert ib.free_beacon(d, {}, {})
+    assert not ib.free_beacon({**d, "status": "broadcasting"}, {}, {})

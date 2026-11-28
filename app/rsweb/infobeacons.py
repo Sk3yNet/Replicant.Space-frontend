@@ -235,7 +235,8 @@ def target_step(d: dict | None, t: dict) -> str:
         return "deploy"
     if t.get("text") and not t.get("described") and description(d) != t["text"]:
         return "describe"   # the bulk import's text goes on before the broadcast starts
-    if t.get("activate") and "activate" in cmds:
+    # by its status, not by `activate` in its commands: the game lists deactivate on idle beacons (live 2026-11-28)
+    if t.get("activate") and ("activate" in cmds or not active(d)):
         return "activate"
     return "done"
 
@@ -290,8 +291,9 @@ def free_beacon(d: dict, store: dict | None, targets: dict | None) -> bool:
     known = ((store or {}).get(code) or {}).get("device") or {}
     if description(d) or description(known):
         return False
-    cmds = d.get("available_commands") or []
-    return "deactivate" not in cmds and not (settings(d).get("active") or settings(known).get("active"))
+    # not by `deactivate` in its commands: the game offers it on idle, undeployed beacons too (live 2026-11-28,
+    # E060D19D idle at SOLARES-BELT-1), so every free beacon looked like it was broadcasting
+    return not (active(d) or settings(known).get("active"))
 
 
 def assign(entries: list[dict], devices: list[dict], store: dict | None, targets: dict | None,
