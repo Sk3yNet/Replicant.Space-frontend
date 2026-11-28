@@ -82,8 +82,9 @@ async def info_beacons_page(request: Request, user: str = Depends(current_user))
         t = targets.get(b["code"])
         if t:
             b["target"] = {**t, "line": target_line(b["dev"], t)}
+    prints = [{"id": k, **p, "line": ib.print_line(p)} for k, p in (await db.kv_get(ib.PRINTS_KV, {}) or {}).items()]
     return await page(request, user, "info_beacons.html", "infobeacons", mine=mine, theirs=theirs, reps=reps,
-                      recent=recent, max_text=ib.MAX_TEXT)
+                      recent=recent, max_text=ib.MAX_TEXT, prints=prints)
 
 
 def target_line(d: dict | None, t: dict) -> str:
@@ -218,20 +219,24 @@ async def info_beacon_delete_comment(request: Request, code: str, index: int, us
 async def _bulk_rows(request: Request, raw: str) -> tuple[list[dict], dict, list[dict]]:
     """(rows, targets, devices) for the bulk import: parse, then pick a beacon for each entry (infobeacons.assign)."""
     from .balance import _dist
+    from .fleets import beyond_reach
+    from .logistics import SECTOR_RANGE_LY
     from .relaynet import star_pos
     db = request.app.state.db
     entries, _act = ib.parse_bulk(raw)
     targets = await db.kv_get(ib.TARGETS_KV, {}) or {}
     devices = await db.kv_get("devices", []) or []
     pos = await star_pos(db)
-    return ib.assign(entries, devices, await _store(db), targets, lambda a, b: _dist(a, b, pos)), targets, devices
+    prints = await db.kv_get(ib.PRINTS_KV, {}) or {}
+    return ib.assign(entries, devices, await _store(db), targets, lambda a, b: _dist(a, b, pos),
+                     lambda a, b: beyond_reach(a, b, pos, SECTOR_RANGE_LY), prints), targets, devices
 
 
 def _bulk_table(rows: list[dict], done: dict | None = None) -> str:
     out = ['<table class="small"><tr><th>#</th><th>Text</th><th>Destination</th><th>Beacon</th><th>Notes</th></tr>']
     for r in rows:
         note = (done or {}).get(r["n"]) or r["why"]
-        cls = "err" if r["status"] == "none" else ("muted" if r["status"] == "kept" else "")
+        cls = "err" if r["status"] == "none" else ("muted" if r["status"] == "kept" else "warn" if r["status"] == "print" else "")
         out.append(f'<tr><td class="num">{r["n"]}</td><td>{html.escape(r["title"])} <span class="muted">({len(r["text"]):,} chars)</span></td>'
                    f'<td class="mono">{html.escape(r["dest"])}</td>'
                    f'<td class="mono">{html.escape(r.get("code") or "—")}</td><td class="{cls}">{html.escape(note)}</td></tr>')
@@ -243,7 +248,9 @@ async def info_beacons_bulk(request: Request, data: str = Form(""), go: str = Fo
     """Bulk import (Joe 2026-11-26): a JSON list of texts with destinations. Preview shows which beacon takes each one
     (the one named, else the nearest free beacon); Import tags each for logistics to carry (as Deploy at does) and sets
     its deploy location with the text, which the engine writes once the beacon is deployed there, before the broadcast
-    starts (ops_rules.info_beacon_pass). Importing the same file again only fills entries still without a beacon."""
+    starts (ops_rules.info_beacon_pass). An entry no free beacon within the sector range covers gets a print order
+    (Joe 2026-11-28): the engine prints one on an autofactory near the destination and hands it the entry once it's
+    printed (ops_rules.info_beacon_prints). Importing the same file again only fills entries still without a beacon."""
     from . import fleets as fl
     from . import loadouts as lo
     try:
@@ -251,8 +258,9 @@ async def info_beacons_bulk(request: Request, data: str = Form(""), go: str = Fo
     except ValueError as e:
         return HTMLResponse(f'<div class="result err">{html.escape(str(e))}</div>')
     todo = [r for r in rows if r["status"] == "new"]
+    to_print = [r for r in rows if r["status"] == "print"]
     short = sum(r["status"] == "none" for r in rows)
-    head = (f'{len(todo)} to place, {sum(r["status"] == "kept" for r in rows)} already set'
+    head = (f'{len(todo)} to place, {len(to_print)} to print, {sum(r["status"] == "kept" for r in rows)} already set'
             + (f', {short} without a beacon' if short else ""))
     if go != "1":
         return HTMLResponse(f'<p class="small">Preview: {head}. Nothing is sent until you press Import.</p>' + _bulk_table(rows))
@@ -281,6 +289,23 @@ async def info_beacons_bulk(request: Request, data: str = Form(""), go: str = Fo
         done[r["n"]] = note
         placed += 1
     await db.kv_set(ib.TARGETS_KV, targets)
+    if to_print:
+        prints = await db.kv_get(ib.PRINTS_KV, {}) or {}
+        for r in to_print:
+            ib.new_print(r, prints)
+            done[r["n"]] = f"print ordered near {r['dest'].split('-')[0]} (the engine picks the autofactory)"
+        await db.kv_set(ib.PRINTS_KV, prints)
     return HTMLResponse(f'<div class="result ok">Imported {placed} of {len(todo)} to place'
+                        + (f', {len(to_print)} print order(s)' if to_print else "")
                         + (f'; {short} still without a beacon' if short else "") + '. Reload to see them under Yours.</div>'
                         + _bulk_table(rows, done))
+
+
+@router.post("/info-beacons/prints/{pid}/forget", response_class=HTMLResponse)
+async def info_beacon_print_forget(request: Request, pid: str, user: str = Depends(current_user)):
+    """Drop a bulk-import print order. A print already queued stays queued; its beacon then just gets delivered."""
+    db = request.app.state.db
+    prints = await db.kv_get(ib.PRINTS_KV, {}) or {}
+    p = prints.pop(pid, None)
+    await db.kv_set(ib.PRINTS_KV, prints)
+    return HTMLResponse('<span class="muted">Forgotten.</span>' if p else '<span class="muted">Already gone.</span>')

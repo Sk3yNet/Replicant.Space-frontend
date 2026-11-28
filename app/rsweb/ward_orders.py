@@ -194,14 +194,15 @@ def room(f: dict, pending: int = 0) -> int:
 
 def factory_near(devices: list[dict], star: str, busy: set[str], pos: dict, reach: float,
                  ordered: dict[str, int] | None = None, stocked: set[str] | None = None,
-                 virtual: bool = False) -> dict | None:
+                 virtual: bool = False, near_first: bool = False) -> dict | None:
     """The autofactory to print a ward on, within reach of `star`: one whose stockpile covers the print (`stocked`, when
     given: owner 2026-10-26, SOLARES relays sat waiting for conductive while FALQUORYX had plenty), then the shortest
     queue (counting wards already ordered on it, `ordered`), then the nearest; one with a full queue is skipped.
     Compacted or carried ones can't print (seen live 2026-10-11: four orders went to 1131B50B while 3E95BD59, idle
     beside it, lost every tie on its code). `virtual`: the virtual print queue (vqueue.py) is on, so prints ordered
     lately wait there and take none of the game's slots: they count toward the load only, never against the room
-    (live 2026-11-03: the relay rollout ordered ~30 station prints in a pass, every factory looked full, and it paused)."""
+    (live 2026-11-03: the relay rollout ordered ~30 station prints in a pass, every factory looked full, and it paused).
+    `near_first`: the nearest stocked factory before the shortest queue (information beacon prints, Joe 2026-11-28)."""
     out = []
     for f in devices:
         st = str(f.get("status") or "")
@@ -215,6 +216,8 @@ def factory_near(devices: list[dict], star: str, busy: set[str], pos: dict, reac
             continue
         out.append((stocked is not None and f["device_code"] not in stocked,
                     load(f) + (ordered or {}).get(f["device_code"], 0), dist, f["device_code"], f))
+    if near_first:
+        return min(out, key=lambda x: (x[0], x[2], x[1], x[3]))[4] if out else None
     return min(out, key=lambda x: x[:4])[4] if out else None
 
 

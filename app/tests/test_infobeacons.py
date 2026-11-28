@@ -160,15 +160,15 @@ def test_bulk_import_assigns_tags_describes_and_broadcasts(client):
     data = json.dumps({"beacons": [{"dest": "SOL-3", "text": text}, {"dest": "SOL-OORT", "text": "two", "code": "IB0000A2"},
                                    {"dest": "SOL-4", "text": "three"}]})
     r = client.post("/info-beacons/bulk", data={"data": data}, headers=HX).text
-    assert "Preview: 2 to place" in r and "1 without a beacon" in r and "IB0000A1" in r and "IB0000A3" not in r, r
+    assert "Preview: 2 to place, 1 to print" in r and "printed near SOL" in r and "IB0000A1" in r and "IB0000A3" not in r, r
     assert client.portal.call(client.app.state.db.kv_get, ib.TARGETS_KV, {}) == {}
     r = client.post("/info-beacons/bulk", data={"data": data, "go": "1"}, headers=HX).text
-    assert "Imported 2 of 2" in r, r
+    assert "Imported 2 of 2 to place, 1 print order(s)" in r, r
     t = client.portal.call(client.app.state.db.kv_get, ib.TARGETS_KV, {})
     assert t["IB0000A1"]["text"] == text and t["IB0000A2"]["dest"] == "SOL-OORT" and t["IB0000A1"]["activate"]
     assert "at:sol-3" in [x.lower() for x in a.get("tags", [])]
     again = client.post("/info-beacons/bulk", data={"data": data}, headers=HX).text
-    assert "0 to place, 2 already set" in again, again
+    assert "0 to place, 0 to print, 3 already set" in again, again
     e = eng(client)
     a.update(location="SOL-3", tags=[])
     client.portal.call(client.app.state.worker.sync_devices)
@@ -191,3 +191,40 @@ def test_bulk_assign_prefers_the_nearest_free_beacon():
     rows = ib.assign([{"n": 1, "dest": "HOME-OORT", "text": "t", "title": "t", "code": None, "activate": True}],
                      devs, {}, {}, lambda a, b: dist[(a, b)])
     assert rows[0]["code"] == "B" and "5 ly" in rows[0]["why"]
+
+
+def test_bulk_assign_skips_free_beacons_beyond_the_sector_range():
+    devs = [{"device_code": "A", "device_type": ib.TYPE, "location": "FAR-OORT", "available_commands": ["deploy"]}]
+    e = {"n": 1, "dest": "HOME-OORT", "text": "t", "title": "t", "code": None, "activate": True}
+    rows = ib.assign([e], devs, {}, {}, lambda a, b: 30000.0, lambda a, b: True)
+    assert rows[0]["status"] == "print" and "within the sector range" in rows[0]["why"] and not rows[0].get("code")
+    rows = ib.assign([e], devs, {}, {}, None, None, {"p1": {"dest": "HOME-OORT", "text": "t", "factory": "AF1"}})
+    assert rows[0]["status"] == "kept" and "printing on AF1" in rows[0]["why"]
+
+
+def test_bulk_print_orders_print_near_the_destination_then_hand_over_the_text(client):
+    import json
+    from tests.test_ops import eng
+    db = client.app.state.db
+    client.portal.call(db.kv_set, "blueprints", [{"device_type": ib.TYPE, "resources": {}}])
+    data = json.dumps([{"dest": "SOL-OORT", "text": "LOG 07", "title": "LOG 07"}])
+    r = client.post("/info-beacons/bulk", data={"data": data, "go": "1"}, headers=HX).text
+    assert "1 print order(s)" in r, r
+    prints = client.portal.call(db.kv_get, ib.PRINTS_KV, {})
+    (pid, p), = prints.items()
+    e = eng(client)
+    out = client.portal.call(e.info_beacon_pass)
+    assert out and "printing on AF00BEEF" in out[0], out
+    jobs = [j for j in client.portal.call(e.jobs) if (j.get("meta") or {}).get("ib_print") == pid]
+    body = jobs[0]["steps"][0]["body"]
+    assert body["device_type"] == ib.TYPE and set(body["tags"]) == {"to:sol", "at:sol-oort", "ibp:" + pid}, body
+    assert client.portal.call(e.info_beacon_pass) == []   # ordered: not again
+    assert "printing on AF00BEEF" in client.get("/info-beacons", headers=H).text
+    again = client.post("/info-beacons/bulk", data={"data": data}, headers=HX).text
+    assert "0 to print, 1 already set" in again, again
+    _beacon(client, code="IBNEW001", loc="SOL-3-L4", available_commands=["deploy", "stow"], tags=["to:sol", "at:sol-oort", "ibp:" + pid])
+    out = client.portal.call(e.info_beacon_pass)
+    assert "IBNEW001 printed for SOL-OORT" in out[0], out
+    t = client.portal.call(db.kv_get, ib.TARGETS_KV, {})
+    assert t["IBNEW001"]["text"] == "LOG 07" and t["IBNEW001"]["activate"]
+    assert client.portal.call(db.kv_get, ib.PRINTS_KV, {}) == {}

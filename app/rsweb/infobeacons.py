@@ -295,11 +295,14 @@ def free_beacon(d: dict, store: dict | None, targets: dict | None) -> bool:
 
 
 def assign(entries: list[dict], devices: list[dict], store: dict | None, targets: dict | None,
-           dist=None) -> list[dict]:
+           dist=None, far=None, prints: dict | None = None) -> list[dict]:
     """Pick a beacon for each entry: the one it names, else the nearest free one (`dist(star_a, star_b)` in ly; the
-    lowest code when distances are unknown). An entry whose destination and text already have a beacon on the way is
-    kept as it is, so importing the same file again only fills what's missing."""
+    lowest code when distances are unknown). An entry whose destination and text already have a beacon on the way, or a
+    print ordered (`prints`), is kept as it is, so importing the same file again only fills what's missing. A free beacon
+    `far(star_a, star_b)` from the destination (beyond the sector range: logistics never carries it there) doesn't
+    count; an entry no free beacon covers gets status "print" (Joe 2026-11-28: printed near its destination)."""
     targets = targets or {}
+    prints = prints or {}
     mine = {d.get("device_code"): d for d in devices if d.get("device_type") == TYPE}
     free = sorted(c for c, d in mine.items() if free_beacon(d, store, targets))
     taken: set = set()
@@ -307,8 +310,11 @@ def assign(entries: list[dict], devices: list[dict], store: dict | None, targets
     for e in entries:
         row = {**e, "status": "new", "why": ""}
         have = next((c for c, t in targets.items() if t.get("dest") == e["dest"] and t.get("text") == e["text"]), None)
+        printing = next((p for p in prints.values() if p.get("dest") == e["dest"] and p.get("text") == e["text"]), None)
         if have:
             row.update(code=have, status="kept", why="already set")
+        elif printing:
+            row.update(status="kept", why=print_line(printing))
         elif e.get("code"):
             if e["code"] not in mine:
                 row.update(status="none", why=f"{e['code']} isn't one of your information beacons")
@@ -319,9 +325,13 @@ def assign(entries: list[dict], devices: list[dict], store: dict | None, targets
         else:
             star = e["dest"].split("-")[0]
             pool = [c for c in free if c not in taken]
-            if not pool:
-                row.update(status="none", why="no free information beacon: get more, then import again")
+            near = [c for c in pool if not (far and far(str(mine[c].get("location") or "").split("-")[0], star))]
+            if not near:
+                row.update(status="print", why="no free information beacon" + (" within the sector range" if pool else "")
+                           + f": one is printed near {star}")
             else:
+                pool = near
+
                 def key(c):
                     here = str(mine[c].get("location") or "").split("-")[0]
                     try:
@@ -333,7 +343,56 @@ def assign(entries: list[dict], devices: list[dict], store: dict | None, targets
                 ly = key(row["code"])[0]
                 at = mine[row["code"]].get("location") or "?"
                 row["why"] = f"from {at}" + (f", {ly:,.0f} ly" if ly != float("inf") else "")
-        if row.get("code") and row["status"] != "none":
+        if row.get("code") and row["status"] not in ("none", "print"):
             taken.add(row["code"])
         rows.append(row)
     return rows
+
+
+# --- prints for the bulk import (Joe 2026-11-28: entries no spare covers are printed near their destination) -----------
+PRINTS_KV = "info_beacon_prints"   # {id: {dest, text, title, activate, at, factory?, sourced?, tries?, why?, stuck?}}
+PRINT_TAG = "ibp:"                 # on the print, so the printed beacon is known by it (then it gets the entry's text)
+PRINT_TRIES = 3
+PRINT_LOST_H = 12                  # a sourced print neither queued nor printed this long is ordered again
+
+
+def new_print(e: dict, prints: dict) -> str:
+    """Record a print order for bulk entry `e`; returns its id."""
+    import secrets
+    pid = secrets.token_hex(4)
+    while pid in prints:
+        pid = secrets.token_hex(4)
+    prints[pid] = {"dest": e["dest"], "text": e["text"], "title": e.get("title") or "", "activate": bool(e.get("activate")),
+                   "at": now()}
+    return pid
+
+
+def print_tags(pid: str, dest: str) -> list[str]:
+    """The print's tags: logistics carries the new beacon to `dest` (to:/at:, as a hand delivery), and the id finds it."""
+    from .loadouts import at_tag, to_tag
+    star = dest.split("-")[0]
+    return [to_tag(star)] + ([at_tag(dest)] if "-" in dest else []) + [PRINT_TAG + pid]
+
+
+def printed(devices: list[dict], pid: str) -> dict | None:
+    """The beacon printed for order `pid`, once it's in the device list."""
+    tag = PRINT_TAG + pid
+    return next((d for d in devices if d.get("device_type") == TYPE and tag in (d.get("tags") or [])), None)
+
+
+def queued(devices: list[dict], vq_orders: list[dict] | None, pid: str) -> bool:
+    """The print for `pid` waits in a factory's queue, is printing, or waits in the app's virtual queue."""
+    tag = PRINT_TAG + pid
+    if any(tag in ((o.get("body") or {}).get("tags") or []) for o in vq_orders or []):
+        return True
+    return any(tag in json.dumps([d.get("print_queue"), d.get("printing"), d.get("current_print")], default=str)
+               for d in devices if d.get("print_queue") or d.get("printing") or d.get("current_print"))
+
+
+def print_line(p: dict) -> str:
+    """Where a print order stands, in words."""
+    if p.get("stuck"):
+        return f"print stuck: {p['stuck']}"
+    if p.get("factory"):
+        return f"printing on {p['factory']} for {p.get('dest')}"
+    return f"print for {p.get('dest')} waits: {p['why']}" if p.get("why") else f"print for {p.get('dest')} ordered"

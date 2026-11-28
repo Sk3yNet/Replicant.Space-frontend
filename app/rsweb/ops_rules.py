@@ -1270,10 +1270,13 @@ class OpsRules:
         is sent again after RESEND_MIN while the device list still offers it, up to MAX_TRIES, then reported once."""
         from . import infobeacons as ib
         targets = await self.db.kv_get(ib.TARGETS_KV, {}) or {}
-        if not targets or (await self.settings()).get("dry_run"):
+        prints = await self.db.kv_get(ib.PRINTS_KV, {}) or {}
+        if not (targets or prints) or (await self.settings()).get("dry_run"):
             return []
-        by = {d.get("device_code"): d for d in await self.devices()}
-        out, changed, now = [], False, _now()
+        devices = await self.devices()
+        out, changed = (await self.info_beacon_prints(prints, targets, devices)) if prints else ([], False)
+        by = {d.get("device_code"): d for d in devices}
+        now = _now()
         for code, t in list(targets.items()):
             if t.get("stuck"):
                 continue
@@ -1315,6 +1318,88 @@ class OpsRules:
         if changed:
             await self.db.kv_set(ib.TARGETS_KV, targets)
         return out
+
+    async def info_beacon_prints(self, prints: dict, targets: dict, devices: list[dict]) -> tuple[list[str], bool]:
+        """Bulk-import entries no free beacon covered (Joe 2026-11-28): print one on the autofactory nearest the
+        destination within the sector range (one whose stockpile covers it first), tagged to:/at: so logistics carries
+        it, plus ibp:<id>; once the printed beacon is in the device list it takes the entry's deploy location and text.
+        A print neither queued nor printed after PRINT_LOST_H is ordered again, up to PRINT_TRIES. Changes `targets`
+        in place (the caller saves it); saves the prints."""
+        from . import infobeacons as ib
+        from . import loadouts as lo
+        from . import ward_orders as wo
+        from .shapes import as_amounts, normalize_blueprints, normalize_inventory
+        out, moved, changed, now = [], False, False, _now()
+        vq = getattr(self.api, "vq", None)
+        vq_orders = (await vq.orders()) if vq is not None else []
+        jobs = None
+        ctx = None
+        for pid, p in list(prints.items()):
+            if p.get("stuck"):
+                continue
+            d = ib.printed(devices, pid)
+            if d:
+                code = d["device_code"]
+                targets[code] = {"dest": p["dest"], "activate": p.get("activate", True), "text": p["text"],
+                                 "title": p.get("title") or "", "set_at": ib.now()}
+                prints.pop(pid)
+                moved = changed = True
+                text = f"information beacon {code} printed for {p['dest']} ({p.get('title') or 'bulk import'}): logistics carries it"
+                await self.log("info_beacons", text)
+                out.append(text)
+                continue
+            if jobs is None:
+                jobs = await self.jobs()
+            if any(j.get("status") in ("running", "waiting") and (j.get("meta") or {}).get("ib_print") == pid for j in jobs):
+                continue
+            if p.get("factory") and (ib.queued(devices, vq_orders, pid)
+                                     or (now - (_ts(p.get("sourced")) or now)).total_seconds() < ib.PRINT_LOST_H * 3600):
+                continue
+            if int(p.get("tries") or 0) >= ib.PRINT_TRIES:
+                p["stuck"] = f"ordered {p['tries']} times and never printed"
+                changed = True
+                await self.log("info_beacons", f"information beacon print for {p['dest']}: {p['stuck']}; import the file "
+                               "again after clearing it on the Info beacons page", "alert", notify=True)
+                continue
+            if ctx is None:
+                pos, reach = await self._outpost_ctx()
+                bp = next((b for b in normalize_blueprints(await self.db.kv_get("blueprints", []))
+                           if b.get("device_type") == ib.TYPE), None)
+                inv = {i.get("location"): i.get("items") or {} for i in normalize_inventory(await self.db.kv_get("inventory", []))}
+                busy = {c for c in self.busy_devices(jobs) if not wo.print_only(jobs, c)}
+                ordered: dict[str, int] = {}
+                ctx = (pos, reach, bp, inv, busy, ordered)
+            pos, reach, bp, inv, busy, ordered = ctx
+            star = p["dest"].split("-")[0]
+            if bp is None:
+                why = "no information beacon blueprint (decommission one at an autofactory to learn it)"
+            else:
+                f = wo.factory_near(devices, star, busy, pos, reach, ordered,
+                                    wo.stocked(devices, as_amounts(bp.get("resources")), inv), virtual=vq is not None,
+                                    near_first=True)
+                why = "" if f else f"no autofactory with a free print slot within the sector range of {star}"
+            if why:
+                if p.get("why") != why:
+                    p["why"] = why
+                    changed = True
+                    await self.log("info_beacons", f"information beacon print for {p['dest']} waits: {why}", "warning")
+                continue
+            fc = f["device_code"]
+            await self.create_job("info_beacons", f"print an information beacon on {fc} for {p['dest']}", fc,
+                                  lo.print_steps({"factory": fc, "factory_star": wo.star_of(f.get("location")),
+                                                  "device_type": ib.TYPE, "n": 1, "star": star,
+                                                  "tags": ib.print_tags(pid, p["dest"])}),
+                                  {"devices": [], "ib_print": pid}, force=True)
+            ordered[fc] = ordered.get(fc, 0) + 1
+            p.update(factory=fc, sourced=now_iso(), tries=int(p.get("tries") or 0) + 1)
+            p.pop("why", None)
+            changed = True
+            text = f"information beacon for {p['dest']}: printing on {fc} at {f.get('location')}"
+            await self.log("info_beacons", text)
+            out.append(text)
+        if changed:
+            await self.db.kv_set(ib.PRINTS_KV, prints)
+        return out, moved
 
     # --- asteroid defense -----------------------------------------------------------------------------------------
     async def diverted_pct(self) -> float:

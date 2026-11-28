@@ -22,10 +22,11 @@
     <div class="ib-deploy small">{% if b.target %}<span class="muted">{{ b.target.line }}</span>{% endif %}</div>
     <div hx-get="/info-beacons/{{ b.code }}/card" hx-trigger="{{ 'load' if loop.length == 1 else 'toggle once from:closest details' }}"><p class="muted">Loading…</p></div>
   </details>{% else %}<p class="muted">You have no information beacon yet.</p>{% endfor %}</div>
-<details class="card"><summary><h2 style="display:inline">Bulk import</h2> <span class="muted small">many texts with destinations at once</span></summary>
+<details class="card"><summary><h2 style="display:inline">Bulk import</h2> <span class="muted small">many texts with destinations at once{% if prints %} · {{ prints | length }} print order(s){% endif %}</span></summary>
   <p class="muted small">Paste or load a JSON list: <span class="mono">[{"dest": "ZERETHYR-OORT", "text": "…", "title": "LOG 01"}, …]</span>
     (or <span class="mono">{"activate": true, "beacons": [...]}</span>; an entry may name its beacon with <span class="mono">"code"</span>).
-    Each entry gets the beacon it names, else the nearest free one (no deploy location, no text, not broadcasting). Import
+    Each entry gets the beacon it names, else the nearest free one within the sector range (no deploy location, no text,
+    not broadcasting); an entry none covers is printed on an autofactory near its destination, then gets its text. Import
     tags it for logistics as <i>Deploy at</i> does; once it's deployed there the app writes its text, then starts the
     broadcast. Places logistics can't reach say so and wait for a hand delivery. Importing the same file again only
     fills entries still without a beacon.</p>
@@ -34,7 +35,12 @@
     <textarea name="data" rows="6" style="width:100%" placeholder='[{"dest": "STAR-OORT", "text": "..."}]'></textarea>
     <button class="small ghost">Preview</button> <button class="small" name="go" value="1">Import</button>
   </form>
-  <div class="ib-bulk"></div></details>
+  <div class="ib-bulk"></div>
+  {% if prints %}<h3>Print orders</h3>
+  <table class="small"><tr><th>Text</th><th>Destination</th><th>Status</th><th></th></tr>
+  {% for p in prints %}<tr><td>{{ p.title }}</td><td class="mono">{{ p.dest }}</td><td class="{{ 'err' if p.stuck else 'muted' }}">{{ p.line }}</td>
+    <td><button class="small ghost" hx-post="/info-beacons/prints/{{ p.id }}/forget" hx-target="closest td" hx-swap="innerHTML">Forget</button></td></tr>{% endfor %}
+  </table>{% endif %}</details>
 <div class="card"><h2>Other players' beacons</h2>
   {% if theirs %}<table class="small"><tr><th>Beacon</th><th>Where</th><th>Owner</th><th>Message</th><th class="num">Comments</th></tr>
   {% for b in theirs %}<tr><td class="mono"><a href="/devices/{{ b.code }}">{{ b.code }}</a></td>
