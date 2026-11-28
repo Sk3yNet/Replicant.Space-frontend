@@ -195,6 +195,9 @@
               <label style="text-transform:none">hops up to <input type="number" name="hop_ly" min="1" max="100" step="any" value="{{ f.hop_ly or 30 }}" style="width:4em"> ly</label>
               {% else %}
               <label style="text-transform:none"><input type="checkbox" name="auto_relocate" {{ 'checked' if f.auto_relocate }}> move on when {{ f.home }} runs dry</label>
+              {% set sn = f.stay_near or {} %}
+              <label style="text-transform:none" title="each new home within this distance of the star (blank: anywhere in the sector range); a home farther out is left at once">staying within <input type="number" name="stay_ly" min="1" max="1728" step="any" value="{{ sn.ly if sn.ly else '' }}" style="width:4.5em"> ly of
+                <input name="stay_star" placeholder="star" size="10" list="path-stars" value="{{ sn.star or '' }}"></label>
               {% endif %}
               {% if f.id in obs_fleets %}<span class="muted small">its observatory prospects on its own wherever it's deployed — the heading first, then 13 other directions</span>{% endif %}
             </div>

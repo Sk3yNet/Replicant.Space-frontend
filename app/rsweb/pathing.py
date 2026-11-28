@@ -33,6 +33,21 @@ PROSPECT_EVERY_HOURS = 4.0
 AHEAD_WANTED = 3              # prospect while fewer candidate systems than this lie ahead
 
 
+def stay_check(fleet: dict, pos: dict) -> Any:
+    """`near(star)` for choose(): within fleet["stay_near"] = {"star", "ly"} (1.570.0, Joe 2026-11-28: mining fleets
+    that supply a hub stay near it), or None when the fleet has no such limit. A star without a position never counts."""
+    sn = fleet.get("stay_near") or {}
+    star, ly = str(sn.get("star") or "").upper(), sn.get("ly")
+    c = xyz(pos.get(star)) if star else None
+    if not star or not ly or c is None:
+        return None
+
+    def near(s: str) -> bool:
+        p = xyz(pos.get(s))
+        return p is not None and math.dist(c, p) <= float(ly)
+    return near
+
+
 def unit(v: Any) -> list[float] | None:
     try:
         x = [float(a) for a in v]
@@ -174,14 +189,15 @@ def idle_miners(tag: str, home: str, devices: list[dict]) -> str | None:
 
 def choose(fleet: dict, fleets: list[dict], rows: list[dict], xyz_of: dict[str, tuple], devices: list[dict],
            heading: list[float] | None, cone: float, reach: set[str] | None = None,
-           far: Any = None, dry_now: set[str] | None = None) -> tuple[str | None, list[str]]:
+           far: Any = None, dry_now: set[str] | None = None, near: Any = None) -> tuple[str | None, list[str]]:
     """The best next home for the fleet: (star, why) or (None, reasons nothing qualified). `rows` are prospects.rank()
     rows from the fleet's home (best first). `reach`: the systems that can be commanded (an active relay network or a
     replicant there); without it, any system with a relay or hub of ours counts. `far(star)`: true when the trip there
     is beyond the sector range (live 2026-11-14: Delta Miner 2 picked ASELOLUSP, 180 h of surge from ANSYRA, and could
     never get there). `dry_now`: homes a fleet left as dry within LEFT_DRY_HOURS, or marked as having nothing to mine
     (live 2026-11-17: Miner_3 went GYREPHIX → ANOAAIEON → GYREPHIX, each judged dry, its members strewn over both;
-    Miner_6 took ALPHARDAN hours after Miner_5 left it dry)."""
+    Miner_6 took ALPHARDAN hours after Miner_5 left it dry). `near(star)`: false when the star is beyond the fleet's
+    stay-within radius (stay_near, 1.570.0: Miner_9 and Miner_10, based at NIO for the Gamma hub, wandered 300 ly off)."""
     home = fleet.get("home") or ""
     hold = taken(fleet, fleets)
     skipped: dict[str, int] = {}
@@ -194,6 +210,7 @@ def choose(fleet: dict, fleets: list[dict], rows: list[dict], xyz_of: dict[str, 
                "held by another fleet" if star in hold else
                "left dry lately" if dry_now and star in dry_now else
                "beyond the sector range" if far and far(star) else
+               "too far from where it stays" if near and not near(star) else
                "behind the heading" if heading and _off(xyz_of.get(home), xyz_of.get(star), heading) > cone else
                "outside relay coverage" if not (star in reach if reach is not None else served(star, xyz_of, devices))
                else None)

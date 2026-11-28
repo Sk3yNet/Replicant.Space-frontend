@@ -596,6 +596,26 @@ def test_pathing_choose_never_picks_an_excluded_system():
     assert pa.heading_from("outward", (3, 4, 0)) == [0.6, 0.8, 0.0]
 
 
+def test_pathing_stay_near_keeps_new_homes_close():
+    """1.570.0 (Joe 2026-11-28): Miner_9 and Miner_10, based at NIO for the Gamma hub, wandered 300 ly away on auto
+    relocate. A stay-within radius around a star keeps each pick inside it."""
+    from rsweb import pathing as pa
+    xyz = {"HOME": (0, 0, 0), "NEAR": (5, 0, 0), "FAR": (40, 0, 0)}
+    pos = {s: {"x": p[0], "y": p[1], "z": p[2]} for s, p in xyz.items()}
+    relay = [{"device_code": f"R{s}", "device_type": "ftl_relay", "location": f"{s}-5-L4", "status": "relaying"} for s in xyz]
+    fleet = {"id": "me", "name": "Me", "role": "mining", "station": True, "home": "HOME"}
+    rows = [{"star": "FAR", "score": 90, "status": "ok", "distance": 40.0, "reasons": []},
+            {"star": "NEAR", "score": 40, "status": "ok", "distance": 5.0, "reasons": []}]
+    assert pa.stay_check(fleet, pos) is None
+    assert pa.choose(fleet, [fleet], rows, xyz, relay, None, 60)[0] == "FAR"
+    fleet["stay_near"] = {"star": "HOME", "ly": 30}
+    near = pa.stay_check(fleet, pos)
+    assert near("NEAR") and not near("FAR") and not near("NOWHERE")
+    assert pa.choose(fleet, [fleet], rows, xyz, relay, None, 60, near=near)[0] == "NEAR"
+    none, why = pa.choose(fleet, [fleet], rows[:1], xyz, relay, None, 60, near=near)
+    assert none is None and any("too far from where it stays" in r for r in why)
+
+
 def test_pathing_pass_prospects_then_relocates(client):
     from rsweb import prospects
     eng, db = client.app.state.worker.automations, client.app.state.db
@@ -646,6 +666,42 @@ def test_pathing_pass_prospects_then_relocates(client):
     assert f["home"] == "AHEADB" and f["prev_home"] == "HOMEA" and not f.get("next_home")
     notes = client.portal.call(db.fetchall, "SELECT title FROM notifications WHERE link='/fleets'")
     assert not any("moving home: HOMEA → AHEADB" in n["title"] for n in notes)   # announced ahead only (1.381.0)
+
+
+def test_pathing_home_beyond_stay_radius_moves_back_at_once(client):
+    """1.570.0 (Joe 2026-11-28): a fleet set to stay within 30 ly of GAMMA, its home 40 ly out (and not dry), picks a
+    home inside the radius on the next pass, though a farther system scores higher."""
+    from rsweb import prospects
+    eng, db = client.app.state.worker.automations, client.app.state.db
+
+    async def commandable(devices, stars=None, without=None, **kw):
+        return {"GAMMA", "OUTB", "NEARC", "FARD"}
+    eng.commandable = commandable
+    stars = {"GAMMA": (0, 0, 0), "OUTB": (40, 0, 0), "NEARC": (10, 0, 0), "FARD": (45, 0, 0)}
+    client.portal.call(db.kv_set, "stars", {"stars": [{"designation": k, "position": dict(zip("xyz", v))} for k, v in stars.items()]})
+    rich = {"asteroid_belt": {"belts": [{"designation": "X", "density": "dense", "resources": {"structural": "rich", "rares": "high"}}]}}
+    poor = {"asteroid_belt": {"belts": [{"designation": "X", "density": "sparse", "resources": {"structural": "low"}}]}}
+    for s, b in (("NEARC", poor), ("FARD", rich), ("OUTB", rich)):
+        client.portal.call(db.execute, "INSERT OR REPLACE INTO systems(star, data, updated_at) VALUES(?,?,?)",
+                           (s, json.dumps(b), "2026-10-08T00:00:00+00:00"))
+    devices = [{"device_code": f"REL{s}", "device_type": "ftl_relay", "location": f"{s}-5-L4", "status": "relaying", "tags": []}
+               for s in stars]
+    client.portal.call(db.kv_set, "devices", devices)
+    client.portal.call(eng.save_fleets, [{"id": "m1", "name": "Miner 1", "role": "mining", "home": "OUTB", "station": True,
+                                          "wants": {}}])
+    r = client.post("/fleets/m1/path", data={"heading_kind": "none", "cone": "60", "auto_relocate": "on",
+                                             "stay_ly": "30", "stay_star": "gamma"}, headers=HX)
+    assert r.status_code == 200
+    f = next(x for x in client.portal.call(eng.fleets) if x["id"] == "m1")
+    assert f["stay_near"] == {"star": "GAMMA", "ly": 30.0}
+    prospects.forget_inputs()
+    out = client.portal.call(eng.pathing_pass, True)
+    assert out == ["Miner 1: next home NEARC"], out
+    f = next(x for x in client.portal.call(eng.fleets) if x["id"] == "m1")
+    assert "more than 30 ly from GAMMA" in f["path_note"]
+    assert 'name="stay_star"' in client.get("/fleets/details?all=1", headers=H).text
+    client.post("/fleets/m1/path", data={"heading_kind": "none", "cone": "60", "auto_relocate": "on"}, headers=HX)
+    assert "stay_near" not in next(x for x in client.portal.call(eng.fleets) if x["id"] == "m1")
 
 
 def test_pathing_never_picks_a_home_left_dry_lately():
