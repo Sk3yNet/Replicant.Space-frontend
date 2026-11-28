@@ -977,6 +977,14 @@ class AutomationEngine(JobsMixin, LoadoutMixin, FleetsMixin, MiningRulesMixin, O
             return lambda star: any(f"{s}>{star}" in far_legs or beyond_reach(s, star, inp["pos"], SECTOR_RANGE_LY)
                                     for s in starts if s and s != star)
 
+        if not await self.db.kv_get("station_nio_fix"):   # one-off (Joe 2026-11-28): Miner_9 and Miner_10 are stationed at
+            # NIO for the Gamma hub; auto relocate had taken them 300 ly off. Homes now stay within 30 ly of it.
+            for f in items:
+                if f.get("id") in ("miner-9", "miner-10"):
+                    f["station_star"], f["stay_near"] = "NIO", {"star": "NIO", "ly": 30.0}
+                    f.pop("next_home", None), f.pop("next_home_at", None)
+                    changed = True
+            await self.db.kv_set("station_nio_fix", now_iso())
         for f in mine:
             home, heading = f["home"], (f.get("heading") or {}).get("vector")
             cone = float(f.get("cone") or pa.DEFAULT_CONE)

@@ -540,6 +540,10 @@ async def fleets_edit(request: Request, fid: str, user: str = Depends(current_us
         old_home = f.get("home")
         f["home"] = (form.get("home") or f["home"]).upper()
         f["role"] = form.get("role") if form.get("role") in fl.ROLES else f["role"]
+        if f["home"] != old_home:   # a home set by hand is the fleet's station; auto relocate keeps within reach of it
+            f["station_star"] = f["home"]
+            if f.get("stay_near"):
+                f["stay_near"]["star"] = f["home"]
         if old_home and f["home"] != old_home and f.get("station"):   # a stationed fleet's new home: move together if it can
             how = await eng.start_relocation(f, old_home, f["home"])
             await eng.log("fleets", f"{f['name']}: new home {f['home']} (was {old_home}) — {how}")
@@ -991,13 +995,13 @@ async def fleets_path(request: Request, fid: str, user: str = Depends(current_us
         return HTMLResponse("", headers={"HX-Refresh": "true"})
     f["auto_relocate"] = form.get("auto_relocate") == "on"
     f["auto_prospect"] = form.get("auto_prospect") == "on"
-    stay_star = (form.get("stay_star") or "").strip().upper()
     try:
         stay_ly = max(1.0, min(1728.0, float(form.get("stay_ly") or 0))) if form.get("stay_ly") else 0.0
     except ValueError:
         stay_ly = 0.0
-    if stay_star and stay_ly:   # 1.571.0 (Joe 2026-11-28): the fleet's homes stay near this star (its hub)
-        f["stay_near"] = {"star": stay_star, "ly": stay_ly}
+    if stay_ly:   # 1.571.0/1.573.0 (Joe 2026-11-28): every home stays within this distance of the fleet's station
+        f["station_star"] = f.get("station_star") or f.get("home")
+        f["stay_near"] = {"star": f["station_star"], "ly": stay_ly}
     else:
         f.pop("stay_near", None)
     if not f["auto_relocate"]:

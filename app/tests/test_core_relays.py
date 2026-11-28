@@ -687,10 +687,11 @@ def test_pathing_home_beyond_stay_radius_moves_back_at_once(client):
     devices = [{"device_code": f"REL{s}", "device_type": "ftl_relay", "location": f"{s}-5-L4", "status": "relaying", "tags": []}
                for s in stars]
     client.portal.call(db.kv_set, "devices", devices)
+    client.portal.call(db.kv_set, "station_nio_fix", "done")
     client.portal.call(eng.save_fleets, [{"id": "m1", "name": "Miner 1", "role": "mining", "home": "OUTB", "station": True,
-                                          "wants": {}}])
+                                          "station_star": "GAMMA", "wants": {}}])   # set GAMMA by hand, then moved on
     r = client.post("/fleets/m1/path", data={"heading_kind": "none", "cone": "60", "auto_relocate": "on",
-                                             "stay_ly": "30", "stay_star": "gamma"}, headers=HX)
+                                             "stay_ly": "30"}, headers=HX)
     assert r.status_code == 200
     f = next(x for x in client.portal.call(eng.fleets) if x["id"] == "m1")
     assert f["stay_near"] == {"star": "GAMMA", "ly": 30.0}
@@ -700,12 +701,27 @@ def test_pathing_home_beyond_stay_radius_moves_back_at_once(client):
     f = next(x for x in client.portal.call(eng.fleets) if x["id"] == "m1")
     assert "more than 30 ly from GAMMA" in f["path_note"]
     page = client.get("/fleets/details?all=1", headers=H).text
-    assert 'name="stay_star"' in page and "station <b>GAMMA</b> (homes within 30 ly)" in page
+    assert 'name="stay_star"' not in page and "ly of its station GAMMA" in page and "station <b>GAMMA</b> (homes within 30 ly)" in page
     from rsweb import fleets as fl   # Joe 2026-11-28: its station is the star it stays near
     assert fl.recall_target(f, [f], [], lambda a, b: 0) == ("GAMMA", "its station")
     client.post("/fleets/m1/path", data={"heading_kind": "none", "cone": "60", "auto_relocate": "on"}, headers=HX)
     f = next(x for x in client.portal.call(eng.fleets) if x["id"] == "m1")
     assert "stay_near" not in f and fl.recall_target({**f, "station": True}, [f], [], lambda a, b: 0)[0] == f["home"]
+
+
+def test_station_is_the_home_set_by_hand_and_nio_fix(client):
+    """Joe 2026-11-28: the radius is around the fleet's station (the home last set by hand), no star to type; Miner_9 and
+    Miner_10 get NIO and 30 ly once."""
+    eng, db = client.app.state.worker.automations, client.app.state.db
+    client.portal.call(eng.save_fleets, [{"id": "miner-9", "name": "Miner_9", "role": "mining", "home": "FARX", "station": True,
+                                          "auto_relocate": True, "wants": {}, "next_home": "FARY"},
+                                         {"id": "m2", "name": "M2", "role": "mining", "home": "AAA", "station": True, "wants": {}}])
+    client.portal.call(eng.pathing_pass, True)
+    f = {x["id"]: x for x in client.portal.call(eng.fleets)}
+    assert f["miner-9"]["stay_near"] == {"star": "NIO", "ly": 30.0} and f["miner-9"]["station_star"] == "NIO"
+    assert "next_home" not in f["miner-9"] and "stay_near" not in f["m2"]
+    client.post("/fleets/m2/path", data={"heading_kind": "none", "cone": "60", "auto_relocate": "on", "stay_ly": "20"}, headers=HX)
+    assert next(x for x in client.portal.call(eng.fleets) if x["id"] == "m2")["stay_near"] == {"star": "AAA", "ly": 20.0}
 
 
 def test_pathing_never_picks_a_home_left_dry_lately():

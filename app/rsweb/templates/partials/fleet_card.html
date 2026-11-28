@@ -3,7 +3,7 @@
 {% if f.role == 'bootstrap' and f.boot %}{% include "partials/bootstrap_card.html" %}{% else %}
 <div class="card" id="fleet-{{ f.id }}" style="margin-bottom:14px">
   <div class="row between">
-    <h2 style="margin:0">{{ f.name }} <span class="muted small">{{ f.role }} · home {{ f.home }}{% if f.pending_home %} → <b>{{ f.pending_home }}</b> pending{% endif %}{% if f.station %} · stationed{% endif %}{% if f.stay_near and f.stay_near.star %} · station <b>{{ f.stay_near.star }}</b> (homes within {{ f.stay_near.ly | round | int }} ly){% endif %} · <code>fleet:{{ f.id }}</code></span></h2>
+    <h2 style="margin:0">{{ f.name }} <span class="muted small">{{ f.role }} · home {{ f.home }}{% if f.pending_home %} → <b>{{ f.pending_home }}</b> pending{% endif %}{% if f.station %} · stationed{% endif %}{% if f.stay_near and f.stay_near.star %} · station <b>{{ f.stay_near.star }}</b> (homes within {{ f.stay_near.ly | round | int }} ly){% elif f.station_star and f.station_star != f.home %} · station {{ f.station_star }}{% endif %} · <code>fleet:{{ f.id }}</code></span></h2>
     {% if f.role == 'prospector' %}{% set tr = f.tour or {} %}<div class="small"><form class="row small" style="display:inline-flex;gap:6px;margin:0" hx-post="/fleets/{{ f.id }}/prospect-radius" hx-trigger="change" hx-target="#prad-{{ f.id }}">Prospecting tour within
       <input type="number" name="prospect_radius" min="1" max="1728" step="1" value="{{ ((prospect_radii or {}).get(f.home) or f.radius or 30)|round|int }}" style="width:5em" title="Shared by every prospector fleet based at {{ f.home }}"> ly of {{ f.home }}
       <span id="prad-{{ f.id }}" class="muted">(shared by its prospectors)</span></form>:
@@ -196,8 +196,7 @@
               {% else %}
               <label style="text-transform:none"><input type="checkbox" name="auto_relocate" {{ 'checked' if f.auto_relocate }}> move on when {{ f.home }} runs dry</label>
               {% set sn = f.stay_near or {} %}
-              <label style="text-transform:none" title="each new home within this distance of the star (blank: anywhere in the sector range); a home farther out is left at once">staying within <input type="number" name="stay_ly" min="1" max="1728" step="any" value="{{ sn.ly if sn.ly else '' }}" style="width:4.5em"> ly of
-                <input name="stay_star" placeholder="star" size="10" list="path-stars" value="{{ sn.star or '' }}"></label>
+              <label style="text-transform:none" title="each new home within this distance of the station, the home you last set by hand (blank: anywhere in the sector range); a home farther out is left at once">staying within <input type="number" name="stay_ly" min="1" max="1728" step="any" value="{{ sn.ly if sn.ly else '' }}" style="width:4.5em"> ly of its station {{ f.station_star or f.home }}</label>
               {% endif %}
               {% if f.id in obs_fleets %}<span class="muted small">its observatory prospects on its own wherever it's deployed — the heading first, then 13 other directions</span>{% endif %}
             </div>

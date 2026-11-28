@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.572.0"
+VERSION = "1.573.0"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.573.0", "2026-11-28", "The stay-within radius is around the fleet's station, with no star to type (Joe): the station is the home you last set by hand, and auto relocate never changes it. The fleet card reads \"staying within N ly of its station NIO\". Miner_9 and Miner_10 are set once to station NIO, 30 ly, so they head back toward the Gamma hub."),
     ("1.572.0", "2026-11-28", "A fleet that stays within a radius of a star has that star as its station (Joe): Recall now and Recall after task send it there, and the fleet card shows \"station NIO (homes within 30 ly)\"."),
     ("1.571.3", "2026-11-28", "Asteroids no longer show a destination in another system (Joe: FALQUORYX-OBJ-3 → FALQUORYX-1-2, destination SARKARUS-1): a game impact warning was matched to a rock by the system of its envelope location and by the nearest ETA, so an 11-26 warning about SARKARUS-1 was glued onto FALQUORYX-OBJ-3, detected a day later, with its ETA, devices and spot. A warning now matches only a rock in its destination's system due within 30 minutes of the warned ETA, never changes a read rock's ETA, and such old mix-ups are cleared."),
     ("1.571.2", "2026-11-28", "Devices waiting at a rock for a pick-up evacuate (Joe: service bot 666EAB02 was destroyed at XANDUNYR-OBJ-12): a repair patrol job had it wait there for a carrier due 35 minutes after the impact, and evacuation skipped it as busy. A device a job leaves waiting at a doomed spot for another device now leaves at the hour mark and that job is called off. Repair patrols never pick up a repair device at a rock and start at the worst worn device off the rocks. An impact warning filed under a spot in another system (ISOLITHOR-1-L4 for XANDUNYR-1) is matched by its destination's system."),
