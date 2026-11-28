@@ -1745,3 +1745,17 @@ def test_a_carrier_at_the_pile_shuttles_instead_of_far_ones_flying_in():
     # with nobody on it, the far one goes
     p = lg.plan(**{**args, "busy": {"FZ"}})
     assert sorted(c for r in p["runs"] if r["req"] == "print:Z-2" for c in cargo(r)) == ["FA"]
+
+
+def test_repair_patrols_never_pick_up_or_start_at_a_rock():
+    # live 2026-11-28: 666EAB02 waited at XANDUNYR-OBJ-12 for its ride and was destroyed; 3750A26D was sent there too
+    devs = [dev("HV", "heaven_vessel", "A-1", **SURGE),
+            dev("MD", "maintenance_drone", "A-OBJ-3", operational_capacity=100, **MAINT, **PATROL),
+            dev("Y1", "mining_drone", "Z-OBJ-1", tags=[], operational_capacity=40),
+            dev("Y2", "mining_drone", "Z-3", tags=[], operational_capacity=60)]
+    assert not any(r["kind"] == "repair" and r["repairer"] == "MD" for r in _repair_plan(devs)["runs"])
+    devs[1]["location"] = "A-1"
+    run = next(r for r in _repair_plan(devs)["runs"] if r["kind"] == "repair")
+    assert run["point"] == "Z-3"                                   # the worst one off the rocks
+    devs[3]["location"] = "Z-OBJ-2"
+    assert not any(r["kind"] == "repair" for r in _repair_plan(devs)["runs"])

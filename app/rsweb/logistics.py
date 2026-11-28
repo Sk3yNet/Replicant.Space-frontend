@@ -725,6 +725,7 @@ def repair_runs(*, reqs: list[dict], runs: list[dict], unmet: list[dict], used: 
     from . import fleets as fl
     from . import upkeep as up
     from .loadouts import _carrier_cap, can_surge
+    from .rockchase import is_rock
     mine = {c: d for c, d in free.items() if repairs(d) and c not in used}
     if not any(repairs(d) for d in pool):
         return []
@@ -772,6 +773,8 @@ def repair_runs(*, reqs: list[dict], runs: list[dict], unmet: list[dict], used: 
             best = None   # (ly, repairer, carrier or None, mode)
             for c, d in spare.items():
                 here = star_of(d.get("location"))
+                if is_rock(d.get("location")) and not can_surge(d):
+                    continue   # never a pick-up at a rock (live 2026-11-28: 666EAB02 waited at XANDUNYR-OBJ-12 and was destroyed)
                 if not in_reach(here, star, pos, reach):
                     continue   # Delta's repair devices never patrol the home sector (live 2026-11-24: 8 patrols "405 h")
                 if can_surge(d) and here in commandable and _dist(here, star, pos) <= reach:
@@ -808,7 +811,11 @@ def repair_runs(*, reqs: list[dict], runs: list[dict], unmet: list[dict], used: 
                          "patrolling": up.patrolling(d), "label": req["label"]})
     for star, short, wear, r in needs:
         rid = f"repair:{star}"
-        worst = r["damaged"][0]
+        # the patrol starts at the worst worn device off the rocks: a rock may be gone before the trip ends (live
+        # 2026-11-28: 3750A26D sent to XANDUNYR-OBJ-12, due 2 h after its impact); the patrol finds the rest itself
+        worst = next((x for x in r["damaged"] if not is_rock(x.get("location"))), None)
+        if worst is None:
+            continue
         req = {"id": rid, "kind": "repair", "to": worst["location"], "need": {}, "tier": 7, "base_tier": 7,
                "label": f"repair patrol for {star}: {len(r['damaged'])} worn, worst {worst['code']} at {worst['capacity']:g} %"}
         if rid in ((prefs or {}).get("bump") or {}):

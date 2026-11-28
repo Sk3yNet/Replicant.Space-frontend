@@ -280,7 +280,9 @@ def warning_object(p: dict, location: str | None, objs: dict[str, dict]) -> str 
     for c in (p.get("object_designation"), p.get("designation"), location, p.get("destination")):
         if is_object(c):
             return c.upper()
-    star = (location or p.get("destination") or "").split("-")[0]
+    # the destination's star first: the envelope location can be in another system altogether (live 2026-11-28:
+    # ISOLITHOR-1-L4 for XANDUNYR-OBJ-12 → XANDUNYR-1, and service bot 666EAB02 there was never moved)
+    star = (p.get("destination") or location or "").split("-")[0]
     eta = _ts(p.get("impact_eta"))
     open_ = [d for d, o in objs.items() if is_object(d) and d.split("-")[0] == star and not o.get("closed")]
     if not open_:

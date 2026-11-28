@@ -237,3 +237,27 @@ def test_a_terraform_monitor_report_tracks_the_rock_and_grounded_strays_are_pinn
     soon = {"SOL-OBJ-3": {"impact_eta": iso(30), "impact_target": "SOL-2", "also_at": ["SOL-2"]}}
     m = next(x for x in ev.plan(soon, devs, {"SOL": {"entry_point": "SOL-3-L5"}}, set())["moves"] if x["code"] == "SB1")
     assert m["clear"] and m["to"] == "SOL-3-L5"   # the patrolling bot drops its directive and flies
+
+
+def test_a_device_waiting_at_a_doomed_rock_for_a_pick_up_evacuates():
+    # live 2026-11-28: service bot 666EAB02 waited at XANDUNYR-OBJ-12 for a carrier due after the impact
+    devs = [dev("SB", "service_bot", "A-OBJ-1", available_commands=["travel"], features=["cruise"]),
+            dev("CR", "surge_carrier", "B-1", status="travelling"),
+            dev("RG", "mining_rig", "A-OBJ-1"), dev("SC", "surge_carrier", "A-OBJ-1")]
+    wait = {"method": "WAIT", "wait": ["travel.arrived"], "wait_device": "CR"}
+    jobs = [{"id": "j1", "rule": "logistics", "status": "waiting", "device": "CR", "idx": 1,
+             "steps": [{"method": "POST"}, wait], "meta": {"devices": ["CR", "SB"]}},
+            # its ride is there already: the job carries it off itself
+            {"id": "j2", "rule": "rock_chaser", "status": "waiting", "device": "SC", "idx": 0,
+             "steps": [{**wait, "wait_device": "SC"}], "meta": {"devices": ["SC", "RG"]}},
+            {"id": "j3", "rule": "logistics", "status": "done", "device": "CR", "idx": 1, "steps": [{}, wait],
+             "meta": {"devices": ["SB"]}}]
+    assert ev.parked(jobs, devs, {"A-OBJ-1": 30.0}) == {"j1": ["SB"]}
+    assert ev.parked(jobs, devs, {"A-OBJ-2": 30.0}) == {}
+
+
+def test_a_warning_from_another_system_is_matched_by_its_destination():
+    from rsweb import defence as dfn
+    objs = {"X-OBJ-12": {"impact_eta": "2026-11-28T13:29:33Z"}, "I-OBJ-1": {"impact_eta": "2026-11-28T13:29:00Z"}}
+    p = {"destination": "X-1", "impact_eta": "2026-11-28T13:29:33.67Z", "device_codes": ["SB"]}
+    assert dfn.warning_object(p, "I-1-L4", objs) == "X-OBJ-12"

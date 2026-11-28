@@ -1448,6 +1448,9 @@ class OpsRules:
                 # location designation; where the warned devices are is kept as `also_at` (evacuated as well)
                 obj = dfn.warning_object(p, r["location"], objs)
                 at = r["location"] if r["location"] and r["location"] != obj else None
+                dest_star = (p.get("destination") or "").split("-")[0]
+                if obj and at and dest_star and at.split("-")[0] != dest_star:
+                    at = None   # a location in another system than the strike (live 2026-11-28: ISOLITHOR-1-L4)
                 if not obj:   # not known yet: under the warned location until a scan names it (sync_objects)
                     obj = r["location"]
                 if at and at in objs and obj != at and objs[at].get("source") == "impact_warning":

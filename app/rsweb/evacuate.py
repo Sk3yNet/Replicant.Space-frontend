@@ -137,6 +137,34 @@ def early_pins(objects: dict[str, dict], devices: list[dict], stars: dict[str, d
     return out
 
 
+def parked(jobs: list[dict], devices: list[dict], hot: dict[str, float] | set[str]) -> dict[str, list[str]]:
+    """{job id: [device codes]} for devices sitting at a doomed spot in a job that is only waiting there for another
+    device to come (a pick-up). Such a device isn't "on its way": it evacuates and the job is called off (live
+    2026-11-28: service bot 666EAB02 waited at XANDUNYR-OBJ-12 for a logistics carrier due 35 min after the impact and
+    was destroyed with the rock). A job working the device itself, or waiting on a device already there, keeps it."""
+    by = {d.get("device_code"): d for d in devices}
+    out: dict[str, list[str]] = {}
+    for j in jobs:
+        if j.get("status") not in ("running", "waiting") or j.get("rule") == "evacuate":
+            continue
+        steps, idx = j.get("steps") or [], j.get("idx") or 0
+        cur = steps[idx] if 0 <= idx < len(steps) else None
+        if not cur or cur.get("method") != "WAIT":
+            continue
+        other = cur.get("wait_device")
+        codes = [c for c in [j.get("device")] + list((j.get("meta") or {}).get("devices") or []) if c]
+        for c in dict.fromkeys(codes):
+            d = by.get(c) or {}
+            loc = d.get("location")
+            if c == other or loc not in hot or d.get("stowed_in_device_code") or d.get("attached_to_device_code") \
+                    or str(d.get("status") or "").lower().startswith(MOVING):
+                continue
+            if other and (by.get(other) or {}).get("location") == loc:
+                continue   # its ride is there already: the job takes it away next
+            out.setdefault(j["id"], []).append(c)
+    return out
+
+
 def plan(objects: dict[str, dict], devices: list[dict], stars: dict[str, dict], busy: set[str],
          hosts: set[str] | frozenset = frozenset(), scans: dict[str, dict] | None = None, now: float | None = None,
          warned: set[str] | frozenset = frozenset(), pct: float = DIVERTED_PCT,

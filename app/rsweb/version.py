@@ -16,11 +16,12 @@ import secrets
 from datetime import datetime, timezone
 from pathlib import Path
 
-VERSION = "1.571.1"
+VERSION = "1.571.2"
 
 # newest first: (version, date, summary). Entries before 1.4.0 were reconstructed when versioning was added,
 # so their dates are approximate and they group several drops each.
 CHANGES: list[tuple[str, str, str]] = [
+    ("1.571.2", "2026-11-28", "Devices waiting at a rock for a pick-up evacuate (Joe: service bot 666EAB02 was destroyed at XANDUNYR-OBJ-12): a repair patrol job had it wait there for a carrier due 35 minutes after the impact, and evacuation skipped it as busy. A device a job leaves waiting at a doomed spot for another device now leaves at the hour mark and that job is called off. Repair patrols never pick up a repair device at a rock and start at the worst worn device off the rocks. An impact warning filed under a spot in another system (ISOLITHOR-1-L4 for XANDUNYR-1) is matched by its destination's system."),
     ("1.571.1", "2026-11-28", "Info beacons bulk import takes your free beacons again (Joe: none were used): the game lists deactivate on idle, undeployed beacons too, and the app took that for broadcasting, so every beacon looked taken and every entry went to print. Free and broadcasting are now told by the beacon's status, and a beacon at its spot is switched on unless its status says it already broadcasts."),
     ("1.571.0", "2026-11-28", "Mining fleets can stay near a hub (Joe: Miner_9 and Miner_10, based at NIO for the Gamma hub, wandered off on auto relocate, Miner_9 now 315 ly away): the fleet card's path settings take \"staying within N ly of STAR\". Each new home is then picked inside that radius, and a home outside it is left on the next pass without waiting for it to run dry. Blank keeps the old behavior (anywhere in the sector range)."),
     ("1.570.0", "2026-11-28", "Info beacons are switched on before their carrier leaves (Joe): a carrier dropping one at its deploy location deploys it, writes its text and starts the broadcast at the drop; if the game refuses the broadcast, the job stops with the carrier still there. Out of reach a beacon can't be switched on later."),

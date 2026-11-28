@@ -755,6 +755,13 @@ class LoadoutMixin:
             lv = float(((await self.settings())["rules"].get("asteroid_defence") or {}).get("leave_minutes") or ev.DIVERTER_MINUTES)
         except (TypeError, ValueError):
             lv = ev.DIVERTER_MINUTES
+        jobs = await self.jobs()
+        for jid, codes in ev.parked(jobs, devices, ev.due(objs, warned=warned, pct=pct)).items():
+            job = next((j for j in jobs if j["id"] == jid), {})
+            await self.cancel(jid)   # it waited at the rock for a ride: the device leaves now, the job re-plans later
+            busy -= set(codes)
+            await self.log("evacuate", f"called off {job.get('title') or jid}: {', '.join(codes)} waited at a doomed spot "
+                                       "for a pick-up", "warning", notify=True)
         p = ev.plan(objs, devices, stars, busy, hosts, scans, warned=warned, pct=pct,
                     diverter_minutes=min(max(lv, 30.0), ev.EVAC_MINUTES))
         from . import fleets as fl
