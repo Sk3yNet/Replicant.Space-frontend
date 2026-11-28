@@ -1019,14 +1019,22 @@ class AutomationEngine(JobsMixin, LoadoutMixin, FleetsMixin, MiningRulesMixin, O
                 out.append(f"{f['name']}: home {home} → {nxt}")
                 await self.log("fleets", f"{f['name']}: new home {nxt} (was {home}) — the loadout pass moves the fleet there")
                 continue
+            near = pa.stay_check(f, inp["pos"])
+            outside = bool(near) and not near(home)   # 1.571.0: a home beyond the stay-within radius is left at once
             # --- is the home dry, and for long enough? Not judged before most of its miners got there (a ward is)
-            wait = pa.arriving(tag, home, devices) if home not in inp["warded"] else None
+            wait = pa.arriving(tag, home, devices) if home not in inp["warded"] and not outside else None
             if wait:
                 msg = f"waiting for the fleet to arrive before judging {home}: {wait}"
                 if f.pop("depleted_since", None) or f.pop("idle_since", None) or f.get("path_note") != msg:
                     f["path_note"], changed = msg, True
                 continue
             why = pa.dry(home, devices, inp["viability"], nothing, inp["warded"], (await self.system_belts({home}))[home])
+            if outside:
+                sn = f["stay_near"]
+                why = f"more than {float(sn['ly']):g} ly from {str(sn['star']).upper()}, where it stays"
+                if not f.get("depleted_since"):
+                    f["depleted_since"] = (now - timedelta(hours=float(f.get("dry_hours") or pa.DRY_FOR_HOURS) + 1)).isoformat(timespec="seconds")
+                    changed = True
             idle = pa.idle_miners(fleet_tag(f["id"]), home, devices)
             if idle is None:
                 f.pop("idle_since", None)
@@ -1054,7 +1062,7 @@ class AutomationEngine(JobsMixin, LoadoutMixin, FleetsMixin, MiningRulesMixin, O
             left_dry = await self.db.kv_get(pa.DRY_KV, {}) or {}
             left_dry = {k: v for k, v in left_dry.items() if _ts(v) and (now - _ts(v)).total_seconds() < pa.LEFT_DRY_HOURS * 3600}
             star, note = pa.choose(f, items, rows, xyz_of, devices, heading, cone, await self.commandable(devices),
-                                   far=far_from(starts), dry_now=set(left_dry) | set(nothing))
+                                   far=far_from(starts), dry_now=set(left_dry) | set(nothing), near=near)
             if star:
                 left_dry[home] = now_iso()   # no fleet picks it again for a while (Miner_3 went back and forth)
                 await self.db.kv_set(pa.DRY_KV, left_dry)

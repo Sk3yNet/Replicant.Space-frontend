@@ -991,6 +991,15 @@ async def fleets_path(request: Request, fid: str, user: str = Depends(current_us
         return HTMLResponse("", headers={"HX-Refresh": "true"})
     f["auto_relocate"] = form.get("auto_relocate") == "on"
     f["auto_prospect"] = form.get("auto_prospect") == "on"
+    stay_star = (form.get("stay_star") or "").strip().upper()
+    try:
+        stay_ly = max(1.0, min(1728.0, float(form.get("stay_ly") or 0))) if form.get("stay_ly") else 0.0
+    except ValueError:
+        stay_ly = 0.0
+    if stay_star and stay_ly:   # 1.571.0 (Joe 2026-11-28): the fleet's homes stay near this star (its hub)
+        f["stay_near"] = {"star": stay_star, "ly": stay_ly}
+    else:
+        f.pop("stay_near", None)
     if not f["auto_relocate"]:
         for k in ("next_home", "next_home_at", "depleted_since"):
             f.pop(k, None)
