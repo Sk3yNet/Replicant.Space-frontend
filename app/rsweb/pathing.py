@@ -34,7 +34,7 @@ AHEAD_WANTED = 3              # prospect while fewer candidate systems than this
 
 
 def stay_check(fleet: dict, pos: dict) -> Any:
-    """`near(star)` for choose(): within fleet["stay_near"] = {"star", "ly"} (1.570.0, Joe 2026-11-28: mining fleets
+    """`near(star)` for choose(): within fleet["stay_near"] = {"star", "ly"} (1.571.0, Joe 2026-11-28: mining fleets
     that supply a hub stay near it), or None when the fleet has no such limit. A star without a position never counts."""
     sn = fleet.get("stay_near") or {}
     star, ly = str(sn.get("star") or "").upper(), sn.get("ly")
@@ -197,7 +197,7 @@ def choose(fleet: dict, fleets: list[dict], rows: list[dict], xyz_of: dict[str, 
     never get there). `dry_now`: homes a fleet left as dry within LEFT_DRY_HOURS, or marked as having nothing to mine
     (live 2026-11-17: Miner_3 went GYREPHIX → ANOAAIEON → GYREPHIX, each judged dry, its members strewn over both;
     Miner_6 took ALPHARDAN hours after Miner_5 left it dry). `near(star)`: false when the star is beyond the fleet's
-    stay-within radius (stay_near, 1.570.0: Miner_9 and Miner_10, based at NIO for the Gamma hub, wandered 300 ly off)."""
+    stay-within radius (stay_near, 1.571.0: Miner_9 and Miner_10, based at NIO for the Gamma hub, wandered 300 ly off)."""
     home = fleet.get("home") or ""
     hold = taken(fleet, fleets)
     skipped: dict[str, int] = {}

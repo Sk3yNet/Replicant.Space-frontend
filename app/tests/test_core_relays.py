@@ -597,7 +597,7 @@ def test_pathing_choose_never_picks_an_excluded_system():
 
 
 def test_pathing_stay_near_keeps_new_homes_close():
-    """1.570.0 (Joe 2026-11-28): Miner_9 and Miner_10, based at NIO for the Gamma hub, wandered 300 ly away on auto
+    """1.571.0 (Joe 2026-11-28): Miner_9 and Miner_10, based at NIO for the Gamma hub, wandered 300 ly away on auto
     relocate. A stay-within radius around a star keeps each pick inside it."""
     from rsweb import pathing as pa
     xyz = {"HOME": (0, 0, 0), "NEAR": (5, 0, 0), "FAR": (40, 0, 0)}
@@ -669,7 +669,7 @@ def test_pathing_pass_prospects_then_relocates(client):
 
 
 def test_pathing_home_beyond_stay_radius_moves_back_at_once(client):
-    """1.570.0 (Joe 2026-11-28): a fleet set to stay within 30 ly of GAMMA, its home 40 ly out (and not dry), picks a
+    """1.571.0 (Joe 2026-11-28): a fleet set to stay within 30 ly of GAMMA, its home 40 ly out (and not dry), picks a
     home inside the radius on the next pass, though a farther system scores higher."""
     from rsweb import prospects
     eng, db = client.app.state.worker.automations, client.app.state.db

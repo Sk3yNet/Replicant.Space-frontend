@@ -1103,6 +1103,8 @@ class LoadoutMixin:
                                                                     join=(p.get("assign") or {}).get(code)),
                                                   {"devices": [code], "star": dest}, force=manual))
         sent = []
+        from .infobeacons import TARGETS_KV as _IB_TARGETS
+        info_targets = await self.db.kv_get(_IB_TARGETS, {}) or {}
         quiet = not full and not manual and (await self.settings())["dry_run"]   # a dry run lists them once per full pass
         for dl in [] if quiet else p["deliveries"]:
             job = await self.create_job(
@@ -1110,7 +1112,7 @@ class LoadoutMixin:
                             f"{' → '.join([dl['to']] + list(dl.get('stops') or []))}{note(dl['devices'])}", dl["carrier"],
                 lo.delivery_steps(dl, p["by_code"], stars, cfg["settings"]["carriers_return"], p.get("managed"),
                                                   gathering=set(p.get("gathering") or []), assign=p.get("assign"),
-                                                  radii=radii, max_cruise_au=far_au),
+                                                  radii=radii, max_cruise_au=far_au, info_targets=info_targets),
                 {"devices": dl["devices"], "star": dl["to"]}, force=manual)
             if job:
                 started += 1

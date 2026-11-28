@@ -1020,7 +1020,7 @@ class AutomationEngine(JobsMixin, LoadoutMixin, FleetsMixin, MiningRulesMixin, O
                 await self.log("fleets", f"{f['name']}: new home {nxt} (was {home}) — the loadout pass moves the fleet there")
                 continue
             near = pa.stay_check(f, inp["pos"])
-            outside = bool(near) and not near(home)   # 1.570.0: a home beyond the stay-within radius is left at once
+            outside = bool(near) and not near(home)   # 1.571.0: a home beyond the stay-within radius is left at once
             # --- is the home dry, and for long enough? Not judged before most of its miners got there (a ward is)
             wait = pa.arriving(tag, home, devices) if home not in inp["warded"] and not outside else None
             if wait:

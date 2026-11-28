@@ -996,7 +996,7 @@ async def fleets_path(request: Request, fid: str, user: str = Depends(current_us
         stay_ly = max(1.0, min(1728.0, float(form.get("stay_ly") or 0))) if form.get("stay_ly") else 0.0
     except ValueError:
         stay_ly = 0.0
-    if stay_star and stay_ly:   # 1.570.0 (Joe 2026-11-28): the fleet's homes stay near this star (its hub)
+    if stay_star and stay_ly:   # 1.571.0 (Joe 2026-11-28): the fleet's homes stay near this star (its hub)
         f["stay_near"] = {"star": stay_star, "ly": stay_ly}
     else:
         f.pop("stay_near", None)

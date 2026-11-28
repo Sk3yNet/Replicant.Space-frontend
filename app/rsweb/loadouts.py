@@ -1846,8 +1846,11 @@ def rehome_step(code: str, d: dict, star: str, keep_spare: bool = False, join: s
 
 def delivery_steps(dl: dict, by_code: dict, stars: dict, carriers_return: bool, managed: dict | None = None,
                    gathering: set[str] | frozenset = frozenset(), assign: dict[str, str] | None = None,
-                   radii: dict[str, float] | None = None, max_cruise_au: float | None = None) -> list[dict]:
+                   radii: dict[str, float] | None = None, max_cruise_au: float | None = None,
+                   info_targets: dict[str, dict] | None = None) -> list[dict]:
     """`gathering`: spares being taken to the depot — they stay spare and join no fleet there.
+    `info_targets`: information beacons' deploy locations (kv info_beacon_targets): one dropped at its own is deployed,
+    given its text and switched on before the carrier leaves (Joe 2026-11-28: out of reach it can't be switched on).
     `assign`: device -> the fleet tag it gets as it leaves (spares sent to a stationed fleet).
     Devices near the pick-up point fly over and board; devices that can't fly (beacons) and devices far from it (more than
     `max_cruise_au` of cruising) are fetched by the carrier afterwards, nearest first."""
@@ -1945,6 +1948,19 @@ def delivery_steps(dl: dict, by_code: dict, stars: dict, carriers_return: bool, 
                           timeout=SHORT_TIMEOUT, critical=True)
                 st["wait_device"] = code
             out.append(st)
+            t = (info_targets or {}).get(code) or {}
+            if (by_code.get(code) or {}).get("device_type") == "information_beacon" and t and code not in gathering \
+                    and star_of(t.get("dest")) == stop:
+                if attach:   # a detached beacon still waits to be deployed (live 2026-11-25)
+                    dp = step(f"deploy {code} in {stop}", f"/devices/{code}", {"command": "deploy"}, wait=["device.deployed"],
+                              timeout=SHORT_TIMEOUT)
+                    dp["wait_device"] = code
+                    out.append(dp)
+                if t.get("text"):
+                    out.append(step(f"{code}: write its text", f"/devices/{code}",
+                                    {"configuration": {"settings": {"description": t["text"]}}}, method="PATCH"))
+                if t.get("activate"):
+                    out.append(activate_step(code, critical=True))   # refused: the job stops with the carrier still there
             if (by_code.get(code) or {}).get("device_type") in RELAY_TYPES and code not in gathering:
                 # switched on while the carrier is still there: left off out of everyone's reach it can't be commanded
                 # any more (live 2026-10-15: F6A3A357 dropped at KAMUYIS, "out_of_range"); placement takes it to L4/L5 after
@@ -2020,7 +2036,8 @@ def arrived_steps(code: str, d: dict, stowed_in: dict, join: str | None = None) 
     return steps
 
 
-ESCORTED_TYPES = ("ftl_relay", "ftl_beacon", "deep_space_relay_station")
+# information beacons too (Joe 2026-11-28: bulk-imported story beacons, one per system, ride a vessel's hold together)
+ESCORTED_TYPES = ("ftl_relay", "ftl_beacon", "deep_space_relay_station", "information_beacon")
 
 
 def escort_wanted(p: dict) -> dict[str, int]:
