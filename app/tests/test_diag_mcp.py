@@ -102,3 +102,19 @@ def test_oauth_flow_and_read_only_tools(client):
     assert _rpc(client, secret2, "ping").status_code == 200
     client.post("/diag-mcp-settings", data={"action": "disable"}, headers=HX)
     assert _rpc(client, secret2, "ping").status_code == 404
+
+
+def test_stars_tool_filters_region_distance_presence_and_spacing():
+    from rsweb.diagmcp import star_query
+    stars = [{"designation": n, "region": r, "position": {"x": x, "y": 0, "z": 0}}
+             for n, r, x in (("HOME", None, 0), ("NEAR", "delta", 3), ("MID", "delta", 10), ("FAR", "delta", 25),
+                             ("BETA1", "beta", 5), ("NOPOS", "delta", None))]
+    stars[-1]["position"] = None
+    devs = [{"location": "MID-2-L4"}, {"location": None}]
+    out = star_query(stars, devs, {"region": "delta", "near": "HOME"})
+    assert [s["name"] for s in out["stars"]] == ["NEAR", "MID", "FAR"] and out["stars"][1]["yours"] == 1
+    assert [s["name"] for s in star_query(stars, devs, {"region": "delta", "near": "HOME", "unclaimed": True})["stars"]] == ["NEAR", "FAR"]
+    assert [s["name"] for s in star_query(stars, devs, {"region": "delta", "near": "0,0,0", "within": 12, "beyond": 5})["stars"]] == ["MID"]
+    assert [s["name"] for s in star_query(stars, devs, {"region": "delta", "near": "HOME", "spacing": 8})["stars"]] == ["NEAR", "FAR"]
+    assert [s["name"] for s in star_query(stars, devs, {"region": "none"})["stars"]] == ["HOME"]
+    assert "error" in star_query(stars, devs, {"near": "NOWHERE"})

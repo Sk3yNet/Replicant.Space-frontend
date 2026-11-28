@@ -255,6 +255,16 @@ TOOLS: list[dict] = [
     {"name": "performance", "description": "Server timings: slow requests, engine stage timings, lock waits, loop lag, "
      "storage sizes, and the game read budget (requests per minute, held endpoints, reads by path).",
      "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "stars", "description": "The star catalog, filtered: name, region, position and distance. For picking "
+     "places: stars near another star or a point, in a region, without your devices, and spread apart.",
+     "inputSchema": {"type": "object", "properties": {
+         "region": _prop("string", "Region (delta, gamma, beta, alpha, solzone; none for stars without one)."),
+         "near": _prop("string", "A star name or x,y,z: distances are from here, nearest first."),
+         "within": _prop("number", "Only stars at most this many ly from near."),
+         "beyond": _prop("number", "Only stars at least this many ly from near."),
+         "unclaimed": _prop("boolean", "Only systems where you have no device."),
+         "spacing": _prop("number", "Keep each star at least this many ly from the ones already listed."),
+         "text": _prop("string", "Name contains."), "limit": LIMIT}}},
     {"name": "kv_keys", "description": "The app's stored values (key, size, last update), for kv_get.",
      "inputSchema": {"type": "object", "properties": {"text": _prop("string", "Key contains.")}}},
     {"name": "kv_get", "description": "One stored value, optionally one part of it by a dotted path (list items by "
@@ -279,6 +289,61 @@ def _dev_view(d: dict, fields: list[str] | None, full: bool) -> dict:
 
 async def _devices(db) -> list[dict]:
     return [d for d in await db.kv_get("devices", []) or [] if isinstance(d, dict)]
+
+
+def _xyz(v: Any) -> tuple[float, float, float] | None:
+    p = v.get("position") if isinstance(v, dict) else None
+    try:
+        return (float(p["x"]), float(p["y"]), float(p["z"])) if isinstance(p, dict) else None
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def star_query(stars: list[dict], devs: list[dict], args: dict) -> dict:
+    """The `stars` tool: catalog rows filtered by region, distance from a star or point, your presence, and spacing."""
+    mine = Counter(_s(d.get("location")).split("-")[0] for d in devs if d.get("location"))
+    byname = {_s(s.get("designation")): s for s in stars if isinstance(s, dict)}
+    ref = None
+    near = str(args.get("near") or "").strip()
+    if near:
+        parts = near.split(",")
+        try:
+            ref = tuple(float(x) for x in parts) if len(parts) == 3 else _xyz(byname.get(_s(near)))
+        except ValueError:
+            ref = None
+        if ref is None:
+            return {"error": f"no star or point {near!r}"}
+    region = _s(args.get("region"))
+    lo, hi = args.get("beyond"), args.get("within")
+    rows = []
+    for name, st in byname.items():
+        pos = _xyz(st)
+        if pos is None:
+            continue
+        reg = _s(st.get("region")) or "none"
+        if region and reg != region:
+            continue
+        if args.get("unclaimed") and mine.get(name):
+            continue
+        if args.get("text") and _s(args["text"]) not in name:
+            continue
+        ly = sum((a - b) ** 2 for a, b in zip(pos, ref)) ** 0.5 if ref else None
+        if ly is not None and ((hi is not None and ly > float(hi)) or (lo is not None and ly < float(lo))):
+            continue
+        rows.append((ly if ly is not None else 0.0, name, reg, pos, str(st.get("designation"))))
+    rows.sort(key=lambda r: (r[0], r[1]))
+    gap = float(args.get("spacing") or 0)
+    lim = _lim(args, 100, 2000)
+    out, kept = [], []
+    for ly, name, reg, pos, label in rows:
+        if gap and any(sum((a - b) ** 2 for a, b in zip(pos, k)) ** 0.5 < gap for k in kept):
+            continue
+        kept.append(pos)
+        out.append({"name": label, "region": reg, "pos": [round(c, 1) for c in pos],
+                    **({"ly": round(ly, 1)} if ref else {}), **({"yours": mine[name]} if mine.get(name) else {})})
+        if len(out) >= lim:
+            break
+    return {"matched": len(rows), "shown": len(out), "stars": out}
 
 
 def _find_fleet(items: list[dict], key: str | None) -> dict | None:
@@ -421,6 +486,9 @@ async def call(app, name: str, args: dict) -> Any:
     if name == "performance":
         from . import perf
         return {"perf": await perf.report(db), "game_budget": app.state.api.rate_status(), "reads": perf.reads_report()}
+    if name == "stars":
+        cat = await db.kv_get("stars", {}) or {}
+        return star_query(cat.get("stars") or [] if isinstance(cat, dict) else [], await _devices(db), args)
     if name == "kv_keys":
         rows, = await db.side_fetchall([(   # values stored by row (devices, kv_rows dictionaries) count their rows
             "SELECT kv.key, LENGTH(kv.value) + COALESCE(r.n, 0) AS size, kv.updated_at FROM kv LEFT JOIN "
