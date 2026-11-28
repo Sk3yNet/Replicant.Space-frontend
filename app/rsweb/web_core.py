@@ -657,8 +657,9 @@ async def _hub_stock_card(request: Request, hours: int) -> HTMLResponse:
     summed over its printing locations (hubstock.py), colors as on the Stockpiles card."""
     from . import hubstock, metrics
     db = request.app.state.db
-    since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat(timespec="seconds")
-    raw = await hubstock.history(db, since)
+    t = datetime.now(timezone.utc)
+    since = (t - timedelta(hours=hours)).isoformat(timespec="seconds")
+    raw = await hubstock.history(db, since, t.isoformat(timespec="seconds"))
     where = await db.kv_get("hub_inventory_spots", {}) or {}
     now = await db.kv_get(hubstock.KV, {}) or {}
     names = {(f.get("home")): f.get("name") or f.get("id") for f in await db.kv_get("fleets", []) or []

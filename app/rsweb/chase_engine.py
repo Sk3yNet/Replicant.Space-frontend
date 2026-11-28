@@ -1158,7 +1158,9 @@ class ChaseMixin:
         des, body = req["rock"], req["at"]
         spot = rc.launch_spot(des)   # the charge waits at the object's belt; the object itself is no travel destination
         charges = sorted(k["charges"], key=lambda d: (d.get("location") not in (des, spot), (d.get("location") or "").split("-")[0] != des.split("-")[0]))
-        ch = next((d for d in charges if d["device_code"] not in ctx["busy"]), None)
+        # 1.569.0: a charge the game no longer lists was detonated (live 2026-11-28: Chaser_2 sent EF797F8D, spent on
+        # KELMONENT-KUIPER-76 at 18:50, every 2 min for 3.5 h, "Device not found", while F87E1D8F sat ready)
+        ch = next((d for d in charges if d["device_code"] not in ctx["busy"] and not d.get("unlisted")), None)
         if not ch:
             req["note"] = "no free vector charge in the fleet"
             return []
@@ -1175,6 +1177,7 @@ class ChaseMixin:
                 run.setdefault("launch_log", []).append({"rock": des, "at": body, "error": err, "when": now_iso()})
                 return [f"launching {des} at {body} failed: {err}"]
             await rc.remember_launch(self.db, resp, f"fleet {f['name']}")
+            await self._spent_charge(code)
             (run.get("marked") or {}).pop(des, None)
             run.pop("launch", None)
             run.setdefault("launch_log", []).append({"rock": des, "at": body, "object": (resp or {}).get("object_designation")
@@ -1184,6 +1187,19 @@ class ChaseMixin:
             return [f"launched {des} at {body}"]
         return await self._chase_ferry(f, run, ctx, k, ch, spot, req, f"{f['name']}: {code} → {des} to launch it at {body}",
                                        f"{code} → {des} to launch it at {body}", f"{code} on its way to {des}")
+
+    async def _spent_charge(self, code: str) -> None:
+        """A detonated vector charge is used up: off the cached device list now, not kept 12 h as unlisted (1.569.0)."""
+        lock = getattr(self.worker, "devices_lock", None) if self.worker else None
+        async def drop() -> None:
+            devs = await self.db.kv_get("devices", []) or []
+            if any(d.get("device_code") == code for d in devs):
+                await self.db.kv_set("devices", [d for d in devs if d.get("device_code") != code])
+        if lock:
+            async with lock:
+                await drop()
+        else:
+            await drop()
 
     async def _chase_ferry(self, f: dict, run: dict, ctx: dict, k: dict, dev: dict, spot: str, req: dict, title: str,
                            line: str, note: str) -> list[str]:

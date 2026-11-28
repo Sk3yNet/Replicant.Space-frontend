@@ -599,3 +599,9 @@ def test_dashboard_hub_stockpiles_card(client):
     page = client.get("/partials/backlog?card=hubstock&hours=48", headers=HX).text
     assert "<h2>Hub stockpiles</h2>" in page and "HUBA (Hub A) at HUBA-BELT-1" in page and "MINEB" not in page
     assert page.count("<svg") == 1 and "HUBA-4-L4" not in page
+    # 1.569.0: a pile that sat still longer than the window still draws a line (carried from before the window to now)
+    from datetime import timedelta
+    t = datetime.now(timezone.utc)
+    since, end = [(t + timedelta(hours=h)).isoformat(timespec="seconds") for h in (1, 2)]
+    raw = client.portal.call(hubstock.history, db, since, end)
+    assert raw["HUBA"]["carbon"] == [(since, 140.0), (end, 140.0)] and raw["HUBA"]["rares"] == [(since, 0.0), (end, 0.0)]

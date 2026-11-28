@@ -128,6 +128,34 @@ def test_engine_marks_kuiper_objects_and_launches_one(client):  # noqa: F811
     assert any("SOL-KUIPER-001 at SOL-3" in x for x in out)   # auto launch: the charge is already there
 
 
+def test_spent_charge_is_skipped_and_a_launched_one_dropped(client):  # noqa: F811
+    """Live 2026-11-28: Chaser_2 sent detonate to EF797F8D, spent on an earlier rock and kept as unlisted, every 2 min for
+    3.5 h ("Device not found") while its other charge sat ready. A launch now uses a listed charge and drops it."""
+    sensor = {"device_code": "SENS", "device_type": "sensor_array", "location": "SOL-KUIPER", "status": "idle",
+              "tags": ["fleet:rc"], "features": ["cruise"], "available_commands": ["detect_object"]}
+    spent = {"device_code": "VC0", "device_type": "vector_charge", "location": "SOL-KUIPER-001", "status": "idle",
+             "tags": ["fleet:rc"], "features": ["cruise"], "available_commands": ["detonate", "travel"],
+             "unlisted": True, "unlisted_since": iso(-600), "location_stale": True}
+    charge = {**spent, "device_code": "VC1"}
+    for k in ("unlisted", "unlisted_since", "location_stale"):
+        charge.pop(k)
+    db, e = _setup(client, [rig("RIG1", "SOL-1"), sensor, spent, charge], {}, {"launch_size": "large", "launch_at": "SOL-3",
+                                                                              "auto_launch": True})
+    sent = []
+
+    async def send(method, path, body=None, *a, **k):
+        sent.append(path)
+        return True, {"object_designation": "SOL-OBJ-9"}, None
+    e.send = send
+    f = client.portal.call(e.fleets)
+    f[0]["chase_run"] = {"searched": {"SOL": iso(-120)}}
+    client.portal.call(e.save_fleets, f)
+    out = client.portal.call(e.rock_chase_pass)
+    assert any("launched SOL-KUIPER-001 at SOL-3" in x for x in out), out
+    assert "/devices/VC1" in sent and "/devices/VC0" not in sent
+    assert "VC1" not in {d["device_code"] for d in client.portal.call(db.kv_get, "devices")}
+
+
 def test_stuck_sensor_array_is_switched_off_and_searches_again(client):  # noqa: F811
     """Live 2026-11-22: Chaser_1's sensor array started a 30-minute sweep and stayed `detecting` for two days; every
     hourly detect_object answered "Already detecting", so nothing was marked and the fleet sat idle."""
