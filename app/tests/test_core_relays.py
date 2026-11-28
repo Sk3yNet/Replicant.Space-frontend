@@ -699,9 +699,13 @@ def test_pathing_home_beyond_stay_radius_moves_back_at_once(client):
     assert out == ["Miner 1: next home NEARC"], out
     f = next(x for x in client.portal.call(eng.fleets) if x["id"] == "m1")
     assert "more than 30 ly from GAMMA" in f["path_note"]
-    assert 'name="stay_star"' in client.get("/fleets/details?all=1", headers=H).text
+    page = client.get("/fleets/details?all=1", headers=H).text
+    assert 'name="stay_star"' in page and "station <b>GAMMA</b> (homes within 30 ly)" in page
+    from rsweb import fleets as fl   # Joe 2026-11-28: its station is the star it stays near
+    assert fl.recall_target(f, [f], [], lambda a, b: 0) == ("GAMMA", "its station")
     client.post("/fleets/m1/path", data={"heading_kind": "none", "cone": "60", "auto_relocate": "on"}, headers=HX)
-    assert "stay_near" not in next(x for x in client.portal.call(eng.fleets) if x["id"] == "m1")
+    f = next(x for x in client.portal.call(eng.fleets) if x["id"] == "m1")
+    assert "stay_near" not in f and fl.recall_target({**f, "station": True}, [f], [], lambda a, b: 0)[0] == f["home"]
 
 
 def test_pathing_never_picks_a_home_left_dry_lately():

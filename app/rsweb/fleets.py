@@ -589,7 +589,11 @@ def where(fleet: dict, devices: list[dict]) -> str | None:
 
 def recall_target(fleet: dict, fleets: list[dict], devices: list[dict], dist) -> tuple[str | None, str]:
     """Where a recall sends the fleet: (star, why). Its station (a stationed fleet's home), else the nearest receiving
-    point from where it is, else its home."""
+    point from where it is, else its home. A fleet that stays within a radius of a star (stay_near, 1.571.0) has that
+    star as its station (Joe 2026-11-28: Miner_9 and Miner_10 stay near NIO and are recalled there)."""
+    anchor = str((fleet.get("stay_near") or {}).get("star") or "").upper()
+    if anchor and (fleet.get("stay_near") or {}).get("ly"):
+        return anchor, "its station"
     if fleet.get("station") and fleet.get("home"):
         return fleet["home"], "its station"
     if fleet.get("role") == "terraformer" and fleet.get("home"):
